@@ -1,6 +1,6 @@
 {
   "name": "dcx-dev",
-  "image": "mcr.microsoft.com/devcontainers/go:1.25",
+  "image": "mcr.microsoft.com/devcontainers/go:1",
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
