@@ -9,6 +9,7 @@ Full specification: `PLAN.md`
 ## Language & Build
 
 - Go. Single static binary named `dcx`.
+- **Never run `go` commands on the host.** All `go` commands (build, test, vet, get, etc.) must be run inside the devcontainer.
 - `go build ./cmd/dcx` to build.
 - `go test ./... -race` to run tests.
 - `go vet ./...` to vet.
