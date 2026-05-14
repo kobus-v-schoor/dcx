@@ -14,6 +14,22 @@ Full specification: `PLAN.md`
 - `go vet ./...` to vet.
 - No code generation. No CGO (`CGO_ENABLED=0` for release builds).
 
+## Devcontainer
+
+- Image: `mcr.microsoft.com/devcontainers/go:1` (floating tag, resolves to latest Go 1.x).
+- `devcontainer up --workspace-folder .` to start.
+- `devcontainer exec --workspace-folder . bash -c "cd /workspace && ..."` to run commands inside.
+- Requires `-buildvcs=false` when building inside the devcontainer (VCS mount issue).
+- To stop and clean up a devcontainer:
+  ```
+  docker ps --filter "label=devcontainer.local_folder=$(pwd)" --quiet | xargs -r -I {} sh -c '
+      docker stop {} &&
+      docker rm {} &&
+      IMAGE_ID=$(docker inspect --format "{{.Image}}" {}) &&
+      [ -n "$IMAGE_ID" ] && docker rmi "$IMAGE_ID" || echo "No image found for container {}"
+  '
+  ```
+
 ## Architecture
 
 - `cmd/dcx/` — entry point
