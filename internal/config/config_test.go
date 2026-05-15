@@ -6,6 +6,28 @@ import (
 	"testing"
 )
 
+func writeUserConfig(t *testing.T, home, content string) {
+	t.Helper()
+	configDir := filepath.Join(home, ".config", "dcx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeProjectConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	devcontainerDir := filepath.Join(dir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "dcx.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	dir := t.TempDir()
 
@@ -27,21 +49,13 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadUserConfig(t *testing.T) {
 	home := t.TempDir()
-	configDir := filepath.Join(home, ".config", "dcx")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	configYAML := `
+	writeUserConfig(t, home, `
 ssh_forwarding: false
 git_config_forwarding: false
 compose_integration:
   compose_file: ../docker-compose.yml
   strategy: network_join
-`
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(configYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -71,7 +85,6 @@ func TestLoadUserConfigXDG(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-
 	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("ssh_forwarding: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -90,14 +103,7 @@ func TestLoadUserConfigXDG(t *testing.T) {
 
 func TestLoadUserConfigInvalidYAML(t *testing.T) {
 	home := t.TempDir()
-	configDir := filepath.Join(home, ".config", "dcx")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(":\n  :\n  invalid: [\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeUserConfig(t, home, ":\n  :\n  invalid: [\n")
 
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -110,20 +116,12 @@ func TestLoadUserConfigInvalidYAML(t *testing.T) {
 
 func TestLoadProjectConfig(t *testing.T) {
 	dir := t.TempDir()
-	devcontainerDir := filepath.Join(dir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	configYAML := `
+	writeProjectConfig(t, dir, `
 compose_integration:
   compose_file: ../docker-compose.yml
   strategy: overlay
   dev_service: app
-`
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "dcx.yaml"), []byte(configYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 
 	cfg, err := loadProjectConfig(dir)
 	if err != nil {
@@ -156,14 +154,7 @@ func TestLoadProjectConfigMissing(t *testing.T) {
 
 func TestLoadProjectConfigInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	devcontainerDir := filepath.Join(dir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "dcx.yaml"), []byte(":\n  invalid: [\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeProjectConfig(t, dir, ":\n  invalid: [\n")
 
 	_, err := loadProjectConfig(dir)
 	if err == nil {
@@ -173,19 +164,11 @@ func TestLoadProjectConfigInvalidYAML(t *testing.T) {
 
 func TestComposeFilePathOutsideProject(t *testing.T) {
 	dir := t.TempDir()
-	devcontainerDir := filepath.Join(dir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	configYAML := `
+	writeProjectConfig(t, dir, `
 compose_integration:
   compose_file: ../../outside/docker-compose.yml
   strategy: network_join
-`
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "dcx.yaml"), []byte(configYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 
 	cfg, err := loadProjectConfig(dir)
 	if err != nil {
@@ -199,7 +182,7 @@ compose_integration:
 
 func TestMergeProjectComposeOverridesUser(t *testing.T) {
 	user := &Config{
-		SSHForwarding:      false,
+		SSHForwarding:       false,
 		GitConfigForwarding: true,
 		ComposeIntegration: &ComposeIntegration{
 			ComposeFile: "../user-compose.yml",
@@ -233,7 +216,7 @@ func TestMergeProjectComposeOverridesUser(t *testing.T) {
 
 func TestMergeNoProjectCompose(t *testing.T) {
 	user := &Config{
-		SSHForwarding:      true,
+		SSHForwarding:       true,
 		GitConfigForwarding: true,
 		ComposeIntegration: &ComposeIntegration{
 			ComposeFile: "../user-compose.yml",
@@ -252,7 +235,7 @@ func TestMergeNoProjectCompose(t *testing.T) {
 
 func TestEnvOverrides(t *testing.T) {
 	cfg := &Config{
-		SSHForwarding:      true,
+		SSHForwarding:       true,
 		GitConfigForwarding: true,
 	}
 
@@ -269,67 +252,45 @@ func TestEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestEnvOverridesInvalid(t *testing.T) {
-	cfg := &Config{
-		SSHForwarding: true,
+func TestEnvOverridesInvalidAndEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     bool
+	}{
+		{"invalid value", "notabool", true},
+		{"empty value", "", true},
 	}
 
-	t.Setenv("DCX_SSH_FORWARDING", "notabool")
-
-	applyEnvOverrides(cfg)
-
-	if !cfg.SSHForwarding {
-		t.Error("SSHForwarding should remain true when env value is invalid")
-	}
-}
-
-func TestEnvOverridesEmpty(t *testing.T) {
-	cfg := &Config{
-		SSHForwarding: true,
-	}
-
-	t.Setenv("DCX_SSH_FORWARDING", "")
-
-	applyEnvOverrides(cfg)
-
-	if !cfg.SSHForwarding {
-		t.Error("SSHForwarding should remain true when env value is empty")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{SSHForwarding: true}
+			t.Setenv("DCX_SSH_FORWARDING", tt.envValue)
+			applyEnvOverrides(cfg)
+			if cfg.SSHForwarding != tt.want {
+				t.Errorf("SSHForwarding = %v, want %v", cfg.SSHForwarding, tt.want)
+			}
+		})
 	}
 }
 
 func TestLoadFullPipeline(t *testing.T) {
 	home := t.TempDir()
-	configDir := filepath.Join(home, ".config", "dcx")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	userYAML := `
+	writeUserConfig(t, home, `
 ssh_forwarding: true
 git_config_forwarding: false
 compose_integration:
   compose_file: ../user-compose.yml
   strategy: network_join
-`
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(userYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 
 	projectDir := t.TempDir()
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	projectYAML := `
+	writeProjectConfig(t, projectDir, `
 compose_integration:
   compose_file: ../docker-compose.yml
   strategy: overlay
   dev_service: app
-`
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "dcx.yaml"), []byte(projectYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")

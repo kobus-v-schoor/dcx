@@ -1,10 +1,15 @@
 package config
 
+import "dario.cat/mergo"
+
 func merge(user *Config, project *Config) *Config {
 	merged := *user
 
 	if project.ComposeIntegration != nil {
-		merged.ComposeIntegration = project.ComposeIntegration
+		if merged.ComposeIntegration == nil {
+			merged.ComposeIntegration = &ComposeIntegration{}
+		}
+		_ = mergo.Merge(merged.ComposeIntegration, project.ComposeIntegration, mergo.WithOverride)
 	}
 
 	return &merged
