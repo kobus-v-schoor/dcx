@@ -2,7 +2,11 @@ module github.com/kobus-v-schoor/dcx
 
 go 1.25
 
-require github.com/spf13/cobra v1.10.2
+require (
+	dario.cat/mergo v1.0.2
+	github.com/goccy/go-yaml v1.19.2
+	github.com/spf13/cobra v1.10.2
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
