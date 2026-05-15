@@ -4,8 +4,6 @@
 
 `dcx` is a Go CLI that wraps the `devcontainer` CLI, adding user-level persistence and workflow automation. It delegates all container lifecycle to the official CLI via its documented flags — it never calls internal APIs or modifies `devcontainer.json` on disk.
 
-Full specification: `PLAN.md`
-
 ## Language & Build
 
 - Go. Single static binary named `dcx`.
@@ -58,12 +56,15 @@ Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--ov
 
 ## Config Loading Order
 
+In order of precedence, low to high:
+
 1. User config: `~/.config/dcx/config.yaml`
 2. Project config: `.devcontainer/dcx.yaml`
 3. Environment variables: `DCX_*`
 4. CLI flags
 
-Project config does not override user-level preferences (features, shell, secrets are personal). Only `compose_integration` is project-level.
+Higher precedence config should overide and be merged with lower precedence
+config.
 
 ## Security Rules
 
@@ -71,6 +72,11 @@ Project config does not override user-level preferences (features, shell, secret
 - Never cache secrets on disk.
 - GitHub token provider creates ephemeral fine-grained PATs (scoped to current repo, revoked on `dcx down`).
 - All bind mounts under `/opt/dcx/` to avoid conflicts with container-installed software.
+
+## Documentation
+
+- Every exported and unexported function must have a doc comment stating its scope (what it operates on) and usage (when/why it's called).
+- Types should have doc comments explaining their purpose and any non-obvious design decisions (e.g., pointer fields to distinguish "not set" from zero values).
 
 ## CI
 

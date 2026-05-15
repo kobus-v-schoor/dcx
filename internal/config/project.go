@@ -8,6 +8,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// loadProjectConfig reads the project-level config from
+// <cwd>/.devcontainer/dcx.yaml. Returns an empty Config when no file is found.
 func loadProjectConfig(cwd string) (*Config, error) {
 	path := filepath.Join(cwd, ".devcontainer", "dcx.yaml")
 
@@ -33,6 +35,8 @@ func loadProjectConfig(cwd string) (*Config, error) {
 	return &cfg, nil
 }
 
+// validateComposeFilePath warns if the compose_file path resolves outside
+// the project directory.
 func validateComposeFilePath(cwd, composeFile string) error {
 	resolved := filepath.Clean(filepath.Join(cwd, composeFile))
 	absCWD, err := filepath.Abs(cwd)

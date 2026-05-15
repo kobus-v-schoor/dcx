@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 )
 
+// Load reads and merges configuration from user-level, project-level, and
+// environment sources (in increasing precedence order). It returns the fully
+// resolved config ready for use by the CLI.
 func Load(cwd string) (*Config, error) {
 	absCWD, err := filepath.Abs(cwd)
 	if err != nil {

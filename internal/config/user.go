@@ -8,6 +8,9 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// loadUserConfig reads the user-level config from
+// $XDG_CONFIG_HOME/dcx/config.yaml (or ~/.config/dcx/config.yaml).
+// Returns defaultConfig() when no file is found.
 func loadUserConfig() (*Config, error) {
 	path, err := userConfigPath()
 	if err != nil {
@@ -30,6 +33,8 @@ func loadUserConfig() (*Config, error) {
 	return cfg, nil
 }
 
+// userConfigPath resolves the path to the user config file,
+// respecting XDG_CONFIG_HOME when set.
 func userConfigPath() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "dcx", "config.yaml"), nil
