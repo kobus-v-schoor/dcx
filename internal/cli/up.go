@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
-	"github.com/kobus-v-schoor/dcx/internal/logging"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/spf13/cobra"
@@ -27,30 +27,30 @@ func newUpCmd() *cobra.Command {
 // runUp implements the dcx up workflow. Called by Cobra when the user
 // runs "dcx up".
 func runUp(cmd *cobra.Command, args []string) error {
-	if err := logging.SetLevel(logLevel); err != nil {
+	level, err := parseLogLevel(logLevel)
+	if err != nil {
 		return fmt.Errorf("invalid log level %q: %w", logLevel, err)
 	}
+	slog.SetLogLoggerLevel(level)
 
-	log := logging.L()
-
-	log.Infof("workspace-folder = %s", workspaceFolder)
+	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	devcontainerPath, err := runner.Find()
 	if err != nil {
 		return err
 	}
-	log.Infof("found devcontainer CLI at %s", devcontainerPath)
+	slog.Info("found devcontainer CLI", "path", devcontainerPath)
 
 	cfg, err := config.Load(workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	log.Info("config loaded")
+	slog.Info("config loaded")
 	if cfg.SSHForwarding != nil {
-		log.Debugf("ssh_forwarding = %v", *cfg.SSHForwarding)
+		slog.Debug("ssh_forwarding", "enabled", *cfg.SSHForwarding)
 	}
 	if cfg.GitConfigForwarding != nil {
-		log.Debugf("git_config_forwarding = %v", *cfg.GitConfigForwarding)
+		slog.Debug("git_config_forwarding", "enabled", *cfg.GitConfigForwarding)
 	}
 
 	overrideDir, cleanup, err := override.Create(workspaceFolder)
@@ -59,13 +59,22 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	log.Infof("override dir = %s", overrideDir)
+	slog.Info("override dir", "path", overrideDir)
 
 	dcArgs := flags.Build(workspaceFolder, cfg, overrideDir)
 
 	dcArgs = append(dcArgs, args...)
 
-	log.Debugf("invoking devcontainer with args: %v", dcArgs)
+	slog.Debug("invoking devcontainer", "args", dcArgs)
 
 	return runner.Run(devcontainerPath, dcArgs)
+}
+
+// parseLogLevel converts a string log level name to a slog.Level value.
+func parseLogLevel(s string) (slog.Level, error) {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(s)); err != nil {
+		return 0, err
+	}
+	return level, nil
 }
