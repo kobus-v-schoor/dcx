@@ -70,7 +70,7 @@ func TestCreateCleanupRemovesDir(t *testing.T) {
 	}
 }
 
-func TestCreateDeterministicDirName(t *testing.T) {
+func TestCreateRandomDirName(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
@@ -99,8 +99,8 @@ func TestCreateDeterministicDirName(t *testing.T) {
 	}
 	cleanup2()
 
-	if dir1 != dir2 {
-		t.Errorf("dir names should be deterministic: %q != %q", dir1, dir2)
+	if dir1 == dir2 {
+		t.Errorf("dir names should be random across invocations: both %q", dir1)
 	}
 }
 

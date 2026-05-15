@@ -7,13 +7,12 @@ import (
 )
 
 var (
-	verbose        bool
+	logLevel        string
 	workspaceFolder string
 )
 
 // Execute creates and executes the root command tree. The version string v is
-// injected at build time via -ldflags. Scope: CLI entry point. Called from
-// main.go.
+// injected at build time via -ldflags. Called from main.go.
 func Execute(v string) error {
 	var showVersion bool
 
@@ -30,7 +29,7 @@ func Execute(v string) error {
 	}
 
 	root.Flags().BoolVar(&showVersion, "version", false, "print the version")
-	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "print detailed information about what dcx is doing")
+	root.PersistentFlags().StringVar(&logLevel, "log-level", "warn", "log level (debug, info, warn, error)")
 	root.PersistentFlags().StringVar(&workspaceFolder, "workspace-folder", ".", "path to the workspace folder")
 
 	root.AddCommand(newUpCmd())

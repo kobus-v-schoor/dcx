@@ -9,15 +9,14 @@ import (
 const binaryName = "devcontainer"
 
 // Find locates the devcontainer CLI on the user's PATH. It returns the absolute
-// path to the binary or an error with installation instructions if not found.
-// Scope: system PATH. Called at the start of every dcx command that delegates to
-// the devcontainer CLI.
+// path to the binary or an error with a link to installation instructions if
+// not found. Called at the start of every dcx command that delegates to the
+// devcontainer CLI.
 func Find() (string, error) {
 	path, err := exec.LookPath(binaryName)
 	if err != nil {
 		return "", fmt.Errorf(
 			"devcontainer CLI not found on PATH.\n"+
-				"Install it with: npm install -g @devcontainers/cli\n"+
 				"See: https://github.com/devcontainers/cli",
 		)
 	}
@@ -36,8 +35,8 @@ func (e *ExitCodeError) Error() string {
 
 // Run executes the devcontainer CLI at execPath with the given arguments. Stdout
 // and stderr are forwarded directly to the user's terminal. If the process exits
-// with a non-zero code, Run returns an ExitCodeError. Scope: subprocess
-// execution. Called after flag assembly to invoke devcontainer up.
+// with a non-zero code, Run returns an ExitCodeError. Called after flag assembly
+// to invoke devcontainer up.
 func Run(execPath string, args []string) error {
 	cmd := exec.Command(execPath, args...)
 	cmd.Stdout = os.Stdout

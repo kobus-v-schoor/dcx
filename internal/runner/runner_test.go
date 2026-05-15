@@ -106,8 +106,8 @@ func TestFindErrorMessage(t *testing.T) {
 	}
 
 	msg := err.Error()
-	if !contains(msg, "npm install") {
-		t.Errorf("error message should mention npm install, got: %s", msg)
+	if !contains(msg, "https://github.com/devcontainers/cli") {
+		t.Errorf("error message should contain the install link, got: %s", msg)
 	}
 }
 

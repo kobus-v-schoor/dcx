@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
+	"github.com/kobus-v-schoor/dcx/internal/logging"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/spf13/cobra"
@@ -13,7 +13,7 @@ import (
 
 // newUpCmd creates the "up" subcommand. It loads config, creates the override
 // directory, assembles devcontainer CLI flags, and delegates execution.
-// Scope: CLI subcommand. Added to the root command tree in Execute().
+// Added to the root command tree in Execute().
 func newUpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "up",
@@ -24,33 +24,33 @@ func newUpCmd() *cobra.Command {
 	}
 }
 
-// runUp implements the dcx up workflow. Scope: command handler. Called by
-// Cobra when the user runs "dcx up".
+// runUp implements the dcx up workflow. Called by Cobra when the user
+// runs "dcx up".
 func runUp(cmd *cobra.Command, args []string) error {
-	if verbose {
-		fmt.Fprintf(os.Stderr, "dcx: workspace-folder = %s\n", workspaceFolder)
+	if err := logging.SetLevel(logLevel); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", logLevel, err)
 	}
+
+	log := logging.L()
+
+	log.Infof("workspace-folder = %s", workspaceFolder)
 
 	devcontainerPath, err := runner.Find()
 	if err != nil {
 		return err
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "dcx: found devcontainer CLI at %s\n", devcontainerPath)
-	}
+	log.Infof("found devcontainer CLI at %s", devcontainerPath)
 
 	cfg, err := config.Load(workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "dcx: config loaded\n")
-		if cfg.SSHForwarding != nil {
-			fmt.Fprintf(os.Stderr, "dcx:   ssh_forwarding = %v\n", *cfg.SSHForwarding)
-		}
-		if cfg.GitConfigForwarding != nil {
-			fmt.Fprintf(os.Stderr, "dcx:   git_config_forwarding = %v\n", *cfg.GitConfigForwarding)
-		}
+	log.Info("config loaded")
+	if cfg.SSHForwarding != nil {
+		log.Debugf("ssh_forwarding = %v", *cfg.SSHForwarding)
+	}
+	if cfg.GitConfigForwarding != nil {
+		log.Debugf("git_config_forwarding = %v", *cfg.GitConfigForwarding)
 	}
 
 	overrideDir, cleanup, err := override.Create(workspaceFolder)
@@ -59,17 +59,13 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "dcx: override dir = %s\n", overrideDir)
-	}
+	log.Infof("override dir = %s", overrideDir)
 
 	dcArgs := flags.Build(workspaceFolder, cfg, overrideDir)
 
 	dcArgs = append(dcArgs, args...)
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "dcx: invoking devcontainer with args: %v\n", dcArgs)
-	}
+	log.Debugf("invoking devcontainer with args: %v", dcArgs)
 
 	return runner.Run(devcontainerPath, dcArgs)
 }
