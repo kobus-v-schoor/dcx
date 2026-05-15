@@ -38,7 +38,7 @@ func Create(workspaceFolder string) (dir string, cleanup func(), err error) {
 	}
 
 	cleanup = func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	}
 
 	return dir, cleanup, nil
