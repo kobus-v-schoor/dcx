@@ -75,7 +75,7 @@ config.
 
 ## Documentation
 
-- Every exported and unexported function must have a doc comment stating its scope (what it operates on) and usage (when/why it's called).
+- Every exported and unexported function must have a doc comment stating its what it operates on and usage (when/why it's called).
 - Types should have doc comments explaining their purpose and any non-obvious design decisions (e.g., pointer fields to distinguish "not set" from zero values).
 
 ## CI
