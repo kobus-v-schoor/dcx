@@ -8,10 +8,10 @@ import (
 
 func applyEnvOverrides(cfg *Config) {
 	if v, ok := envBool("DCX_SSH_FORWARDING"); ok {
-		cfg.SSHForwarding = &v
+		cfg.SSHForwarding = v
 	}
 	if v, ok := envBool("DCX_GIT_CONFIG_FORWARDING"); ok {
-		cfg.GitConfigForwarding = &v
+		cfg.GitConfigForwarding = v
 	}
 }
 

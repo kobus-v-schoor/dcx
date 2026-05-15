@@ -14,10 +14,10 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if !cfg.SSHForwardingValue() {
+	if !cfg.SSHForwarding {
 		t.Error("default SSHForwarding should be true")
 	}
-	if !cfg.GitConfigForwardingValue() {
+	if !cfg.GitConfigForwarding {
 		t.Error("default GitConfigForwarding should be true")
 	}
 	if cfg.ComposeIntegration != nil {
@@ -51,10 +51,10 @@ compose_integration:
 		t.Fatalf("loadUserConfig() error: %v", err)
 	}
 
-	if cfg.SSHForwardingValue() {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false")
 	}
-	if cfg.GitConfigForwardingValue() {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false")
 	}
 	if cfg.ComposeIntegration == nil {
@@ -83,7 +83,7 @@ func TestLoadUserConfigXDG(t *testing.T) {
 		t.Fatalf("loadUserConfig() error: %v", err)
 	}
 
-	if cfg.SSHForwardingValue() {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false from XDG config")
 	}
 }
@@ -199,8 +199,8 @@ compose_integration:
 
 func TestMergeProjectComposeOverridesUser(t *testing.T) {
 	user := &Config{
-		SSHForwarding:       ptrBool(false),
-		GitConfigForwarding: ptrBool(true),
+		SSHForwarding:      false,
+		GitConfigForwarding: true,
 		ComposeIntegration: &ComposeIntegration{
 			ComposeFile: "../user-compose.yml",
 			Strategy:    "network_join",
@@ -217,10 +217,10 @@ func TestMergeProjectComposeOverridesUser(t *testing.T) {
 
 	merged := merge(user, project)
 
-	if merged.SSHForwardingValue() {
+	if merged.SSHForwarding {
 		t.Error("merged SSHForwarding should preserve user value (false)")
 	}
-	if !merged.GitConfigForwardingValue() {
+	if !merged.GitConfigForwarding {
 		t.Error("merged GitConfigForwarding should preserve user value (true)")
 	}
 	if merged.ComposeIntegration.ComposeFile != "../project-compose.yml" {
@@ -233,8 +233,8 @@ func TestMergeProjectComposeOverridesUser(t *testing.T) {
 
 func TestMergeNoProjectCompose(t *testing.T) {
 	user := &Config{
-		SSHForwarding:       ptrBool(true),
-		GitConfigForwarding: ptrBool(true),
+		SSHForwarding:      true,
+		GitConfigForwarding: true,
 		ComposeIntegration: &ComposeIntegration{
 			ComposeFile: "../user-compose.yml",
 			Strategy:    "network_join",
@@ -252,8 +252,8 @@ func TestMergeNoProjectCompose(t *testing.T) {
 
 func TestEnvOverrides(t *testing.T) {
 	cfg := &Config{
-		SSHForwarding:       ptrBool(true),
-		GitConfigForwarding: ptrBool(true),
+		SSHForwarding:      true,
+		GitConfigForwarding: true,
 	}
 
 	t.Setenv("DCX_SSH_FORWARDING", "false")
@@ -261,38 +261,38 @@ func TestEnvOverrides(t *testing.T) {
 
 	applyEnvOverrides(cfg)
 
-	if cfg.SSHForwardingValue() {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false after env override")
 	}
-	if cfg.GitConfigForwardingValue() {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false after env override")
 	}
 }
 
 func TestEnvOverridesInvalid(t *testing.T) {
 	cfg := &Config{
-		SSHForwarding: ptrBool(true),
+		SSHForwarding: true,
 	}
 
 	t.Setenv("DCX_SSH_FORWARDING", "notabool")
 
 	applyEnvOverrides(cfg)
 
-	if !cfg.SSHForwardingValue() {
+	if !cfg.SSHForwarding {
 		t.Error("SSHForwarding should remain true when env value is invalid")
 	}
 }
 
 func TestEnvOverridesEmpty(t *testing.T) {
 	cfg := &Config{
-		SSHForwarding: ptrBool(true),
+		SSHForwarding: true,
 	}
 
 	t.Setenv("DCX_SSH_FORWARDING", "")
 
 	applyEnvOverrides(cfg)
 
-	if !cfg.SSHForwardingValue() {
+	if !cfg.SSHForwarding {
 		t.Error("SSHForwarding should remain true when env value is empty")
 	}
 }
@@ -340,10 +340,10 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwardingValue() {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false (env override)")
 	}
-	if cfg.GitConfigForwardingValue() {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false (user config)")
 	}
 	if cfg.ComposeIntegration.Strategy != "overlay" {
@@ -352,8 +352,4 @@ compose_integration:
 	if cfg.ComposeIntegration.DevService != "app" {
 		t.Errorf("ComposeIntegration.DevService = %q, want app (project)", cfg.ComposeIntegration.DevService)
 	}
-}
-
-func ptrBool(v bool) *bool {
-	return &v
 }

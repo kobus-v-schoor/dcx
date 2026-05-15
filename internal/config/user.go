@@ -17,20 +17,17 @@ func loadUserConfig() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			cfg := &Config{}
-			cfg.ApplyDefaults()
-			return cfg, nil
+			return defaultConfig(), nil
 		}
 		return nil, fmt.Errorf("reading user config %s: %w", path, err)
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	cfg := defaultConfig()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing user config %s: %w", path, err)
 	}
 
-	cfg.ApplyDefaults()
-	return &cfg, nil
+	return cfg, nil
 }
 
 func userConfigPath() (string, error) {

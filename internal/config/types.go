@@ -7,32 +7,14 @@ type ComposeIntegration struct {
 }
 
 type Config struct {
-	SSHForwarding       *bool               `yaml:"ssh_forwarding"`
-	GitConfigForwarding *bool               `yaml:"git_config_forwarding"`
+	SSHForwarding       bool                `yaml:"ssh_forwarding"`
+	GitConfigForwarding bool               `yaml:"git_config_forwarding"`
 	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration"`
 }
 
-func (c *Config) ApplyDefaults() {
-	if c.SSHForwarding == nil {
-		v := true
-		c.SSHForwarding = &v
+func defaultConfig() *Config {
+	return &Config{
+		SSHForwarding:       true,
+		GitConfigForwarding: true,
 	}
-	if c.GitConfigForwarding == nil {
-		v := true
-		c.GitConfigForwarding = &v
-	}
-}
-
-func (c *Config) SSHForwardingValue() bool {
-	if c.SSHForwarding == nil {
-		return true
-	}
-	return *c.SSHForwarding
-}
-
-func (c *Config) GitConfigForwardingValue() bool {
-	if c.GitConfigForwarding == nil {
-		return true
-	}
-	return *c.GitConfigForwarding
 }
