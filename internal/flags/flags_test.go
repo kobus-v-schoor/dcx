@@ -7,12 +7,10 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 )
 
-func boolPtr(v bool) *bool { return &v }
-
 func TestBuildBasicFlags(t *testing.T) {
 	cfg := &config.Config{
-		SSHForwarding:       boolPtr(true),
-		GitConfigForwarding: boolPtr(true),
+		SSHForwarding:       true,
+		GitConfigForwarding: true,
 	}
 
 	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
@@ -123,8 +121,8 @@ func TestBuildAdditionalFeaturesWithFeatures(t *testing.T) {
 
 func TestBuildWithFeatures(t *testing.T) {
 	cfg := &config.Config{
-		SSHForwarding:       boolPtr(true),
-		GitConfigForwarding: boolPtr(true),
+		SSHForwarding:       true,
+		GitConfigForwarding: true,
 		DefaultFeatures: []config.Feature{
 			{ID: "ghcr.io/devcontainers/features/github-cli:1", Options: map[string]interface{}{"version": "latest"}},
 		},
