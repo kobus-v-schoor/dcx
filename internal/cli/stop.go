@@ -21,8 +21,8 @@ func newStopCmd() *cobra.Command {
 }
 
 // runStop implements the dcx stop workflow. Called by Cobra when the user
-// runs "dcx stop". Config and log level are already initialised by the
-// root command's PersistentPreRunE.
+// runs "dcx stop". Config, log level, and Docker daemon reachability are
+// already verified by the root command's PersistentPreRunE.
 func runStop(cmd *cobra.Command, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
@@ -31,12 +31,6 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
-
-	if err := docker.CheckDaemon(cmd.Context(), cli); err != nil {
-		return err
-	}
-
-	slog.Info("Docker daemon reachable")
 
 	if err := docker.Stop(cmd.Context(), cli, workspaceFolder); err != nil {
 		return fmt.Errorf("dcx stop: %w", err)

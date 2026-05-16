@@ -21,8 +21,8 @@ func newDownCmd() *cobra.Command {
 }
 
 // runDown implements the dcx down workflow. Called by Cobra when the user
-// runs "dcx down". Config and log level are already initialised by the
-// root command's PersistentPreRunE.
+// runs "dcx down". Config, log level, and Docker daemon reachability are
+// already verified by the root command's PersistentPreRunE.
 func runDown(cmd *cobra.Command, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
@@ -31,12 +31,6 @@ func runDown(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
-
-	if err := docker.CheckDaemon(cmd.Context(), cli); err != nil {
-		return err
-	}
-
-	slog.Info("Docker daemon reachable")
 
 	if err := docker.Down(cmd.Context(), cli, workspaceFolder); err != nil {
 		return fmt.Errorf("dcx down: %w", err)
