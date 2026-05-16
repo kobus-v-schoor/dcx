@@ -2,6 +2,14 @@
 # This file documents all available config options with their defaults.
 # Copy and edit as ~/.config/dcx/config.yaml (user) or .devcontainer/dcx.yaml (project).
 
+# --- Logging ---
+
+# Set the log verbosity level. Accepted values: debug, info, warn, error.
+# Can also be set via the DCX_LOG_LEVEL environment variable or the --log-level CLI flag.
+# Precedence (high to low): CLI flag → environment variable → project config → user config.
+# Default: warn
+log_level: warn
+
 # --- SSH and Git Auto-Detection ---
 
 # Automatically detect and forward SSH agent socket.

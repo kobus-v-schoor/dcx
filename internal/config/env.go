@@ -7,14 +7,18 @@ import (
 )
 
 // applyEnvOverrides overrides config fields with values from DCX_*
-// environment variables. Only recognised variables with valid boolean
-// values are applied; invalid values are warned and ignored.
+// environment variables. Bool fields use envBool for parsing; string fields
+// are set directly when the variable is non-empty. Invalid boolean values are
+// warned and ignored.
 func applyEnvOverrides(cfg *Config) {
 	if v, ok := envBool("DCX_SSH_FORWARDING"); ok {
 		cfg.SSHForwarding = boolPtr(v)
 	}
 	if v, ok := envBool("DCX_GIT_CONFIG_FORWARDING"); ok {
 		cfg.GitConfigForwarding = boolPtr(v)
+	}
+	if v := os.Getenv("DCX_LOG_LEVEL"); v != "" {
+		cfg.LogLevel = v
 	}
 }
 
