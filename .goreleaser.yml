@@ -1,0 +1,44 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: dcx
+    main: ./cmd/dcx
+    binary: dcx
+    # disable CGO to produce statically linked binaries with no runtime dependencies
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # -s: strip symbol table; -w: strip DWARF debug info; -X: inject release version at build time
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - name_template: >-
+      dcx_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    formats: ["tar.gz"]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: -1
+
+release:
+  github:
+    owner: kobus-v-schoor
+    name: dcx
