@@ -30,7 +30,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	if err := docker.CheckDaemon(cmd.Context(), cli); err != nil {
 		return err
