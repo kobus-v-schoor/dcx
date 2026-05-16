@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -78,20 +79,38 @@ func Load(cwd string) (*Config, error) {
 	return &cfg, nil
 }
 
-// bindEnvVars explicitly binds each config key to its corresponding DCX_*
-// environment variable. Without this, viper's AutomaticEnv would not resolve
-// env vars for keys that are absent from all config files.
+// bindEnvVars uses reflection to walk the Config struct and bind every field
+// with a mapstructure tag to its corresponding DCX_* environment variable.
+// Without this, viper's AutomaticEnv would not resolve env vars for keys that
+// are absent from all config files. Deriving keys from the struct ensures new
+// fields are automatically bound without a manual list.
 func bindEnvVars(v *viper.Viper) {
-	keys := []string{
-		"ssh_forwarding",
-		"git_config_forwarding",
-		"log_level",
-		"compose_integration.compose_file",
-		"compose_integration.strategy",
-		"compose_integration.dev_service",
-	}
-	for _, key := range keys {
-		_ = v.BindEnv(key)
+	bindStructEnvVars(v, reflect.TypeOf(Config{}), "")
+}
+
+// bindStructEnvVars recurses through a struct type, binding each mapstructure-
+// tagged field. Nested structs (like ComposeIntegration) produce dotted key
+// paths (e.g. "compose_integration.compose_file").
+func bindStructEnvVars(v *viper.Viper, t reflect.Type, prefix string) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("mapstructure")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		key := tag
+		if prefix != "" {
+			key = prefix + "." + tag
+		}
+
+		if field.Type.Kind() == reflect.Ptr {
+			bindStructEnvVars(v, field.Type.Elem(), key)
+		} else if field.Type.Kind() == reflect.Struct {
+			bindStructEnvVars(v, field.Type, key)
+		} else {
+			_ = v.BindEnv(key)
+		}
 	}
 }
 
@@ -159,20 +178,17 @@ func mergeProjectConfig(v *viper.Viper, cwd string) ([]Feature, error) {
 	return projectFeatures, nil
 }
 
-// userConfigDir resolves the directory containing the user config file,
-// respecting XDG_CONFIG_HOME when set. Returns the directory (not the file
-// path), since viper's SetConfigName + AddConfigPath expect a directory.
+// userConfigDir resolves the directory containing the user config file.
+// os.UserConfigDir respects XDG_CONFIG_HOME on Unix and the appropriate
+// AppData directory on Windows, so no manual XDG handling is needed.
+// Returns the directory (not the file path), since viper's SetConfigName +
+// AddConfigPath expect a directory.
 func userConfigDir() (string, error) {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "dcx"), nil
-	}
-
-	home, err := os.UserHomeDir()
+	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("determining home directory: %w", err)
+		return "", fmt.Errorf("determining user config directory: %w", err)
 	}
-
-	return filepath.Join(home, ".config", "dcx"), nil
+	return filepath.Join(dir, "dcx"), nil
 }
 
 // validateComposeFilePath warns if the compose_file path resolves outside
