@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/features"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config and
@@ -29,9 +30,19 @@ func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []str
 }
 
 // buildAdditionalFeatures returns --additional-features flags if configured.
-// Placeholder for issue #5.
-func buildAdditionalFeatures(_ *config.Config) []string {
-	return nil
+// Serializes the feature list from config into the JSON format expected by the
+// devcontainer CLI. Returns nil when no features are configured.
+func buildAdditionalFeatures(cfg *config.Config) []string {
+	if len(cfg.DefaultFeatures) == 0 {
+		return nil
+	}
+
+	jsonStr, err := features.BuildJSON(cfg.DefaultFeatures)
+	if err != nil {
+		return nil
+	}
+
+	return []string{"--additional-features", jsonStr}
 }
 
 // buildMounts returns --mount flags based on config (SSH socket, gitconfig,

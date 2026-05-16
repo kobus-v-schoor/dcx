@@ -28,6 +28,15 @@ func writeProjectConfig(t *testing.T, dir, content string) {
 	}
 }
 
+// setupUserConfigEnv sets HOME and clears XDG_CONFIG_HOME so loadUserConfig
+// reads from the given home directory. Centralises the env setup repeated
+// across user config tests.
+func setupUserConfigEnv(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+}
+
 func TestLoadDefaults(t *testing.T) {
 	dir := t.TempDir()
 
@@ -57,8 +66,7 @@ compose_integration:
   strategy: network_join
 `)
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 
 	cfg, err := loadUserConfig()
 	if err != nil {
@@ -105,8 +113,7 @@ func TestLoadUserConfigInvalidYAML(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, ":\n  :\n  invalid: [\n")
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 
 	_, err := loadUserConfig()
 	if err == nil {
@@ -319,8 +326,7 @@ compose_integration:
   dev_service: app
 `)
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 	t.Setenv("DCX_SSH_FORWARDING", "false")
 
 	cfg, err := Load(projectDir)
@@ -339,5 +345,155 @@ compose_integration:
 	}
 	if cfg.ComposeIntegration.DevService != "app" {
 		t.Errorf("ComposeIntegration.DevService = %q, want app (project)", cfg.ComposeIntegration.DevService)
+	}
+}
+
+func TestLoadUserConfigWithFeatures(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+default_features:
+  - id: ghcr.io/devcontainers/features/github-cli
+    options:
+      version: latest
+  - id: ghcr.io/opencode/devcontainer-feature/opencode
+    options: {}
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := loadUserConfig()
+	if err != nil {
+		t.Fatalf("loadUserConfig() error: %v", err)
+	}
+
+	if len(cfg.DefaultFeatures) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(cfg.DefaultFeatures))
+	}
+	if cfg.DefaultFeatures[0].ID != "ghcr.io/devcontainers/features/github-cli" {
+		t.Errorf("feature[0].ID = %q, want github-cli", cfg.DefaultFeatures[0].ID)
+	}
+	if cfg.DefaultFeatures[0].Options["version"] != "latest" {
+		t.Errorf("feature[0].Options[version] = %v, want latest", cfg.DefaultFeatures[0].Options["version"])
+	}
+	if cfg.DefaultFeatures[1].ID != "ghcr.io/opencode/devcontainer-feature/opencode" {
+		t.Errorf("feature[1].ID = %q, want opencode", cfg.DefaultFeatures[1].ID)
+	}
+	if len(cfg.DefaultFeatures[1].Options) != 0 {
+		t.Errorf("feature[1].Options = %v, want empty map", cfg.DefaultFeatures[1].Options)
+	}
+}
+
+func TestLoadProjectConfigWithFeatures(t *testing.T) {
+	dir := t.TempDir()
+	writeProjectConfig(t, dir, `
+default_features:
+  - id: ghcr.io/devcontainers/features/docker-in-docker:2
+    options: {}
+`)
+
+	cfg, err := loadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("loadProjectConfig() error: %v", err)
+	}
+
+	if len(cfg.DefaultFeatures) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(cfg.DefaultFeatures))
+	}
+	if cfg.DefaultFeatures[0].ID != "ghcr.io/devcontainers/features/docker-in-docker:2" {
+		t.Errorf("feature.ID = %q, want docker-in-docker", cfg.DefaultFeatures[0].ID)
+	}
+}
+
+func TestMergeFeaturesUnionProjectWins(t *testing.T) {
+	user := &Config{
+		SSHForwarding: boolPtr(true),
+		DefaultFeatures: []Feature{
+			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "1"}},
+			{ID: "ghcr.io/devcontainers/features/docker-in-docker", Options: map[string]interface{}{}},
+		},
+	}
+
+	project := &Config{
+		DefaultFeatures: []Feature{
+			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "2"}},
+			{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
+		},
+	}
+
+	merged := merge(user, project)
+
+	if len(merged.DefaultFeatures) != 3 {
+		t.Fatalf("expected 3 merged features, got %d", len(merged.DefaultFeatures))
+	}
+
+	byID := make(map[string]Feature, len(merged.DefaultFeatures))
+	for _, f := range merged.DefaultFeatures {
+		byID[f.ID] = f
+	}
+
+	if f, ok := byID["ghcr.io/devcontainers/features/github-cli"]; !ok {
+		t.Error("github-cli feature missing from merged result")
+	} else if f.Options["version"] != "2" {
+		t.Errorf("github-cli version = %v, want 2 (project wins)", f.Options["version"])
+	}
+
+	if _, ok := byID["ghcr.io/devcontainers/features/docker-in-docker"]; !ok {
+		t.Error("docker-in-docker feature missing from merged result (user-only)")
+	}
+
+	if _, ok := byID["ghcr.io/opencode/devcontainer-feature/opencode"]; !ok {
+		t.Error("opencode feature missing from merged result (project-only)")
+	}
+}
+
+func TestMergeFeaturesUserOnly(t *testing.T) {
+	user := &Config{
+		SSHForwarding: boolPtr(true),
+		DefaultFeatures: []Feature{
+			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{}},
+		},
+	}
+
+	project := &Config{}
+
+	merged := merge(user, project)
+
+	if len(merged.DefaultFeatures) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(merged.DefaultFeatures))
+	}
+	if merged.DefaultFeatures[0].ID != "ghcr.io/devcontainers/features/github-cli" {
+		t.Errorf("feature.ID = %q, want github-cli", merged.DefaultFeatures[0].ID)
+	}
+}
+
+func TestMergeFeaturesProjectOnly(t *testing.T) {
+	user := &Config{
+		SSHForwarding: boolPtr(true),
+	}
+
+	project := &Config{
+		DefaultFeatures: []Feature{
+			{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
+		},
+	}
+
+	merged := merge(user, project)
+
+	if len(merged.DefaultFeatures) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(merged.DefaultFeatures))
+	}
+	if merged.DefaultFeatures[0].ID != "ghcr.io/opencode/devcontainer-feature/opencode" {
+		t.Errorf("feature.ID = %q, want opencode", merged.DefaultFeatures[0].ID)
+	}
+}
+
+func TestMergeFeaturesNeither(t *testing.T) {
+	user := &Config{SSHForwarding: boolPtr(true)}
+	project := &Config{}
+
+	merged := merge(user, project)
+
+	if len(merged.DefaultFeatures) != 0 {
+		t.Errorf("expected 0 features, got %d", len(merged.DefaultFeatures))
 	}
 }
