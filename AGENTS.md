@@ -86,6 +86,7 @@ config.
 
 - Every exported and unexported function must have a doc comment stating its what it operates on and usage (when/why it's called).
 - Types should have doc comments explaining their purpose and any non-obvious design decisions (e.g., pointer fields to distinguish "not set" from zero values).
+- When you implement new features or change behaviour, ensure that the docs in `docs` are still up-to-date
 
 ## CI
 

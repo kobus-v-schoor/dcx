@@ -25,3 +25,15 @@ compose_integration:
 
   # Required only for "overlay" strategy: the Compose service to use as the dev container.
   # dev_service: app
+
+# --- Default Features ---
+
+# List of devcontainer features to inject via --additional-features.
+# Features from user and project config are union-merged; on ID conflict, project wins.
+# Feature IDs without a version tag automatically get ":latest" appended.
+default_features:
+  - id: ghcr.io/devcontainers/features/github-cli
+    options:
+      version: latest
+  - id: ghcr.io/devcontainers/features/docker-outside-of-docker
+    options: {}
