@@ -28,21 +28,14 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `devcontainer up --workspace-folder .` to start.
 - `devcontainer exec --workspace-folder . bash -c "cd /workspace && ..."` to run commands inside.
 - Requires `-buildvcs=false` when building inside the devcontainer (VCS mount issue).
-- To stop and clean up a devcontainer:
-  ```
-  docker ps --filter "label=devcontainer.local_folder=$(pwd)" --quiet | xargs -r -I {} sh -c '
-      docker stop {} &&
-      docker rm {} &&
-      IMAGE_ID=$(docker inspect --format "{{.Image}}" {}) &&
-      [ -n "$IMAGE_ID" ] && docker rmi "$IMAGE_ID" || echo "No image found for container {}"
-  '
-  ```
+- To stop and clean up a devcontainer, use `dcx down` (or `dcx stop` to stop without removing).
 
 ## Architecture
 
 - `cmd/dcx/` — entry point
 - `internal/config/` — user + project config loading, merge logic
 - `internal/cli/` — Cobra command definitions
+- `internal/docker/` — Docker Engine API client (daemon ping, container stop/remove, image cleanup)
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
