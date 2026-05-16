@@ -4,6 +4,15 @@
 
 `dcx` is a Go CLI that wraps the `devcontainer` CLI, adding user-level persistence and workflow automation. It delegates all container lifecycle to the official CLI via its documented flags — it never calls internal APIs or modifies `devcontainer.json` on disk.
 
+The end-goal of the `dcx` project is to make secure development sandboxing so convenient that there's no friction to use it:
+
+- Code/deps everything executes in a sandboxed environment
+- Credentials are either
+  - Generated and injected on the fly, to grant least-privilege access to the sandbox
+  - Or, not provided to the sandbox all-together, if possible
+- Convenient config mechanisms to avoid needing long cli args
+- Integration with the existing devcontainer and docker-compose standards to leverage existing container setups
+
 ## Language & Build
 
 - Go. Single static binary named `dcx`.
