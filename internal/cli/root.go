@@ -35,18 +35,23 @@ func Execute(v string) error {
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
 	root.PersistentFlags().StringVar(&workspaceFolder, "workspace-folder", ".", "path to the workspace folder")
 
+	// sets up the logging level for each command
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// load the effective config
 		cfg, err := config.Load(workspaceFolder)
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
 		activeCfg = cfg
 
+		// get the log level from the config and parse it
 		effective := resolveLogLevel(logLevel, cfg.LogLevel)
 		level, err := parseLogLevel(effective)
 		if err != nil {
 			return fmt.Errorf("invalid log level %q: %w", effective, err)
 		}
+
+		// set the logger to use the configured log level
 		slog.SetLogLoggerLevel(level)
 
 		return nil
