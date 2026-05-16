@@ -308,6 +308,101 @@ func TestEnvOverridesInvalidAndEmpty(t *testing.T) {
 	}
 }
 
+func TestLoadUserConfigLogLevel(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+log_level: debug
+ssh_forwarding: false
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := loadUserConfig()
+	if err != nil {
+		t.Fatalf("loadUserConfig() error: %v", err)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
+	}
+}
+
+func TestLoadProjectConfigLogLevel(t *testing.T) {
+	dir := t.TempDir()
+	writeProjectConfig(t, dir, `
+log_level: info
+`)
+
+	cfg, err := loadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("loadProjectConfig() error: %v", err)
+	}
+
+	if cfg.LogLevel != "info" {
+		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "info")
+	}
+}
+
+func TestEnvOverrideLogLevel(t *testing.T) {
+	cfg := &Config{
+		SSHForwarding: boolPtr(true),
+		LogLevel:      "info",
+	}
+
+	t.Setenv("DCX_LOG_LEVEL", "debug")
+
+	applyEnvOverrides(cfg)
+
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q after env override", cfg.LogLevel, "debug")
+	}
+}
+
+func TestEnvOverrideLogLevelEmptyDoesNotOverride(t *testing.T) {
+	cfg := &Config{
+		SSHForwarding: boolPtr(true),
+		LogLevel:      "info",
+	}
+
+	applyEnvOverrides(cfg)
+
+	if cfg.LogLevel != "info" {
+		t.Errorf("LogLevel = %q, want %q when DCX_LOG_LEVEL is unset", cfg.LogLevel, "info")
+	}
+}
+
+func TestMergeLogLevelProjectOverridesUser(t *testing.T) {
+	user := &Config{
+		SSHForwarding: boolPtr(true),
+		LogLevel:      "debug",
+	}
+
+	project := &Config{
+		LogLevel: "error",
+	}
+
+	merged := merge(user, project)
+
+	if merged.LogLevel != "error" {
+		t.Errorf("merged LogLevel = %q, want project value %q", merged.LogLevel, "error")
+	}
+}
+
+func TestMergeLogLevelProjectEmptyDoesNotOverride(t *testing.T) {
+	user := &Config{
+		SSHForwarding: boolPtr(true),
+		LogLevel:      "debug",
+	}
+
+	project := &Config{}
+
+	merged := merge(user, project)
+
+	if merged.LogLevel != "debug" {
+		t.Errorf("merged LogLevel = %q, want user value %q", merged.LogLevel, "debug")
+	}
+}
+
 func TestLoadFullPipeline(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
@@ -345,6 +440,49 @@ compose_integration:
 	}
 	if cfg.ComposeIntegration.DevService != "app" {
 		t.Errorf("ComposeIntegration.DevService = %q, want app (project)", cfg.ComposeIntegration.DevService)
+	}
+}
+
+func TestLoadFullPipelineLogLevel(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+log_level: info
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, ``)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.LogLevel != "info" {
+		t.Errorf("LogLevel = %q, want %q (user config)", cfg.LogLevel, "info")
+	}
+}
+
+func TestLoadFullPipelineLogLevelEnvOverride(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+log_level: info
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, ``)
+
+	setupUserConfigEnv(t, home)
+	t.Setenv("DCX_LOG_LEVEL", "debug")
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q (env override)", cfg.LogLevel, "debug")
 	}
 }
 

@@ -33,12 +33,15 @@ func (f Feature) FeatureID() string {
 // Config represents the fully-resolved dcx configuration. Bool fields use
 // pointer types so nil indicates "not set" — this allows merge to distinguish
 // between an explicitly-set false and an unset field that should inherit the
-// user-level value.
+// user-level value. String fields use the empty string as "not set" since
+// mergo's WithOverride skips zero-value strings, preserving higher-precedence
+// values from earlier merge stages.
 type Config struct {
 	SSHForwarding       *bool               `yaml:"ssh_forwarding"`
 	GitConfigForwarding *bool               `yaml:"git_config_forwarding"`
 	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration"`
 	DefaultFeatures     []Feature           `yaml:"default_features"`
+	LogLevel            string              `yaml:"log_level"`
 }
 
 // boolPtr returns a pointer to the given bool value. Used to construct *bool

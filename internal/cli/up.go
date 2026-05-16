@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/spf13/cobra"
 )
 
-// newUpCmd creates the "up" subcommand. It loads config, creates the override
-// directory, assembles devcontainer CLI flags, and delegates execution.
-// Added to the root command tree in Execute().
+// newUpCmd creates the "up" subcommand. It reads the already-loaded config,
+// creates the override directory, assembles devcontainer CLI flags, and
+// delegates execution. Added to the root command tree in Execute().
 func newUpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "up",
@@ -25,14 +24,9 @@ func newUpCmd() *cobra.Command {
 }
 
 // runUp implements the dcx up workflow. Called by Cobra when the user
-// runs "dcx up".
+// runs "dcx up". Config and log level are already initialised by the
+// root command's PersistentPreRunE.
 func runUp(cmd *cobra.Command, args []string) error {
-	level, err := parseLogLevel(logLevel)
-	if err != nil {
-		return fmt.Errorf("invalid log level %q: %w", logLevel, err)
-	}
-	slog.SetLogLoggerLevel(level)
-
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	devcontainerPath, err := runner.Find()
@@ -41,16 +35,12 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 	slog.Info("found devcontainer CLI", "path", devcontainerPath)
 
-	cfg, err := config.Load(workspaceFolder)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
 	slog.Info("config loaded")
-	if cfg.SSHForwarding != nil {
-		slog.Debug("ssh_forwarding", "enabled", *cfg.SSHForwarding)
+	if activeCfg.SSHForwarding != nil {
+		slog.Debug("ssh_forwarding", "enabled", *activeCfg.SSHForwarding)
 	}
-	if cfg.GitConfigForwarding != nil {
-		slog.Debug("git_config_forwarding", "enabled", *cfg.GitConfigForwarding)
+	if activeCfg.GitConfigForwarding != nil {
+		slog.Debug("git_config_forwarding", "enabled", *activeCfg.GitConfigForwarding)
 	}
 
 	overrideDir, cleanup, err := override.Create(workspaceFolder)
@@ -61,20 +51,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 
 	slog.Info("override dir", "path", overrideDir)
 
-	dcArgs := flags.Build(workspaceFolder, cfg, overrideDir)
+	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir)
 
 	dcArgs = append(dcArgs, args...)
 
 	slog.Debug("invoking devcontainer", "args", dcArgs)
 
 	return runner.Run(devcontainerPath, dcArgs)
-}
-
-// parseLogLevel converts a string log level name to a slog.Level value.
-func parseLogLevel(s string) (slog.Level, error) {
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(s)); err != nil {
-		return 0, err
-	}
-	return level, nil
 }
