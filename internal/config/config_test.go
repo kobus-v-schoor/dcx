@@ -28,9 +28,9 @@ func writeProjectConfig(t *testing.T, dir, content string) {
 	}
 }
 
-// setupUserConfigEnv sets HOME and clears XDG_CONFIG_HOME so loadUserConfig
-// reads from the given home directory. Centralises the env setup repeated
-// across user config tests.
+// setupUserConfigEnv sets HOME and clears XDG_CONFIG_HOME so Load reads
+// user config from the given home directory. Centralises the env setup
+// repeated across tests.
 func setupUserConfigEnv(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
@@ -45,10 +45,10 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding == nil || !*cfg.SSHForwarding {
+	if !cfg.SSHForwarding {
 		t.Error("default SSHForwarding should be true")
 	}
-	if cfg.GitConfigForwarding == nil || !*cfg.GitConfigForwarding {
+	if !cfg.GitConfigForwarding {
 		t.Error("default GitConfigForwarding should be true")
 	}
 	if cfg.ComposeIntegration != nil {
@@ -68,15 +68,15 @@ compose_integration:
 
 	setupUserConfigEnv(t, home)
 
-	cfg, err := loadUserConfig()
+	cfg, err := Load(t.TempDir())
 	if err != nil {
-		t.Fatalf("loadUserConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding == nil || *cfg.SSHForwarding {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false")
 	}
-	if cfg.GitConfigForwarding == nil || *cfg.GitConfigForwarding {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false")
 	}
 	if cfg.ComposeIntegration == nil {
@@ -99,23 +99,23 @@ func TestLoadUserConfigXDG(t *testing.T) {
 
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
-	cfg, err := loadUserConfig()
+	cfg, err := Load(t.TempDir())
 	if err != nil {
-		t.Fatalf("loadUserConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding == nil || *cfg.SSHForwarding {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false from XDG config")
 	}
 }
 
-func TestLoadUserConfigInvalidYAML(t *testing.T) {
+func TestLoadInvalidYAML(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, ":\n  :\n  invalid: [\n")
 
 	setupUserConfigEnv(t, home)
 
-	_, err := loadUserConfig()
+	_, err := Load(t.TempDir())
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
@@ -130,9 +130,9 @@ compose_integration:
   dev_service: app
 `)
 
-	cfg, err := loadProjectConfig(dir)
+	cfg, err := Load(dir)
 	if err != nil {
-		t.Fatalf("loadProjectConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if cfg.ComposeIntegration == nil {
@@ -149,23 +149,13 @@ compose_integration:
 func TestLoadProjectConfigMissing(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg, err := loadProjectConfig(dir)
+	cfg, err := Load(dir)
 	if err != nil {
-		t.Fatalf("loadProjectConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if cfg.ComposeIntegration != nil {
 		t.Error("ComposeIntegration should be nil for missing project config")
-	}
-}
-
-func TestLoadProjectConfigInvalidYAML(t *testing.T) {
-	dir := t.TempDir()
-	writeProjectConfig(t, dir, ":\n  invalid: [\n")
-
-	_, err := loadProjectConfig(dir)
-	if err == nil {
-		t.Fatal("expected error for invalid YAML")
 	}
 }
 
@@ -177,134 +167,128 @@ compose_integration:
   strategy: network_join
 `)
 
-	cfg, err := loadProjectConfig(dir)
+	_, err := Load(dir)
 	if err != nil {
-		t.Fatalf("loadProjectConfig() error: %v", err)
-	}
-
-	if cfg.ComposeIntegration == nil {
-		t.Fatal("ComposeIntegration should not be nil")
+		t.Fatalf("Load() error: %v", err)
 	}
 }
 
-func TestMergeProjectComposeOverridesUser(t *testing.T) {
-	user := &Config{
-		SSHForwarding:       boolPtr(false),
-		GitConfigForwarding: boolPtr(true),
-		ComposeIntegration: &ComposeIntegration{
-			ComposeFile: "../user-compose.yml",
-			Strategy:    "network_join",
-		},
+func TestLoadProjectComposeOverridesUser(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+ssh_forwarding: false
+git_config_forwarding: true
+compose_integration:
+  compose_file: ../user-compose.yml
+  strategy: network_join
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, `
+compose_integration:
+  compose_file: ../project-compose.yml
+  strategy: overlay
+  dev_service: app
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
 	}
 
-	project := &Config{
-		ComposeIntegration: &ComposeIntegration{
-			ComposeFile: "../project-compose.yml",
-			Strategy:    "overlay",
-			DevService:  "app",
-		},
+	if cfg.SSHForwarding {
+		t.Error("SSHForwarding should preserve user value (false)")
 	}
-
-	merged := merge(user, project)
-
-	if merged.SSHForwarding == nil || *merged.SSHForwarding {
-		t.Error("merged SSHForwarding should preserve user value (false)")
+	if !cfg.GitConfigForwarding {
+		t.Error("GitConfigForwarding should preserve user value (true)")
 	}
-	if merged.GitConfigForwarding == nil || !*merged.GitConfigForwarding {
-		t.Error("merged GitConfigForwarding should preserve user value (true)")
+	if cfg.ComposeIntegration.ComposeFile != "../project-compose.yml" {
+		t.Errorf("ComposeFile = %q, want project value", cfg.ComposeIntegration.ComposeFile)
 	}
-	if merged.ComposeIntegration.ComposeFile != "../project-compose.yml" {
-		t.Errorf("merged ComposeIntegration.ComposeFile = %q, want project value", merged.ComposeIntegration.ComposeFile)
-	}
-	if merged.ComposeIntegration.Strategy != "overlay" {
-		t.Errorf("merged ComposeIntegration.Strategy = %q, want project value", merged.ComposeIntegration.Strategy)
-	}
-}
-
-func TestMergeNoProjectCompose(t *testing.T) {
-	user := &Config{
-		SSHForwarding:       boolPtr(true),
-		GitConfigForwarding: boolPtr(true),
-		ComposeIntegration: &ComposeIntegration{
-			ComposeFile: "../user-compose.yml",
-			Strategy:    "network_join",
-		},
-	}
-
-	project := &Config{}
-
-	merged := merge(user, project)
-
-	if merged.ComposeIntegration.ComposeFile != "../user-compose.yml" {
-		t.Errorf("merged ComposeIntegration.ComposeFile = %q, want user value", merged.ComposeIntegration.ComposeFile)
+	if cfg.ComposeIntegration.Strategy != "overlay" {
+		t.Errorf("Strategy = %q, want project value", cfg.ComposeIntegration.Strategy)
 	}
 }
 
-func TestMergeProjectDoesNotOverrideUserWithDefaults(t *testing.T) {
-	user := &Config{
-		SSHForwarding:       boolPtr(false),
-		GitConfigForwarding: boolPtr(false),
-		ComposeIntegration: &ComposeIntegration{
-			ComposeFile: "../user-compose.yml",
-			Strategy:    "network_join",
-		},
+func TestLoadNoProjectCompose(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+ssh_forwarding: true
+git_config_forwarding: true
+compose_integration:
+  compose_file: ../user-compose.yml
+  strategy: network_join
+`)
+
+	projectDir := t.TempDir()
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
 	}
 
-	project := &Config{
-		ComposeIntegration: &ComposeIntegration{
-			ComposeFile: "../project-compose.yml",
-			Strategy:    "overlay",
-		},
+	if cfg.ComposeIntegration.ComposeFile != "../user-compose.yml" {
+		t.Errorf("ComposeFile = %q, want user value", cfg.ComposeIntegration.ComposeFile)
+	}
+}
+
+func TestLoadProjectDoesNotOverrideUserWithDefaults(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+ssh_forwarding: false
+git_config_forwarding: false
+compose_integration:
+  compose_file: ../user-compose.yml
+  strategy: network_join
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, `
+compose_integration:
+  compose_file: ../project-compose.yml
+  strategy: overlay
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
 	}
 
-	merged := merge(user, project)
-
-	if merged.SSHForwarding == nil || *merged.SSHForwarding {
-		t.Error("merged SSHForwarding should preserve user value (false), not be overridden by project default")
+	if cfg.SSHForwarding {
+		t.Error("SSHForwarding should preserve user value (false)")
 	}
-	if merged.GitConfigForwarding == nil || *merged.GitConfigForwarding {
-		t.Error("merged GitConfigForwarding should preserve user value (false), not be overridden by project default")
+	if cfg.GitConfigForwarding {
+		t.Error("GitConfigForwarding should preserve user value (false)")
 	}
 }
 
 func TestEnvOverrides(t *testing.T) {
-	cfg := &Config{
-		SSHForwarding:       boolPtr(true),
-		GitConfigForwarding: boolPtr(true),
-	}
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+ssh_forwarding: true
+git_config_forwarding: true
+`)
 
+	setupUserConfigEnv(t, home)
 	t.Setenv("DCX_SSH_FORWARDING", "false")
 	t.Setenv("DCX_GIT_CONFIG_FORWARDING", "0")
 
-	applyEnvOverrides(cfg)
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
 
-	if cfg.SSHForwarding == nil || *cfg.SSHForwarding {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false after env override")
 	}
-	if cfg.GitConfigForwarding == nil || *cfg.GitConfigForwarding {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false after env override")
-	}
-}
-
-func TestEnvOverridesInvalidAndEmpty(t *testing.T) {
-	tests := []struct {
-		name     string
-		envValue string
-		want     *bool
-	}{
-		{"invalid value", "notabool", boolPtr(true)},
-		{"empty value", "", boolPtr(true)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{SSHForwarding: boolPtr(true)}
-			t.Setenv("DCX_SSH_FORWARDING", tt.envValue)
-			applyEnvOverrides(cfg)
-			if *cfg.SSHForwarding != *tt.want {
-				t.Errorf("SSHForwarding = %v, want %v", *cfg.SSHForwarding, *tt.want)
-			}
-		})
 	}
 }
 
@@ -317,9 +301,9 @@ ssh_forwarding: false
 
 	setupUserConfigEnv(t, home)
 
-	cfg, err := loadUserConfig()
+	cfg, err := Load(t.TempDir())
 	if err != nil {
-		t.Fatalf("loadUserConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if cfg.LogLevel != "debug" {
@@ -333,9 +317,9 @@ func TestLoadProjectConfigLogLevel(t *testing.T) {
 log_level: info
 `)
 
-	cfg, err := loadProjectConfig(dir)
+	cfg, err := Load(dir)
 	if err != nil {
-		t.Fatalf("loadProjectConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if cfg.LogLevel != "info" {
@@ -344,62 +328,22 @@ log_level: info
 }
 
 func TestEnvOverrideLogLevel(t *testing.T) {
-	cfg := &Config{
-		SSHForwarding: boolPtr(true),
-		LogLevel:      "info",
-	}
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+log_level: info
+ssh_forwarding: true
+`)
 
+	setupUserConfigEnv(t, home)
 	t.Setenv("DCX_LOG_LEVEL", "debug")
 
-	applyEnvOverrides(cfg)
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
 
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want %q after env override", cfg.LogLevel, "debug")
-	}
-}
-
-func TestEnvOverrideLogLevelEmptyDoesNotOverride(t *testing.T) {
-	cfg := &Config{
-		SSHForwarding: boolPtr(true),
-		LogLevel:      "info",
-	}
-
-	applyEnvOverrides(cfg)
-
-	if cfg.LogLevel != "info" {
-		t.Errorf("LogLevel = %q, want %q when DCX_LOG_LEVEL is unset", cfg.LogLevel, "info")
-	}
-}
-
-func TestMergeLogLevelProjectOverridesUser(t *testing.T) {
-	user := &Config{
-		SSHForwarding: boolPtr(true),
-		LogLevel:      "debug",
-	}
-
-	project := &Config{
-		LogLevel: "error",
-	}
-
-	merged := merge(user, project)
-
-	if merged.LogLevel != "error" {
-		t.Errorf("merged LogLevel = %q, want project value %q", merged.LogLevel, "error")
-	}
-}
-
-func TestMergeLogLevelProjectEmptyDoesNotOverride(t *testing.T) {
-	user := &Config{
-		SSHForwarding: boolPtr(true),
-		LogLevel:      "debug",
-	}
-
-	project := &Config{}
-
-	merged := merge(user, project)
-
-	if merged.LogLevel != "debug" {
-		t.Errorf("merged LogLevel = %q, want user value %q", merged.LogLevel, "debug")
 	}
 }
 
@@ -429,17 +373,17 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding == nil || *cfg.SSHForwarding {
+	if cfg.SSHForwarding {
 		t.Error("SSHForwarding should be false (env override)")
 	}
-	if cfg.GitConfigForwarding == nil || *cfg.GitConfigForwarding {
+	if cfg.GitConfigForwarding {
 		t.Error("GitConfigForwarding should be false (user config)")
 	}
 	if cfg.ComposeIntegration.Strategy != "overlay" {
-		t.Errorf("ComposeIntegration.Strategy = %q, want overlay (project)", cfg.ComposeIntegration.Strategy)
+		t.Errorf("Strategy = %q, want overlay (project)", cfg.ComposeIntegration.Strategy)
 	}
 	if cfg.ComposeIntegration.DevService != "app" {
-		t.Errorf("ComposeIntegration.DevService = %q, want app (project)", cfg.ComposeIntegration.DevService)
+		t.Errorf("DevService = %q, want app (project)", cfg.ComposeIntegration.DevService)
 	}
 }
 
@@ -499,9 +443,9 @@ default_features:
 
 	setupUserConfigEnv(t, home)
 
-	cfg, err := loadUserConfig()
+	cfg, err := Load(t.TempDir())
 	if err != nil {
-		t.Fatalf("loadUserConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if len(cfg.DefaultFeatures) != 2 {
@@ -529,9 +473,9 @@ default_features:
     options: {}
 `)
 
-	cfg, err := loadProjectConfig(dir)
+	cfg, err := Load(dir)
 	if err != nil {
-		t.Fatalf("loadProjectConfig() error: %v", err)
+		t.Fatalf("Load() error: %v", err)
 	}
 
 	if len(cfg.DefaultFeatures) != 1 {
@@ -543,29 +487,24 @@ default_features:
 }
 
 func TestMergeFeaturesUnionProjectWins(t *testing.T) {
-	user := &Config{
-		SSHForwarding: boolPtr(true),
-		DefaultFeatures: []Feature{
-			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "1"}},
-			{ID: "ghcr.io/devcontainers/features/docker-in-docker", Options: map[string]interface{}{}},
-		},
+	user := []Feature{
+		{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "1"}},
+		{ID: "ghcr.io/devcontainers/features/docker-in-docker", Options: map[string]interface{}{}},
 	}
 
-	project := &Config{
-		DefaultFeatures: []Feature{
-			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "2"}},
-			{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
-		},
+	project := []Feature{
+		{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{"version": "2"}},
+		{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
 	}
 
-	merged := merge(user, project)
+	merged := mergeFeatures(user, project)
 
-	if len(merged.DefaultFeatures) != 3 {
-		t.Fatalf("expected 3 merged features, got %d", len(merged.DefaultFeatures))
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged features, got %d", len(merged))
 	}
 
-	byID := make(map[string]Feature, len(merged.DefaultFeatures))
-	for _, f := range merged.DefaultFeatures {
+	byID := make(map[string]Feature, len(merged))
+	for _, f := range merged {
 		byID[f.ID] = f
 	}
 
@@ -585,53 +524,39 @@ func TestMergeFeaturesUnionProjectWins(t *testing.T) {
 }
 
 func TestMergeFeaturesUserOnly(t *testing.T) {
-	user := &Config{
-		SSHForwarding: boolPtr(true),
-		DefaultFeatures: []Feature{
-			{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{}},
-		},
+	user := []Feature{
+		{ID: "ghcr.io/devcontainers/features/github-cli", Options: map[string]interface{}{}},
 	}
 
-	project := &Config{}
+	merged := mergeFeatures(user, nil)
 
-	merged := merge(user, project)
-
-	if len(merged.DefaultFeatures) != 1 {
-		t.Fatalf("expected 1 feature, got %d", len(merged.DefaultFeatures))
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(merged))
 	}
-	if merged.DefaultFeatures[0].ID != "ghcr.io/devcontainers/features/github-cli" {
-		t.Errorf("feature.ID = %q, want github-cli", merged.DefaultFeatures[0].ID)
+	if merged[0].ID != "ghcr.io/devcontainers/features/github-cli" {
+		t.Errorf("feature.ID = %q, want github-cli", merged[0].ID)
 	}
 }
 
 func TestMergeFeaturesProjectOnly(t *testing.T) {
-	user := &Config{
-		SSHForwarding: boolPtr(true),
+	project := []Feature{
+		{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
 	}
 
-	project := &Config{
-		DefaultFeatures: []Feature{
-			{ID: "ghcr.io/opencode/devcontainer-feature/opencode", Options: nil},
-		},
-	}
+	merged := mergeFeatures(nil, project)
 
-	merged := merge(user, project)
-
-	if len(merged.DefaultFeatures) != 1 {
-		t.Fatalf("expected 1 feature, got %d", len(merged.DefaultFeatures))
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(merged))
 	}
-	if merged.DefaultFeatures[0].ID != "ghcr.io/opencode/devcontainer-feature/opencode" {
-		t.Errorf("feature.ID = %q, want opencode", merged.DefaultFeatures[0].ID)
+	if merged[0].ID != "ghcr.io/opencode/devcontainer-feature/opencode" {
+		t.Errorf("feature.ID = %q, want opencode", merged[0].ID)
 	}
 }
 
 func TestMergeFeaturesNeither(t *testing.T) {
-	user := &Config{SSHForwarding: boolPtr(true)}
-	project := &Config{}
+	merged := mergeFeatures(nil, nil)
 
-	merged := merge(user, project)
-
-	if len(merged.DefaultFeatures) != 0 {
-		t.Errorf("expected 0 features, got %d", len(merged.DefaultFeatures))
+	if len(merged) != 0 {
+		t.Errorf("expected 0 features, got %d", len(merged))
 	}
 }

@@ -3,10 +3,13 @@ package config
 import "strings"
 
 // ComposeIntegration holds settings for Docker Compose integration strategies.
+// Pointer fields distinguish "not set" (nil) from a zero value during viper
+// unmarshalling — a nil ComposeIntegration means the user provided no
+// compose_integration block at all.
 type ComposeIntegration struct {
-	ComposeFile string `yaml:"compose_file"`
-	Strategy    string `yaml:"strategy"`
-	DevService  string `yaml:"dev_service"`
+	ComposeFile string `yaml:"compose_file" mapstructure:"compose_file"`
+	Strategy    string `yaml:"strategy" mapstructure:"strategy"`
+	DevService  string `yaml:"dev_service" mapstructure:"dev_service"`
 }
 
 // Feature represents a devcontainer feature to inject via --additional-features.
@@ -14,8 +17,8 @@ type ComposeIntegration struct {
 // Options holds feature-specific key-value pairs; an empty or nil map serializes
 // as "{}" in the resulting JSON.
 type Feature struct {
-	ID      string                 `yaml:"id"`
-	Options map[string]interface{} `yaml:"options"`
+	ID      string                 `yaml:"id" mapstructure:"id"`
+	Options map[string]interface{} `yaml:"options" mapstructure:"options"`
 }
 
 // FeatureID returns the effective feature ID for serialization. If the ID does
@@ -30,27 +33,14 @@ func (f Feature) FeatureID() string {
 	return f.ID + ":latest"
 }
 
-// Config represents the fully-resolved dcx configuration. Bool fields use
-// pointer types so nil indicates "not set" — this allows merge to distinguish
-// between an explicitly-set false and an unset field that should inherit the
-// user-level value. String fields use the empty string as "not set" since
-// mergo's WithOverride skips zero-value strings, preserving higher-precedence
-// values from earlier merge stages.
+// Config represents the fully-resolved dcx configuration. Bool fields use plain
+// types with viper defaults; viper's precedence chain (flag → env → config →
+// default) ensures unset fields receive their default value rather than zero.
+// ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	SSHForwarding       *bool               `yaml:"ssh_forwarding"`
-	GitConfigForwarding *bool               `yaml:"git_config_forwarding"`
-	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration"`
-	DefaultFeatures     []Feature           `yaml:"default_features"`
-	LogLevel            string              `yaml:"log_level"`
-}
-
-// boolPtr returns a pointer to the given bool value. Used to construct *bool
-// fields where nil means "not set" and the pointer value is the explicit setting.
-func boolPtr(v bool) *bool { return &v }
-
-func defaultConfig() *Config {
-	return &Config{
-		SSHForwarding:       boolPtr(true),
-		GitConfigForwarding: boolPtr(true),
-	}
+	SSHForwarding       bool                `yaml:"ssh_forwarding" mapstructure:"ssh_forwarding"`
+	GitConfigForwarding bool                `yaml:"git_config_forwarding" mapstructure:"git_config_forwarding"`
+	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
+	DefaultFeatures     []Feature           `yaml:"default_features" mapstructure:"default_features"`
+	LogLevel            string              `yaml:"log_level" mapstructure:"log_level"`
 }

@@ -6,10 +6,10 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
-	logLevel        string
 	workspaceFolder string
 	activeCfg       *config.Config
 )
@@ -32,26 +32,31 @@ func Execute(v string) error {
 	}
 
 	root.Flags().BoolVar(&showVersion, "version", false, "print the version")
-	root.PersistentFlags().StringVar(&logLevel, "log-level", "", "log level (debug, info, warn, error)")
+	root.PersistentFlags().String("log-level", "", "log level (debug, info, warn, error)")
 	root.PersistentFlags().StringVar(&workspaceFolder, "workspace-folder", ".", "path to the workspace folder")
 
-	// sets up the logging level for each command
+	// Bind --log-level flag to viper so the CLI flag takes precedence over
+	// config file and env var values, matching viper's precedence chain.
+	if err := viper.BindPFlag("log_level", root.PersistentFlags().Lookup("log-level")); err != nil {
+		return fmt.Errorf("binding log-level flag: %w", err)
+	}
+
+	// Sets up the logging level for each command. Config is loaded first, then
+	// the effective log level is resolved from viper (which already applies the
+	// precedence: flag → env → config → default).
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		// load the effective config
 		cfg, err := config.Load(workspaceFolder)
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
 		activeCfg = cfg
 
-		// get the log level from the config and parse it
-		effective := resolveLogLevel(logLevel, cfg.LogLevel)
+		effective := resolveLogLevel(cfg.LogLevel)
 		level, err := parseLogLevel(effective)
 		if err != nil {
 			return fmt.Errorf("invalid log level %q: %w", effective, err)
 		}
 
-		// set the logger to use the configured log level
 		slog.SetLogLoggerLevel(level)
 
 		return nil
@@ -62,14 +67,10 @@ func Execute(v string) error {
 	return root.Execute()
 }
 
-// resolveLogLevel picks the effective log level using the standard precedence
-// chain: CLI flag (highest) → config (which already includes env overrides) →
-// "warn" default (lowest). An empty string at any level means "not set" and
-// falls through to the next level.
-func resolveLogLevel(cliFlag, cfgLevel string) string {
-	if cliFlag != "" {
-		return cliFlag
-	}
+// resolveLogLevel picks the effective log level. Viper has already resolved
+// flag → env → config precedence, so cfgLevel is the merged value. An empty
+// string means nothing was set at any level, so "warn" is used as default.
+func resolveLogLevel(cfgLevel string) string {
 	if cfgLevel != "" {
 		return cfgLevel
 	}
