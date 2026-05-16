@@ -16,25 +16,17 @@ builds:
     goarch:
       - amd64
       - arm64
-    flags:
-      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - id: dcx
-    ids:
-      - dcx
-    name_template: >-
+  - name_template: >-
       dcx_
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
     formats: ["tar.gz"]
-    format_overrides:
-      - goos: windows
-        formats: ["zip"]
 
 checksum:
   name_template: checksums.txt
@@ -43,25 +35,6 @@ changelog:
   use: github
   sort: asc
   abbrev: -1
-  groups:
-    - title: Features
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
-      order: 0
-    - title: Bug fixes
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
-      order: 1
-    - title: Others
-      order: 999
-  filters:
-    exclude:
-      - "^chore:"
-      - "^ci:"
-      - "^docs:"
-      - "^test:"
-      - "^build:"
-      - merge commit
-      - Merge pull request
-      - Merge branch
 
 release:
   github:
