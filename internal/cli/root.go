@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -41,9 +42,10 @@ func Execute(v string) error {
 		return fmt.Errorf("binding log-level flag: %w", err)
 	}
 
-	// Sets up the logging level for each command. Config is loaded first, then
-	// the effective log level is resolved from viper (which already applies the
-	// precedence: flag → env → config → default).
+	// Sets up the logging level and verifies the Docker daemon is reachable
+	// before any subcommand runs. Since every dcx command depends on Docker,
+	// this healthcheck is performed once at the root level rather than in each
+	// subcommand individually.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(workspaceFolder)
 		if err != nil {
@@ -59,10 +61,16 @@ func Execute(v string) error {
 
 		slog.SetLogLoggerLevel(level)
 
+		if err := checkDockerDaemon(cmd); err != nil {
+			return err
+		}
+
 		return nil
 	}
 
 	root.AddCommand(newUpCmd())
+	root.AddCommand(newDownCmd())
+	root.AddCommand(newStopCmd())
 
 	return root.Execute()
 }
@@ -86,4 +94,23 @@ func parseLogLevel(s string) (slog.Level, error) {
 		return 0, err
 	}
 	return level, nil
+}
+
+// checkDockerDaemon creates a Docker client and pings the daemon to confirm it
+// is reachable. Called from PersistentPreRunE so that every dcx command fails
+// early with a clear message if Docker is not running, rather than deeper in
+// the command's own logic.
+func checkDockerDaemon(cmd *cobra.Command) error {
+	cli, err := docker.NewClient()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cli.Close() }()
+
+	if err := docker.CheckDaemon(cmd.Context(), cli); err != nil {
+		return err
+	}
+
+	slog.Info("Docker daemon reachable")
+	return nil
 }
