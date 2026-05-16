@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -32,13 +31,12 @@ func Load(cwd string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// Viper's AutomaticEnv only resolves keys that have been accessed or
-	// explicitly bound. Bind all config keys so DCX_* env vars work even
-	// when the corresponding YAML key is absent.
-	bindEnvVars(v)
-
-	// Set defaults — these apply when no config file or env var provides
-	// a value.
+	// Set defaults for fields that have meaningful non-zero defaults.
+	// Setting a default also registers the key with viper, enabling
+	// AutomaticEnv to resolve DCX_* env vars for that key even when the
+	// corresponding YAML key is absent from all config files. Keys without
+	// explicit defaults are registered automatically when a config file
+	// provides a value.
 	v.SetDefault("ssh_forwarding", true)
 	v.SetDefault("git_config_forwarding", true)
 
@@ -77,41 +75,6 @@ func Load(cwd string) (*Config, error) {
 	cfg.DefaultFeatures = mergeFeatures(userFeatures, projectFeatures)
 
 	return &cfg, nil
-}
-
-// bindEnvVars uses reflection to walk the Config struct and bind every field
-// with a mapstructure tag to its corresponding DCX_* environment variable.
-// Without this, viper's AutomaticEnv would not resolve env vars for keys that
-// are absent from all config files. Deriving keys from the struct ensures new
-// fields are automatically bound without a manual list.
-func bindEnvVars(v *viper.Viper) {
-	bindStructEnvVars(v, reflect.TypeOf(Config{}), "")
-}
-
-// bindStructEnvVars recurses through a struct type, binding each mapstructure-
-// tagged field. Nested structs (like ComposeIntegration) produce dotted key
-// paths (e.g. "compose_integration.compose_file").
-func bindStructEnvVars(v *viper.Viper, t reflect.Type, prefix string) {
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("mapstructure")
-		if tag == "" || tag == "-" {
-			continue
-		}
-
-		key := tag
-		if prefix != "" {
-			key = prefix + "." + tag
-		}
-
-		if field.Type.Kind() == reflect.Ptr {
-			bindStructEnvVars(v, field.Type.Elem(), key)
-		} else if field.Type.Kind() == reflect.Struct {
-			bindStructEnvVars(v, field.Type, key)
-		} else {
-			_ = v.BindEnv(key)
-		}
-	}
 }
 
 // loadAndCaptureUserConfig reads the user-level config from
