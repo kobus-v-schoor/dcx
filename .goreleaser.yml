@@ -37,7 +37,7 @@ changelog:
   use: github
   sort: asc
   abbrev: -1
-  format: "* {{ .Message }}{{ if .PRURL }} ([#{{ .PRNumber }}]({{ .PRURL }})){{ end }} ({{ with .Author.Username }}@{{ . }}{{ else }}{{ .Author.Name }}{{ end }})"
+  format: "* {{ .Message }} ({{ with .Author.Username }}@{{ . }}{{ else }}{{ .Author.Name }}{{ end }})"
 
 release:
   github:
