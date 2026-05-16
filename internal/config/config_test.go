@@ -28,6 +28,15 @@ func writeProjectConfig(t *testing.T, dir, content string) {
 	}
 }
 
+// setupUserConfigEnv sets HOME and clears XDG_CONFIG_HOME so loadUserConfig
+// reads from the given home directory. Centralises the env setup repeated
+// across user config tests.
+func setupUserConfigEnv(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+}
+
 func TestLoadDefaults(t *testing.T) {
 	dir := t.TempDir()
 
@@ -57,8 +66,7 @@ compose_integration:
   strategy: network_join
 `)
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 
 	cfg, err := loadUserConfig()
 	if err != nil {
@@ -105,8 +113,7 @@ func TestLoadUserConfigInvalidYAML(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, ":\n  :\n  invalid: [\n")
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 
 	_, err := loadUserConfig()
 	if err == nil {
@@ -319,8 +326,7 @@ compose_integration:
   dev_service: app
 `)
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 	t.Setenv("DCX_SSH_FORWARDING", "false")
 
 	cfg, err := Load(projectDir)
@@ -353,8 +359,7 @@ default_features:
     options: {}
 `)
 
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	setupUserConfigEnv(t, home)
 
 	cfg, err := loadUserConfig()
 	if err != nil {
