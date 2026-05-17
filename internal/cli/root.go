@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -36,12 +36,6 @@ func Execute(v string) error {
 	root.PersistentFlags().String("log-level", "", "log level (debug, info, warn, error)")
 	root.PersistentFlags().StringVar(&workspaceFolder, "workspace-folder", ".", "path to the workspace folder")
 
-	// Bind --log-level flag to viper so the CLI flag takes precedence over
-	// config file and env var values, matching viper's precedence chain.
-	if err := viper.BindPFlag("log_level", root.PersistentFlags().Lookup("log-level")); err != nil {
-		return fmt.Errorf("binding log-level flag: %w", err)
-	}
-
 	// Sets up the logging level and verifies the Docker daemon is reachable
 	// before any subcommand runs. Since every dcx command depends on Docker,
 	// this healthcheck is performed once at the root level rather than in each
@@ -53,13 +47,21 @@ func Execute(v string) error {
 		}
 		activeCfg = cfg
 
-		effective := resolveLogLevel(cfg.LogLevel)
+		// CLI flag takes highest precedence: if --log-level was explicitly set
+		// it overrides config file and env var values.
+		logLevel := cfg.LogLevel
+		if flagVal, _ := cmd.Flags().GetString("log-level"); flagVal != "" {
+			logLevel = flagVal
+		}
+
+		effective := resolveLogLevel(logLevel)
 		level, err := parseLogLevel(effective)
 		if err != nil {
 			return fmt.Errorf("invalid log level %q: %w", effective, err)
 		}
 
-		slog.SetLogLoggerLevel(level)
+		handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+		slog.SetDefault(slog.New(handler))
 
 		if err := checkDockerDaemon(cmd); err != nil {
 			return err
@@ -74,9 +76,10 @@ func Execute(v string) error {
 	return root.Execute()
 }
 
-// resolveLogLevel picks the effective log level. Viper has already resolved
-// flag → env → config precedence, so cfgLevel is the merged value. An empty
-// string means nothing was set at any level, so "warn" is used as default.
+// resolveLogLevel picks the effective log level. cfgLevel is the merged value
+// from config file and env var sources (with CLI flag already resolved by the
+// caller). An empty string means nothing was set at any level, so "warn" is
+// used as default.
 func resolveLogLevel(cfgLevel string) string {
 	if cfgLevel != "" {
 		return cfgLevel
