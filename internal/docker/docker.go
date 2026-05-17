@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	gosdkclient "github.com/docker/go-sdk/client"
 	"github.com/moby/moby/client"
 )
 
 // DockerClient is a narrow interface over the Docker Engine API, exposing only
 // the operations needed by dcx (container lifecycle and image cleanup). The
-// production implementation is *client.Client, which satisfies this interface.
-// A mock implementation is used in tests.
+// production implementation is *client.Client (obtained via the docker go-sdk),
+// which satisfies this interface. A mock implementation is used in tests.
 type DockerClient interface {
 	Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error)
 	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
@@ -23,26 +24,21 @@ type DockerClient interface {
 	Close() error
 }
 
-// NewClient creates a Docker Engine API client configured from the environment
-// (DOCKER_HOST, DOCKER_API_VERSION, etc.). The caller must call Close() when
-// done. Used by all dcx commands that interact with Docker directly.
-func NewClient() (DockerClient, error) {
-	cli, err := client.New(client.FromEnv)
+// NewClient creates a Docker Engine API client configured from the current
+// Docker context. Unlike the raw moby client's FromEnv (which only reads
+// DOCKER_HOST), the docker go-sdk resolves the Docker host by inspecting
+// the Docker CLI config (~/.docker/config.json) and context metadata
+// (~/.docker/contexts/meta/...), so tools like Colima that set a custom
+// context work out of the box. The client also performs a health check
+// (ping with retries) during construction, so the caller can assume the
+// daemon is reachable if no error is returned. The caller must call Close()
+// when done. Used by all dcx commands that interact with Docker directly.
+func NewClient(ctx context.Context) (DockerClient, error) {
+	sdkClient, err := gosdkclient.New(ctx, gosdkclient.WithLogger(slog.Default()))
 	if err != nil {
 		return nil, fmt.Errorf("creating Docker client: %w", err)
 	}
-	return cli, nil
-}
-
-// CheckDaemon verifies the Docker daemon is reachable by calling Ping. Returns
-// a user-friendly error if the daemon cannot be contacted. Called at the start
-// of every dcx command that needs Docker, before any other API calls.
-func CheckDaemon(ctx context.Context, cli DockerClient) error {
-	_, err := cli.Ping(ctx, client.PingOptions{})
-	if err != nil {
-		return fmt.Errorf("cannot connect to Docker daemon: is Docker running?\nDetails: %w", err)
-	}
-	return nil
+	return sdkClient, nil
 }
 
 const (
