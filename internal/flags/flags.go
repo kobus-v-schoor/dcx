@@ -48,8 +48,7 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 
 // buildMounts returns --mount flags based on config. Resolves user-configured
 // bind mounts, expanding ~ and ${VAR} in source paths and skipping mounts
-// whose source path doesn't exist on the host. Also includes SSH socket,
-// gitconfig, and shell config mounts. Returns nil when no mounts are
+// whose source path doesn't exist on the host. Returns nil when no mounts are
 // configured or all are skipped.
 func buildMounts(cfg *config.Config) []string {
 	return mounts.BuildFlags(cfg.Mounts)

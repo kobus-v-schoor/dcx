@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -22,7 +21,7 @@ type ResolvedMount struct {
 }
 
 // envVarPattern matches ${VAR} references in source paths for expansion.
-var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+var envVarPattern = regexp.MustCompile(`\${(.+?)}`)
 
 // Resolve expands a config.Mount's source path and validates it exists on the
 // host filesystem. It performs three transformations in order: (1) ~ expansion
@@ -51,10 +50,11 @@ func Resolve(m config.Mount) *ResolvedMount {
 // Format serializes a ResolvedMount into the Docker mount format string used by
 // the --mount flag. The output format is type=bind,source=...,target=... with
 // an optional ,readonly suffix when ReadOnly is true. The readonly option is
-// omitted when ReadOnly is false. Called by BuildFlags after successful
-// resolution.
+// omitted when ReadOnly is false. Source and target values containing spaces or
+// special characters are properly quoted for Docker's comma-delimited parser.
+// Called by BuildFlags after successful resolution.
 func Format(m ResolvedMount) string {
-	s := fmt.Sprintf("type=bind,source=%s,target=%s", m.Source, m.Target)
+	s := fmt.Sprintf("type=bind,source=%s,target=%s", quoteMountValue(m.Source), quoteMountValue(m.Target))
 	if m.ReadOnly {
 		s += ",readonly"
 	}
@@ -96,26 +96,16 @@ func BuildFlags(cfgMounts []config.Mount) []string {
 }
 
 // expandHome replaces a leading ~/ in the path with the user's home directory.
-// On Unix systems the HOME environment variable is used; on Windows
-// os.UserHomeDir handles the appropriate directory resolution. Paths without a
-// leading ~/ are returned unchanged.
+// Uses os.UserHomeDir which respects HOME on Unix and the appropriate directory
+// on Windows. Paths without a leading ~/ are returned unchanged.
 func expandHome(path string) string {
 	if !strings.HasPrefix(path, "~/") {
 		return path
 	}
 
-	var homeDir string
-	if runtime.GOOS == "windows" {
-		var err error
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-	} else {
-		homeDir = os.Getenv("HOME")
-		if homeDir == "" {
-			return path
-		}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return path
 	}
 
 	return filepath.Join(homeDir, path[2:])
@@ -135,4 +125,15 @@ func expandEnvVars(path string) string {
 		}
 		return match
 	})
+}
+
+// quoteMountValue wraps a mount source or target value in double quotes if it
+// contains characters that would interfere with Docker's comma-delimited --mount
+// parsing (spaces, commas, or equals signs). Docker accepts quoted values in
+// --mount strings to handle such paths correctly.
+func quoteMountValue(v string) string {
+	if strings.ContainsAny(v, " ,=") {
+		return `"` + v + `"`
+	}
+	return v
 }

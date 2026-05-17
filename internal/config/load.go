@@ -226,30 +226,17 @@ func mergeFeatures(user, project []Feature) []Feature {
 	return result
 }
 
-// mergeMounts concatenates user and project mount lists and warns on duplicate
-// targets. Unlike features, mounts are not union-merged on conflict — Docker
-// will handle duplicate targets at runtime, so a warning is sufficient. The
-// order is: all user mounts first, then all project mounts.
+// mergeMounts concatenates user and project mount lists. Unlike features,
+// mounts are not union-merged on conflict — Docker will handle duplicate
+// targets at runtime. Duplicate target warnings are emitted by the mounts
+// package during flag assembly. The order is: all user mounts first, then all
+// project mounts.
 func mergeMounts(user, project []Mount) []Mount {
 	if len(user) == 0 {
 		return project
 	}
 	if len(project) == 0 {
 		return user
-	}
-
-	// Check for duplicate targets across user and project mounts.
-	targets := make(map[string]int, len(user)+len(project))
-	for _, m := range user {
-		targets[m.Target]++
-	}
-	for _, m := range project {
-		targets[m.Target]++
-	}
-	for target, count := range targets {
-		if count > 1 {
-			_, _ = fmt.Fprintf(os.Stderr, "warning: duplicate mount target %q appears %d times across user and project config\n", target, count)
-		}
 	}
 
 	result := make([]Mount, 0, len(user)+len(project))
