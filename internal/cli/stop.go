@@ -26,7 +26,7 @@ func newStopCmd() *cobra.Command {
 func runStop(cmd *cobra.Command, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
-	cli, err := docker.NewClient()
+	cli, err := docker.NewClient(cmd.Context())
 	if err != nil {
 		return err
 	}

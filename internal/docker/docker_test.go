@@ -53,26 +53,6 @@ func (m *mockDockerClient) Close() error {
 	return nil
 }
 
-func TestCheckDaemonSuccess(t *testing.T) {
-	cli := &mockDockerClient{}
-	if err := CheckDaemon(context.Background(), cli); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestCheckDaemonNotRunning(t *testing.T) {
-	cli := &mockDockerClient{pingErr: fmt.Errorf("connection refused")}
-	err := CheckDaemon(context.Background(), cli)
-	if err == nil {
-		t.Fatal("expected error when daemon is not running")
-	}
-
-	msg := err.Error()
-	if !contains(msg, "is Docker running?") {
-		t.Errorf("error should mention Docker running, got: %s", msg)
-	}
-}
-
 func TestStopNoContainer(t *testing.T) {
 	cli := &mockDockerClient{
 		containers: client.ContainerListResult{Items: []container.Summary{}},

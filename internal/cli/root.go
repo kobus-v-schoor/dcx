@@ -67,7 +67,6 @@ func Execute(v string) error {
 
 		return nil
 	}
-
 	root.AddCommand(newUpCmd())
 	root.AddCommand(newDownCmd())
 	root.AddCommand(newStopCmd())
@@ -96,20 +95,18 @@ func parseLogLevel(s string) (slog.Level, error) {
 	return level, nil
 }
 
-// checkDockerDaemon creates a Docker client and pings the daemon to confirm it
-// is reachable. Called from PersistentPreRunE so that every dcx command fails
-// early with a clear message if Docker is not running, rather than deeper in
-// the command's own logic.
+// checkDockerDaemon creates a Docker client to confirm the daemon is reachable.
+// The docker go-sdk performs a health check (ping with retries) during client
+// construction, so if NewClient returns no error the daemon is already verified.
+// Called from PersistentPreRunE so that every dcx command fails early with a
+// clear message if Docker is not running, rather than deeper in the command's
+// own logic.
 func checkDockerDaemon(cmd *cobra.Command) error {
-	cli, err := docker.NewClient()
+	cli, err := docker.NewClient(cmd.Context())
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
-
-	if err := docker.CheckDaemon(cmd.Context(), cli); err != nil {
-		return err
-	}
 
 	slog.Info("Docker daemon reachable")
 	return nil
