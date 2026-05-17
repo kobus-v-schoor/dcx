@@ -35,7 +35,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `cmd/dcx/` — entry point
 - `internal/config/` — user + project config loading, merge logic
 - `internal/cli/` — Cobra command definitions
-- `internal/docker/` — Docker Engine API client (daemon ping, container stop/remove, image cleanup)
+- `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container stop/remove, image cleanup)
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
