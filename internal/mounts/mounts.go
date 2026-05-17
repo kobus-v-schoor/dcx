@@ -31,7 +31,7 @@ var envVarPattern = regexp.MustCompile(`\${(.+?)}`)
 // skipped rather than causing an error. Called by BuildFlags for each mount in
 // the config.
 func Resolve(m config.Mount) *ResolvedMount {
-	source := expandHome(m.Source)
+	source := ExpandHome(m.Source)
 	source = expandEnvVars(source)
 	source = filepath.Clean(source)
 
@@ -95,10 +95,12 @@ func BuildFlags(cfgMounts []config.Mount) []string {
 	return flags
 }
 
-// expandHome replaces a leading ~/ in the path with the user's home directory.
+// ExpandHome replaces a leading ~/ in the path with the user's home directory.
 // Uses os.UserHomeDir which respects HOME on Unix and the appropriate directory
-// on Windows. Paths without a leading ~/ are returned unchanged.
-func expandHome(path string) string {
+// on Windows. Paths without a leading ~/ are returned unchanged. Exported so
+// other packages (e.g. ssh) can reuse the same ~ expansion logic without
+// duplicating it.
+func ExpandHome(path string) string {
 	if !strings.HasPrefix(path, "~/") {
 		return path
 	}

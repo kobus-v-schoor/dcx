@@ -9,8 +9,8 @@ import (
 
 func TestBuildBasicFlags(t *testing.T) {
 	cfg := &config.Config{
-		SSHForwarding:       true,
-		GitConfigForwarding: true,
+		SSH: config.SSHConfig{ForwardAgent: true},
+		Git: config.GitConfig{InjectConfigs: true, Configs: []string{"~/.gitconfig"}},
 	}
 
 	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
@@ -82,13 +82,6 @@ func TestFormatRemoteEnv(t *testing.T) {
 	}
 }
 
-func TestBuildPlaceholderRemoteEnvReturnsNil(t *testing.T) {
-	cfg := &config.Config{}
-	if buildRemoteEnv(cfg) != nil {
-		t.Error("buildRemoteEnv should return nil (placeholder)")
-	}
-}
-
 func TestBuildAdditionalFeaturesEmpty(t *testing.T) {
 	cfg := &config.Config{}
 	if buildAdditionalFeatures(cfg) != nil {
@@ -118,8 +111,8 @@ func TestBuildAdditionalFeaturesWithFeatures(t *testing.T) {
 
 func TestBuildWithFeatures(t *testing.T) {
 	cfg := &config.Config{
-		SSHForwarding:       true,
-		GitConfigForwarding: true,
+		SSH: config.SSHConfig{ForwardAgent: true},
+		Git: config.GitConfig{InjectConfigs: true},
 		DefaultFeatures: []config.Feature{
 			{ID: "ghcr.io/devcontainers/features/github-cli:1", Options: map[string]interface{}{"version": "latest"}},
 		},
@@ -169,5 +162,16 @@ func TestBuildMountFlagsNoMounts(t *testing.T) {
 		if a == "--mount" {
 			t.Error("--mount flag should not be present when no mounts configured")
 		}
+	}
+}
+
+func TestBuildRemoteEnvNoEnvVars(t *testing.T) {
+	cfg := &config.Config{
+		SSH: config.SSHConfig{ForwardAgent: false},
+		Git: config.GitConfig{InjectConfigs: false},
+	}
+
+	if buildRemoteEnv(cfg) != nil {
+		t.Error("buildRemoteEnv should return nil when no env vars to set")
 	}
 }

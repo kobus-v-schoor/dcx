@@ -43,15 +43,40 @@ type Mount struct {
 	ReadOnly bool   `yaml:"read_only" mapstructure:"read_only"`
 }
 
+// SSHConfig controls automatic SSH agent forwarding from the host into the
+// dev container. When ForwardAgent is true (the default), dcx reads
+// SSH_AUTH_SOCK from the host environment and bind-mounts the socket into the
+// container, then sets SSH_AUTH_SOCK inside the container to point at the
+// mounted path. AgentSocketTarget is the container path for the bind mount;
+// it defaults to /opt/dcx/sockets/ssh-agent.sock. If the socket is missing
+// or SSH_AUTH_SOCK is unset, the forwarding is silently skipped with a
+// warning.
+type SSHConfig struct {
+	ForwardAgent      bool   `yaml:"forward_agent" mapstructure:"forward_agent"`
+	AgentSocketTarget string `yaml:"agent_socket_target" mapstructure:"agent_socket_target"`
+}
+
+// GitConfig controls automatic git configuration forwarding from the host into
+// the dev container. When InjectConfigs is true (the default), dcx bind-mounts
+// each file listed in Configs into <MountBase>/<index>-<basename> inside the
+// container and sets GIT_CONFIG_GLOBAL to the first mounted file's path.
+// Configs defaults to ["~/.gitconfig"]; MountBase defaults to "/opt/dcx/git".
+// Missing files are silently skipped with a warning.
+type GitConfig struct {
+	InjectConfigs bool     `yaml:"inject_configs" mapstructure:"inject_configs"`
+	Configs       []string `yaml:"configs" mapstructure:"configs"`
+	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
+}
+
 // Config represents the fully-resolved dcx configuration. Bool fields use plain
 // types with viper defaults; viper's precedence chain (flag → env → config →
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	SSHForwarding       bool                `yaml:"ssh_forwarding" mapstructure:"ssh_forwarding"`
-	GitConfigForwarding bool                `yaml:"git_config_forwarding" mapstructure:"git_config_forwarding"`
-	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
-	DefaultFeatures     []Feature           `yaml:"default_features" mapstructure:"default_features"`
-	Mounts              []Mount             `yaml:"mounts" mapstructure:"mounts"`
-	LogLevel            string              `yaml:"log_level" mapstructure:"log_level"`
+	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
+	Git                GitConfig           `yaml:"git" mapstructure:"git"`
+	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
+	DefaultFeatures    []Feature           `yaml:"default_features" mapstructure:"default_features"`
+	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
+	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
 }

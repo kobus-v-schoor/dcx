@@ -45,11 +45,14 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if !cfg.SSHForwarding {
-		t.Error("default SSHForwarding should be true")
+	if !cfg.SSH.ForwardAgent {
+		t.Error("default SSH.ForwardAgent should be true")
 	}
-	if !cfg.GitConfigForwarding {
-		t.Error("default GitConfigForwarding should be true")
+	if !cfg.Git.InjectConfigs {
+		t.Error("default Git.InjectConfigs should be true")
+	}
+	if len(cfg.Git.Configs) != 1 || cfg.Git.Configs[0] != "~/.gitconfig" {
+		t.Errorf("default Git.Configs = %v, want [~/.gitconfig]", cfg.Git.Configs)
 	}
 	if cfg.ComposeIntegration != nil {
 		t.Error("default ComposeIntegration should be nil")
@@ -59,8 +62,10 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadUserConfig(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: false
-git_config_forwarding: false
+ssh:
+  forward_agent: false
+git:
+  inject_configs: false
 compose_integration:
   compose_file: ../docker-compose.yml
   strategy: network_join
@@ -73,11 +78,11 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should be false")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false")
 	}
-	if cfg.GitConfigForwarding {
-		t.Error("GitConfigForwarding should be false")
+	if cfg.Git.InjectConfigs {
+		t.Error("Git.InjectConfigs should be false")
 	}
 	if cfg.ComposeIntegration == nil {
 		t.Fatal("ComposeIntegration should not be nil")
@@ -93,7 +98,7 @@ func TestLoadUserConfigXDG(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("ssh_forwarding: false\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("ssh:\n  forward_agent: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,8 +109,8 @@ func TestLoadUserConfigXDG(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should be false from XDG config")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false from XDG config")
 	}
 }
 
@@ -176,8 +181,10 @@ compose_integration:
 func TestLoadProjectComposeOverridesUser(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: false
-git_config_forwarding: true
+ssh:
+  forward_agent: false
+git:
+  inject_configs: true
 compose_integration:
   compose_file: ../user-compose.yml
   strategy: network_join
@@ -198,11 +205,11 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should preserve user value (false)")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should preserve user value (false)")
 	}
-	if !cfg.GitConfigForwarding {
-		t.Error("GitConfigForwarding should preserve user value (true)")
+	if !cfg.Git.InjectConfigs {
+		t.Error("Git.InjectConfigs should preserve user value (true)")
 	}
 	if cfg.ComposeIntegration.ComposeFile != "../project-compose.yml" {
 		t.Errorf("ComposeFile = %q, want project value", cfg.ComposeIntegration.ComposeFile)
@@ -215,8 +222,10 @@ compose_integration:
 func TestLoadNoProjectCompose(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: true
-git_config_forwarding: true
+ssh:
+  forward_agent: true
+git:
+  inject_configs: true
 compose_integration:
   compose_file: ../user-compose.yml
   strategy: network_join
@@ -239,8 +248,10 @@ compose_integration:
 func TestLoadProjectDoesNotOverrideUserWithDefaults(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: false
-git_config_forwarding: false
+ssh:
+  forward_agent: false
+git:
+  inject_configs: false
 compose_integration:
   compose_file: ../user-compose.yml
   strategy: network_join
@@ -260,35 +271,37 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should preserve user value (false)")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should preserve user value (false)")
 	}
-	if cfg.GitConfigForwarding {
-		t.Error("GitConfigForwarding should preserve user value (false)")
+	if cfg.Git.InjectConfigs {
+		t.Error("Git.InjectConfigs should preserve user value (false)")
 	}
 }
 
 func TestEnvOverrides(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: true
-git_config_forwarding: true
+ssh:
+  forward_agent: true
+git:
+  inject_configs: true
 `)
 
 	setupUserConfigEnv(t, home)
-	t.Setenv("DCX_SSH_FORWARDING", "false")
-	t.Setenv("DCX_GIT_CONFIG_FORWARDING", "0")
+	t.Setenv("DCX_SSH_FORWARD_AGENT", "false")
+	t.Setenv("DCX_GIT_INJECT_CONFIGS", "0")
 
 	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should be false after env override")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false after env override")
 	}
-	if cfg.GitConfigForwarding {
-		t.Error("GitConfigForwarding should be false after env override")
+	if cfg.Git.InjectConfigs {
+		t.Error("Git.InjectConfigs should be false after env override")
 	}
 }
 
@@ -296,7 +309,8 @@ func TestLoadUserConfigLogLevel(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
 log_level: debug
-ssh_forwarding: false
+ssh:
+  forward_agent: false
 `)
 
 	setupUserConfigEnv(t, home)
@@ -331,7 +345,8 @@ func TestEnvOverrideLogLevel(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
 log_level: info
-ssh_forwarding: true
+ssh:
+  forward_agent: true
 `)
 
 	setupUserConfigEnv(t, home)
@@ -350,8 +365,10 @@ ssh_forwarding: true
 func TestLoadFullPipeline(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
-ssh_forwarding: true
-git_config_forwarding: false
+ssh:
+  forward_agent: true
+git:
+  inject_configs: false
 compose_integration:
   compose_file: ../user-compose.yml
   strategy: network_join
@@ -366,18 +383,18 @@ compose_integration:
 `)
 
 	setupUserConfigEnv(t, home)
-	t.Setenv("DCX_SSH_FORWARDING", "false")
+	t.Setenv("DCX_SSH_FORWARD_AGENT", "false")
 
 	cfg, err := Load(projectDir)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.SSHForwarding {
-		t.Error("SSHForwarding should be false (env override)")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false (env override)")
 	}
-	if cfg.GitConfigForwarding {
-		t.Error("GitConfigForwarding should be false (user config)")
+	if cfg.Git.InjectConfigs {
+		t.Error("Git.InjectConfigs should be false (user config)")
 	}
 	if cfg.ComposeIntegration.Strategy != "overlay" {
 		t.Errorf("Strategy = %q, want overlay (project)", cfg.ComposeIntegration.Strategy)
@@ -708,5 +725,33 @@ mounts:
 	}
 	if cfg.Mounts[1].Source != "/project/data" {
 		t.Errorf("mounts[1].Source = %q, want /project/data (project)", cfg.Mounts[1].Source)
+	}
+}
+
+func TestLoadGitConfigsCustom(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+git:
+  inject_configs: true
+  configs:
+    - ~/.gitconfig
+    - ~/.gitignore_global
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Git.Configs) != 2 {
+		t.Fatalf("expected 2 git configs, got %d", len(cfg.Git.Configs))
+	}
+	if cfg.Git.Configs[0] != "~/.gitconfig" {
+		t.Errorf("Git.Configs[0] = %q, want ~/.gitconfig", cfg.Git.Configs[0])
+	}
+	if cfg.Git.Configs[1] != "~/.gitignore_global" {
+		t.Errorf("Git.Configs[1] = %q, want ~/.gitignore_global", cfg.Git.Configs[1])
 	}
 }
