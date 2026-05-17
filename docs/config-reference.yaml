@@ -48,3 +48,16 @@ default_features:
       version: latest
   - id: ghcr.io/devcontainers/features/docker-outside-of-docker
     options: {}
+
+# --- Bind Mounts ---
+
+# List of bind mounts to pass to the devcontainer CLI via --mount flags.
+# Source paths support ~ (home directory) and ${VAR} (environment variable) expansion.
+# If a resolved source path doesn't exist on the host, the mount is skipped with a warning.
+# User and project mounts are concatenated; duplicate targets produce a warning.
+mounts:
+  - source: ~/.config/opencode
+    target: /home/vscode/.config/opencode
+    read_only: true
+  - source: /data/project
+    target: /workspace

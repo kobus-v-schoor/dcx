@@ -6,6 +6,7 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/features"
+	"github.com/kobus-v-schoor/dcx/internal/mounts"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config and
@@ -45,10 +46,13 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 	return []string{"--additional-features", jsonStr}
 }
 
-// buildMounts returns --mount flags based on config (SSH socket, gitconfig,
-// shell configs). Placeholder for issues #6 and #8.
-func buildMounts(_ *config.Config) []string {
-	return nil
+// buildMounts returns --mount flags based on config. Resolves user-configured
+// bind mounts, expanding ~ and ${VAR} in source paths and skipping mounts
+// whose source path doesn't exist on the host. Also includes SSH socket,
+// gitconfig, and shell config mounts. Returns nil when no mounts are
+// configured or all are skipped.
+func buildMounts(cfg *config.Config) []string {
+	return mounts.BuildFlags(cfg.Mounts)
 }
 
 // buildRemoteEnv returns --remote-env flags for env var passthrough and

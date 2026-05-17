@@ -82,11 +82,8 @@ func TestFormatRemoteEnv(t *testing.T) {
 	}
 }
 
-func TestBuildPlaceholderFunctionsReturnNil(t *testing.T) {
+func TestBuildPlaceholderRemoteEnvReturnsNil(t *testing.T) {
 	cfg := &config.Config{}
-	if buildMounts(cfg) != nil {
-		t.Error("buildMounts should return nil (placeholder)")
-	}
 	if buildRemoteEnv(cfg) != nil {
 		t.Error("buildRemoteEnv should return nil (placeholder)")
 	}
@@ -138,5 +135,39 @@ func TestBuildWithFeatures(t *testing.T) {
 	}
 	if !found {
 		t.Error("--additional-features flag not found in Build output")
+	}
+}
+
+func TestBuildMountFlagsWithExistingSource(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := &config.Config{
+		Mounts: []config.Mount{
+			{Source: dir, Target: "/container/data", ReadOnly: true},
+		},
+	}
+
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
+
+	found := false
+	for i, a := range args {
+		if a == "--mount" && i+1 < len(args) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("--mount flag not found in Build output")
+	}
+}
+
+func TestBuildMountFlagsNoMounts(t *testing.T) {
+	cfg := &config.Config{}
+
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
+
+	for _, a := range args {
+		if a == "--mount" {
+			t.Error("--mount flag should not be present when no mounts configured")
+		}
 	}
 }

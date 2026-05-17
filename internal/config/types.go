@@ -33,6 +33,16 @@ func (f Feature) FeatureID() string {
 	return f.ID + ":latest"
 }
 
+// Mount represents a user-configured bind mount declaration. Source and Target
+// are the host and container paths respectively. ReadOnly controls whether the
+// mount is read-only; it defaults to false when not specified. Serialized as a
+// Docker --mount flag by the mounts package.
+type Mount struct {
+	Source   string `yaml:"source" mapstructure:"source"`
+	Target   string `yaml:"target" mapstructure:"target"`
+	ReadOnly bool   `yaml:"read_only" mapstructure:"read_only"`
+}
+
 // Config represents the fully-resolved dcx configuration. Bool fields use plain
 // types with viper defaults; viper's precedence chain (flag → env → config →
 // default) ensures unset fields receive their default value rather than zero.
@@ -42,5 +52,6 @@ type Config struct {
 	GitConfigForwarding bool                `yaml:"git_config_forwarding" mapstructure:"git_config_forwarding"`
 	ComposeIntegration  *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
 	DefaultFeatures     []Feature           `yaml:"default_features" mapstructure:"default_features"`
+	Mounts              []Mount             `yaml:"mounts" mapstructure:"mounts"`
 	LogLevel            string              `yaml:"log_level" mapstructure:"log_level"`
 }

@@ -560,3 +560,153 @@ func TestMergeFeaturesNeither(t *testing.T) {
 		t.Errorf("expected 0 features, got %d", len(merged))
 	}
 }
+
+func TestLoadUserConfigWithMounts(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+mounts:
+  - source: ~/config
+    target: /home/vscode/.config
+    read_only: true
+  - source: /data/project
+    target: /workspace
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Mounts) != 2 {
+		t.Fatalf("expected 2 mounts, got %d", len(cfg.Mounts))
+	}
+	if cfg.Mounts[0].Source != "~/config" {
+		t.Errorf("mounts[0].Source = %q, want ~/config", cfg.Mounts[0].Source)
+	}
+	if cfg.Mounts[0].Target != "/home/vscode/.config" {
+		t.Errorf("mounts[0].Target = %q, want /home/vscode/.config", cfg.Mounts[0].Target)
+	}
+	if !cfg.Mounts[0].ReadOnly {
+		t.Error("mounts[0].ReadOnly should be true")
+	}
+	if cfg.Mounts[1].ReadOnly {
+		t.Error("mounts[1].ReadOnly should be false (default)")
+	}
+}
+
+func TestLoadProjectConfigWithMounts(t *testing.T) {
+	dir := t.TempDir()
+	writeProjectConfig(t, dir, `
+mounts:
+  - source: /opt/tools
+    target: /tools
+    read_only: true
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(cfg.Mounts))
+	}
+	if cfg.Mounts[0].Source != "/opt/tools" {
+		t.Errorf("mount.Source = %q, want /opt/tools", cfg.Mounts[0].Source)
+	}
+}
+
+func TestMergeMountsConcatenates(t *testing.T) {
+	user := []Mount{
+		{Source: "/user/a", Target: "/a", ReadOnly: true},
+	}
+	project := []Mount{
+		{Source: "/project/b", Target: "/b", ReadOnly: false},
+	}
+
+	merged := mergeMounts(user, project)
+
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 mounts, got %d", len(merged))
+	}
+	if merged[0].Source != "/user/a" {
+		t.Errorf("merged[0].Source = %q, want /user/a", merged[0].Source)
+	}
+	if merged[1].Source != "/project/b" {
+		t.Errorf("merged[1].Source = %q, want /project/b", merged[1].Source)
+	}
+}
+
+func TestMergeMountsUserOnly(t *testing.T) {
+	user := []Mount{
+		{Source: "/user/a", Target: "/a", ReadOnly: true},
+	}
+
+	merged := mergeMounts(user, nil)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(merged))
+	}
+	if merged[0].Source != "/user/a" {
+		t.Errorf("merged[0].Source = %q, want /user/a", merged[0].Source)
+	}
+}
+
+func TestMergeMountsProjectOnly(t *testing.T) {
+	project := []Mount{
+		{Source: "/project/b", Target: "/b", ReadOnly: false},
+	}
+
+	merged := mergeMounts(nil, project)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(merged))
+	}
+	if merged[0].Source != "/project/b" {
+		t.Errorf("merged[0].Source = %q, want /project/b", merged[0].Source)
+	}
+}
+
+func TestMergeMountsNeither(t *testing.T) {
+	merged := mergeMounts(nil, nil)
+
+	if len(merged) != 0 {
+		t.Errorf("expected 0 mounts, got %d", len(merged))
+	}
+}
+
+func TestLoadMountsUserAndProject(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+mounts:
+  - source: ~/config
+    target: /home/vscode/.config
+    read_only: true
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, `
+mounts:
+  - source: /project/data
+    target: /data
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Mounts) != 2 {
+		t.Fatalf("expected 2 mounts (user + project), got %d", len(cfg.Mounts))
+	}
+	if cfg.Mounts[0].Source != "~/config" {
+		t.Errorf("mounts[0].Source = %q, want ~/config (user)", cfg.Mounts[0].Source)
+	}
+	if cfg.Mounts[1].Source != "/project/data" {
+		t.Errorf("mounts[1].Source = %q, want /project/data (project)", cfg.Mounts[1].Source)
+	}
+}
