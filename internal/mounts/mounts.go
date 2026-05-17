@@ -48,13 +48,13 @@ func Resolve(m config.Mount) *ResolvedMount {
 }
 
 // Format serializes a ResolvedMount into the Docker mount format string used by
-// the --mount flag. The output format is type=bind,source=...,target=... with
-// an optional ,readonly suffix when ReadOnly is true. The readonly option is
-// omitted when ReadOnly is false. Source and target values containing spaces or
-// special characters are properly quoted for Docker's comma-delimited parser.
+// the --mount flag. The output format is type=bind,source="...",target="..."
+// with an optional ,readonly suffix when ReadOnly is true. The readonly option
+// is omitted when ReadOnly is false. Source and target values are always quoted
+// to handle paths containing spaces or special characters correctly.
 // Called by BuildFlags after successful resolution.
 func Format(m ResolvedMount) string {
-	s := fmt.Sprintf("type=bind,source=%s,target=%s", quoteMountValue(m.Source), quoteMountValue(m.Target))
+	s := fmt.Sprintf("type=bind,source=\"%s\",target=\"%s\"", m.Source, m.Target)
 	if m.ReadOnly {
 		s += ",readonly"
 	}
@@ -125,15 +125,4 @@ func expandEnvVars(path string) string {
 		}
 		return match
 	})
-}
-
-// quoteMountValue wraps a mount source or target value in double quotes if it
-// contains characters that would interfere with Docker's comma-delimited --mount
-// parsing (spaces, commas, or equals signs). Docker accepts quoted values in
-// --mount strings to handle such paths correctly.
-func quoteMountValue(v string) string {
-	if strings.ContainsAny(v, " ,=") {
-		return `"` + v + `"`
-	}
-	return v
 }

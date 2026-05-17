@@ -1,6 +1,7 @@
 package mounts
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,7 +159,7 @@ func TestResolvePreservesTargetAndReadOnly(t *testing.T) {
 func TestFormatReadOnlyTrue(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/path", ReadOnly: true}
 	got := Format(m)
-	want := "type=bind,source=/host/path,target=/container/path,readonly"
+	want := `type=bind,source="/host/path",target="/container/path",readonly`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
@@ -167,7 +168,7 @@ func TestFormatReadOnlyTrue(t *testing.T) {
 func TestFormatReadOnlyFalse(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/path", ReadOnly: false}
 	got := Format(m)
-	want := "type=bind,source=/host/path,target=/container/path"
+	want := `type=bind,source="/host/path",target="/container/path"`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
@@ -176,7 +177,7 @@ func TestFormatReadOnlyFalse(t *testing.T) {
 func TestFormatWithSpacesInSource(t *testing.T) {
 	m := ResolvedMount{Source: "/host/my path", Target: "/container/path", ReadOnly: false}
 	got := Format(m)
-	want := `type=bind,source="/host/my path",target=/container/path`
+	want := `type=bind,source="/host/my path",target="/container/path"`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
@@ -185,31 +186,9 @@ func TestFormatWithSpacesInSource(t *testing.T) {
 func TestFormatWithSpacesInTarget(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/my path", ReadOnly: true}
 	got := Format(m)
-	want := `type=bind,source=/host/path,target="/container/my path",readonly`
+	want := `type=bind,source="/host/path",target="/container/my path",readonly`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
-	}
-}
-
-func TestQuoteMountValue(t *testing.T) {
-	tests := []struct {
-		name string
-		val  string
-		want string
-	}{
-		{name: "no special chars", val: "/plain/path", want: "/plain/path"},
-		{name: "contains space", val: "/path with spaces", want: `"/path with spaces"`},
-		{name: "contains comma", val: "/path,with,commas", want: `"/path,with,commas"`},
-		{name: "contains equals", val: "/path=equals", want: `"/path=equals"`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := quoteMountValue(tt.val)
-			if got != tt.want {
-				t.Errorf("quoteMountValue(%q) = %q, want %q", tt.val, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -240,7 +219,7 @@ func TestBuildFlagsSingleMount(t *testing.T) {
 	if flags[0] != "--mount" {
 		t.Errorf("flag = %q, want --mount", flags[0])
 	}
-	expected := "type=bind,source=" + dir + ",target=/container/data,readonly"
+	expected := fmt.Sprintf(`type=bind,source="%s",target="/container/data",readonly`, dir)
 	if flags[1] != expected {
 		t.Errorf("flag value = %q, want %q", flags[1], expected)
 	}
