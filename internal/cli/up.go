@@ -36,8 +36,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	slog.Info("found devcontainer CLI", "path", devcontainerPath)
 
 	slog.Info("config loaded")
-	slog.Debug("ssh_forwarding", "enabled", activeCfg.SSHForwarding)
-	slog.Debug("git_config_forwarding", "enabled", activeCfg.GitConfigForwarding)
+	slog.Debug("ssh.forward_agent", "enabled", activeCfg.SSH.ForwardAgent)
+	slog.Debug("git.inject_configs", "enabled", activeCfg.Git.InjectConfigs)
 
 	overrideDir, cleanup, err := override.Create(workspaceFolder)
 	if err != nil {

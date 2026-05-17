@@ -37,8 +37,9 @@ func Load(cwd string) (*Config, error) {
 	// corresponding YAML key is absent from all config files. Keys without
 	// explicit defaults are registered automatically when a config file
 	// provides a value.
-	v.SetDefault("ssh_forwarding", true)
-	v.SetDefault("git_config_forwarding", true)
+	v.SetDefault("ssh.forward_agent", true)
+	v.SetDefault("git.inject_configs", true)
+	v.SetDefault("git.configs", []string{"~/.gitconfig"})
 	v.SetDefault("log_level", "")
 
 	// Capture user-level features and mounts before project config is merged

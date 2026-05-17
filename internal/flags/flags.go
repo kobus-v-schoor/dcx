@@ -7,6 +7,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/features"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
+	dcxsShh "github.com/kobus-v-schoor/dcx/internal/ssh"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config and
@@ -46,22 +47,66 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 	return []string{"--additional-features", jsonStr}
 }
 
-// buildMounts returns --mount flags based on config. Resolves user-configured
-// bind mounts, expanding ~ and ${VAR} in source paths and skipping mounts
-// whose source path doesn't exist on the host. Returns nil when no mounts are
-// configured or all are skipped.
+// buildMounts returns --mount flags based on config and auto-detected mounts.
+// It resolves user-configured bind mounts (expanding ~ and ${VAR} in source
+// paths, skipping non-existent sources), then appends SSH agent and git config
+// auto-detection mounts when enabled. Returns nil when no mounts are produced.
 func buildMounts(cfg *config.Config) []string {
-	return mounts.BuildFlags(cfg.Mounts)
+	var flags []string
+
+	flags = append(flags, mounts.BuildFlags(cfg.Mounts)...)
+
+	if cfg.SSH.ForwardAgent {
+		agentResult := dcxsShh.DetectAgent()
+		if agentResult.Mount != nil {
+			flags = append(flags, "--mount", mounts.Format(*agentResult.Mount))
+		}
+	}
+
+	if cfg.Git.InjectConfigs {
+		gitResult := dcxsShh.DetectGitConfigs(cfg.Git)
+		for _, m := range gitResult.Mounts {
+			flags = append(flags, "--mount", mounts.Format(*m))
+		}
+	}
+
+	if len(flags) == 0 {
+		return nil
+	}
+
+	return flags
 }
 
-// buildRemoteEnv returns --remote-env flags for env var passthrough and
-// resolved secrets. Placeholder for issue #7.
-func buildRemoteEnv(_ *config.Config) []string {
-	return nil
+// buildRemoteEnv returns --remote-env flags for environment variable
+// passthrough. It includes SSH agent and git config env vars when
+// auto-detection produced results. Returns nil when no env vars are produced.
+func buildRemoteEnv(cfg *config.Config) []string {
+	var flags []string
+
+	if cfg.SSH.ForwardAgent {
+		agentResult := dcxsShh.DetectAgent()
+		if agentResult.Mount != nil {
+			flags = append(flags, "--remote-env", dcxsShh.FormatAgentEnv(agentResult))
+		}
+	}
+
+	if cfg.Git.InjectConfigs {
+		gitResult := dcxsShh.DetectGitConfigs(cfg.Git)
+		envStr := dcxsShh.FormatGitEnv(gitResult)
+		if envStr != "" {
+			flags = append(flags, "--remote-env", envStr)
+		}
+	}
+
+	if len(flags) == 0 {
+		return nil
+	}
+
+	return flags
 }
 
 // FormatRemoteEnv formats a single --remote-env flag value. Exported for use
-// by future packages (env, secrets).
+// by other packages that need to format env var strings.
 func FormatRemoteEnv(name, value string) string {
 	return fmt.Sprintf("%s=%s", name, value)
 }
