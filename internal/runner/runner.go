@@ -16,7 +16,7 @@ func Find() (string, error) {
 	path, err := exec.LookPath(binaryName)
 	if err != nil {
 		return "", fmt.Errorf(
-			"devcontainer CLI not found on PATH.\n"+
+			"devcontainer CLI not found on PATH.\n" +
 				"See: https://github.com/devcontainers/cli",
 		)
 	}

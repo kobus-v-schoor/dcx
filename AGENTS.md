@@ -39,7 +39,8 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
-- `internal/ssh/` — SSH/git auto-detection
+- `internal/ssh/` — SSH agent auto-detection
+- `internal/git/` — git config auto-detection
 - `internal/shell/` — shell integration (mount configs, inject postCreateCommand)
 - `internal/secrets/` — password manager providers (1Password, Bitwarden, GitHub token)
 - `internal/compose/` — Docker Compose strategies (network join, overlay)

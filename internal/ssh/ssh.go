@@ -8,14 +8,6 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
 )
 
-const (
-	// defaultAgentMountTarget is the default container path where the SSH agent
-	// socket is bind-mounted. Placed under /opt/dcx/ to avoid conflicts with
-	// container-installed software, per the project's mount namespace convention.
-	// Can be overridden via SSHConfig.AgentSocketTarget.
-	defaultAgentMountTarget = "/opt/dcx/sockets/ssh-agent.sock"
-)
-
 // AgentResult holds the mount and environment variable produced by DetectAgent.
 // Either both fields are populated (agent detected) or both are zero-valued
 // (agent absent or disabled). Consumers check Mount != nil to determine
@@ -29,10 +21,10 @@ type AgentResult struct {
 // DetectAgent checks the host environment for an SSH agent socket. It reads
 // SSH_AUTH_SOCK, verifies the socket file exists, and returns an AgentResult
 // with the appropriate bind mount and env var. The container mount target is
-// determined by cfg.AgentSocketTarget (falling back to
-// /opt/dcx/sockets/ssh-agent.sock when empty). If SSH_AUTH_SOCK is unset or
-// the socket does not exist, a warning is logged and an empty result is
-// returned. Called by the flags package during dcx up flag assembly.
+// read from cfg.AgentSocketTarget (defaulted by the config package to
+// /opt/dcx/sockets/ssh-agent.sock). If SSH_AUTH_SOCK is unset or the socket
+// does not exist, a warning is logged and an empty result is returned. Called
+// by the flags package during dcx up flag assembly.
 func DetectAgent(cfg config.SSHConfig) AgentResult {
 	socketPath := os.Getenv("SSH_AUTH_SOCK")
 	if socketPath == "" {
@@ -51,18 +43,13 @@ func DetectAgent(cfg config.SSHConfig) AgentResult {
 		return AgentResult{}
 	}
 
-	target := cfg.AgentSocketTarget
-	if target == "" {
-		target = defaultAgentMountTarget
-	}
-
 	return AgentResult{
 		Mount: &mounts.ResolvedMount{
 			Source:   socketPath,
-			Target:   target,
+			Target:   cfg.AgentSocketTarget,
 			ReadOnly: false,
 		},
 		EnvName:  "SSH_AUTH_SOCK",
-		EnvValue: target,
+		EnvValue: cfg.AgentSocketTarget,
 	}
 }

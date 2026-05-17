@@ -1,4 +1,4 @@
-package ssh
+package git
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 )
 
-func TestDetectGitConfigsSingleFile(t *testing.T) {
+func TestDetectConfigsSingleFile(t *testing.T) {
 	home := t.TempDir()
 	gitconfigPath := filepath.Join(home, ".gitconfig")
 	if err := os.WriteFile(gitconfigPath, []byte("[user]\n  name = test\n"), 0o644); err != nil {
@@ -20,9 +20,10 @@ func TestDetectGitConfigsSingleFile(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{"~/.gitconfig"},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(result.Mounts))
@@ -44,13 +45,14 @@ func TestDetectGitConfigsSingleFile(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsDisabled(t *testing.T) {
+func TestDetectConfigsDisabled(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: false,
 		Configs:       []string{"~/.gitconfig"},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 0 {
 		t.Errorf("expected 0 mounts when disabled, got %d", len(result.Mounts))
@@ -60,13 +62,14 @@ func TestDetectGitConfigsDisabled(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsEmptyConfigs(t *testing.T) {
+func TestDetectConfigsEmptyConfigs(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       nil,
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 0 {
 		t.Errorf("expected 0 mounts with empty configs, got %d", len(result.Mounts))
@@ -76,15 +79,16 @@ func TestDetectGitConfigsEmptyConfigs(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsMissingFile(t *testing.T) {
+func TestDetectConfigsMissingFile(t *testing.T) {
 	t.Setenv("HOME", "/nonexistent/home")
 
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{"~/.gitconfig"},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 0 {
 		t.Errorf("expected 0 mounts for missing file, got %d", len(result.Mounts))
@@ -94,7 +98,7 @@ func TestDetectGitConfigsMissingFile(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsMultipleFiles(t *testing.T) {
+func TestDetectConfigsMultipleFiles(t *testing.T) {
 	home := t.TempDir()
 
 	gitconfigPath := filepath.Join(home, ".gitconfig")
@@ -112,9 +116,10 @@ func TestDetectGitConfigsMultipleFiles(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{"~/.gitconfig", "~/.gitignore_global"},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 2 {
 		t.Fatalf("expected 2 mounts, got %d", len(result.Mounts))
@@ -140,7 +145,7 @@ func TestDetectGitConfigsMultipleFiles(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsSomeFilesMissing(t *testing.T) {
+func TestDetectConfigsSomeFilesMissing(t *testing.T) {
 	home := t.TempDir()
 
 	gitconfigPath := filepath.Join(home, ".gitconfig")
@@ -153,9 +158,10 @@ func TestDetectGitConfigsSomeFilesMissing(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{"~/.gitconfig", "~/.gitignore_global"},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 1 {
 		t.Fatalf("expected 1 mount (missing file skipped), got %d", len(result.Mounts))
@@ -165,7 +171,7 @@ func TestDetectGitConfigsSomeFilesMissing(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsAbsolutePath(t *testing.T) {
+func TestDetectConfigsAbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	gitconfigPath := filepath.Join(dir, "my-gitconfig")
 	if err := os.WriteFile(gitconfigPath, []byte("[user]\n  name = test\n"), 0o644); err != nil {
@@ -175,9 +181,10 @@ func TestDetectGitConfigsAbsolutePath(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{gitconfigPath},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(result.Mounts))
@@ -190,7 +197,7 @@ func TestDetectGitConfigsAbsolutePath(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsFirstFileGetsEnv(t *testing.T) {
+func TestDetectConfigsFirstFileGetsEnv(t *testing.T) {
 	dir := t.TempDir()
 	customPath := filepath.Join(dir, "custom-config")
 	if err := os.WriteFile(customPath, []byte("[core]\n  editor = vim\n"), 0o644); err != nil {
@@ -200,9 +207,10 @@ func TestDetectGitConfigsFirstFileGetsEnv(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{customPath},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(result.Mounts))
@@ -215,7 +223,7 @@ func TestDetectGitConfigsFirstFileGetsEnv(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsCustomMountBase(t *testing.T) {
+func TestDetectConfigsCustomMountBase(t *testing.T) {
 	home := t.TempDir()
 	gitconfigPath := filepath.Join(home, ".gitconfig")
 	if err := os.WriteFile(gitconfigPath, []byte("[user]\n  name = test\n"), 0o644); err != nil {
@@ -230,7 +238,7 @@ func TestDetectGitConfigsCustomMountBase(t *testing.T) {
 		MountBase:     "/custom/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(result.Mounts))
@@ -243,7 +251,7 @@ func TestDetectGitConfigsCustomMountBase(t *testing.T) {
 	}
 }
 
-func TestDetectGitConfigsDuplicateBasenames(t *testing.T) {
+func TestDetectConfigsDuplicateBasenames(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
@@ -259,9 +267,10 @@ func TestDetectGitConfigsDuplicateBasenames(t *testing.T) {
 	cfg := config.GitConfig{
 		InjectConfigs: true,
 		Configs:       []string{path1, path2},
+		MountBase:     "/opt/dcx/git",
 	}
 
-	result := DetectGitConfigs(cfg)
+	result := DetectConfigs(cfg)
 
 	if len(result.Mounts) != 2 {
 		t.Fatalf("expected 2 mounts, got %d", len(result.Mounts))

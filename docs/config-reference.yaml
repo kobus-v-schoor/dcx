@@ -30,21 +30,19 @@ ssh:
 # --- Git Config Forwarding ---
 
 # Automatically forward git configuration files into the container.
-# When enabled and configs is non-empty, dcx bind-mounts each listed file into
-# <mount_base>/<index>-<basename> and sets GIT_CONFIG_GLOBAL to the first
-# mounted file's container path. When configs is empty, no git config injection
-# occurs regardless of inject_configs.
+# When enabled, dcx bind-mounts each listed file into <mount_base>/<index>-<basename>
+# and sets GIT_CONFIG_GLOBAL to the first mounted file's container path.
 git:
   # Enable git config file injection.
   # Can also be set via the DCX_GIT_INJECT_CONFIGS environment variable.
-  # Default: false (no injection unless configs are explicitly listed)
+  # Default: true
   inject_configs: true
 
   # List of git config files to forward. Supports ~ for home directory.
   # Missing files are silently skipped with a warning.
   # The first file in the list that exists on the host gets GIT_CONFIG_GLOBAL
   # set to its container path, regardless of its filename.
-  # Default: [] (empty — no files injected by default)
+  # Default: [~/.gitconfig]
   configs:
     - ~/.gitconfig
     # - ~/.gitignore_global

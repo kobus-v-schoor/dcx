@@ -6,6 +6,7 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/features"
+	"github.com/kobus-v-schoor/dcx/internal/git"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
 	"github.com/kobus-v-schoor/dcx/internal/ssh"
 )
@@ -64,7 +65,7 @@ func buildMounts(cfg *config.Config) []string {
 	}
 
 	if cfg.Git.InjectConfigs {
-		gitResult := ssh.DetectGitConfigs(cfg.Git)
+		gitResult := git.DetectConfigs(cfg.Git)
 		for _, m := range gitResult.Mounts {
 			flags = append(flags, "--mount", mounts.Format(*m))
 		}
@@ -91,7 +92,7 @@ func buildRemoteEnv(cfg *config.Config) []string {
 	}
 
 	if cfg.Git.InjectConfigs {
-		gitResult := ssh.DetectGitConfigs(cfg.Git)
+		gitResult := git.DetectConfigs(cfg.Git)
 		if gitResult.EnvName != "" {
 			flags = append(flags, "--remote-env", FormatRemoteEnv(gitResult.EnvName, gitResult.EnvValue))
 		}

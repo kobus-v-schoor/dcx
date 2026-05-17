@@ -21,7 +21,10 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 
 	t.Setenv("SSH_AUTH_SOCK", socketPath)
 
-	cfg := config.SSHConfig{ForwardAgent: true}
+	cfg := config.SSHConfig{
+		ForwardAgent:      true,
+		AgentSocketTarget: "/opt/dcx/sockets/ssh-agent.sock",
+	}
 	result := DetectAgent(cfg)
 
 	if result.Mount == nil {
@@ -30,8 +33,8 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 	if result.Mount.Source != socketPath {
 		t.Errorf("Mount.Source = %q, want %q", result.Mount.Source, socketPath)
 	}
-	if result.Mount.Target != defaultAgentMountTarget {
-		t.Errorf("Mount.Target = %q, want %q", result.Mount.Target, defaultAgentMountTarget)
+	if result.Mount.Target != "/opt/dcx/sockets/ssh-agent.sock" {
+		t.Errorf("Mount.Target = %q, want /opt/dcx/sockets/ssh-agent.sock", result.Mount.Target)
 	}
 	if result.Mount.ReadOnly {
 		t.Error("Mount.ReadOnly should be false for SSH agent socket")
@@ -39,8 +42,8 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 	if result.EnvName != "SSH_AUTH_SOCK" {
 		t.Errorf("EnvName = %q, want SSH_AUTH_SOCK", result.EnvName)
 	}
-	if result.EnvValue != defaultAgentMountTarget {
-		t.Errorf("EnvValue = %q, want %q", result.EnvValue, defaultAgentMountTarget)
+	if result.EnvValue != "/opt/dcx/sockets/ssh-agent.sock" {
+		t.Errorf("EnvValue = %q, want /opt/dcx/sockets/ssh-agent.sock", result.EnvValue)
 	}
 }
 

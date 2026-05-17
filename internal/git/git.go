@@ -1,4 +1,4 @@
-package ssh
+package git
 
 import (
 	"fmt"
@@ -10,16 +10,8 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
 )
 
-const (
-	// defaultGitMountBase is the default container directory under which git
-	// config files are bind-mounted. Placed under /opt/dcx/ to avoid conflicts
-	// with container-installed software, per the project's mount namespace
-	// convention. Can be overridden via GitConfig.MountBase.
-	defaultGitMountBase = "/opt/dcx/git"
-)
-
 // GitResult holds the mounts and environment variables produced by
-// DetectGitConfigs. If no git config files are found or the feature is
+// DetectConfigs. If no git config files are found or the feature is
 // disabled, the slices will be empty. GIT_CONFIG_GLOBAL is set for the first
 // configured file that exists on the host, regardless of its basename.
 type GitResult struct {
@@ -28,7 +20,7 @@ type GitResult struct {
 	EnvValue string
 }
 
-// DetectGitConfigs scans the host for git configuration files listed in the
+// DetectConfigs scans the host for git configuration files listed in the
 // config. Each existing file is bind-mounted into the container under
 // <mountBase>/<index>-<basename>. The index prefix prevents collisions when
 // multiple files share the same basename. The first file in the Configs list
@@ -36,16 +28,15 @@ type GitResult struct {
 // GIT_CONFIG_GLOBAL, regardless of its filename. Missing files are silently
 // skipped with a warning. When Configs is empty, no mounts or env vars are
 // produced (InjectConfigs is effectively false). Called by the flags package
-// during dcx up flag assembly when Git.InjectConfigs is true.
-func DetectGitConfigs(cfg config.GitConfig) GitResult {
+// during dcx up flag assembly when Git.InjectConfigs is true. The mount base
+// directory is read from cfg.MountBase (defaulted by the config package to
+// /opt/dcx/git).
+func DetectConfigs(cfg config.GitConfig) GitResult {
 	if !cfg.InjectConfigs || len(cfg.Configs) == 0 {
 		return GitResult{}
 	}
 
 	mountBase := cfg.MountBase
-	if mountBase == "" {
-		mountBase = defaultGitMountBase
-	}
 
 	var result GitResult
 	globalSet := false
