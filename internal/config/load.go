@@ -39,6 +39,7 @@ func Load(cwd string) (*Config, error) {
 	// provides a value.
 	v.SetDefault("ssh_forwarding", true)
 	v.SetDefault("git_config_forwarding", true)
+	v.SetDefault("log_level", "")
 
 	// Capture user-level features and mounts before project config is merged
 	// on top. Viper replaces slices on merge rather than union-merging them,
