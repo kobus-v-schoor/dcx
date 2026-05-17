@@ -40,10 +40,10 @@ func Load(cwd string) (*Config, error) {
 	v.SetDefault("ssh_forwarding", true)
 	v.SetDefault("git_config_forwarding", true)
 
-	// Capture user-level features before project config is merged on top.
-	// Viper replaces slices on merge rather than union-merging them, so we
-	// need the user feature list separately for our custom union logic.
-	userFeatures, err := loadAndCaptureUserConfig(v)
+	// Capture user-level features and mounts before project config is merged
+	// on top. Viper replaces slices on merge rather than union-merging them,
+	// so we need these lists separately for our custom merge logic.
+	userFeatures, userMounts, err := loadAndCaptureUserConfig(v)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func Load(cwd string) (*Config, error) {
 	// Merge project config on top of user config. Viper's MergeInConfig
 	// replaces values at the same key path, which matches the project >
 	// user precedence rule.
-	projectFeatures, err := mergeProjectConfig(v, absCWD)
+	projectFeatures, projectMounts, err := mergeProjectConfig(v, absCWD)
 	if err != nil {
 		return nil, err
 	}
@@ -74,18 +74,22 @@ func Load(cwd string) (*Config, error) {
 	// are combined; project wins on ID conflict.
 	cfg.DefaultFeatures = mergeFeatures(userFeatures, projectFeatures)
 
+	// Concatenate user and project mounts; warn on duplicate targets but let
+	// Docker handle the conflict at runtime.
+	cfg.Mounts = mergeMounts(userMounts, projectMounts)
+
 	return &cfg, nil
 }
 
 // loadAndCaptureUserConfig reads the user-level config from
 // $XDG_CONFIG_HOME/dcx/config.yaml (or ~/.config/dcx/config.yaml) into the
-// viper instance. It returns the user's DefaultFeatures before any project
-// config overwrites them, so the caller can apply custom union-merge logic.
-// Returns nil features when no user config file exists.
-func loadAndCaptureUserConfig(v *viper.Viper) ([]Feature, error) {
+// viper instance. It returns the user's DefaultFeatures and Mounts before any
+// project config overwrites them, so the caller can apply custom merge logic.
+// Returns nil features/mounts when no user config file exists.
+func loadAndCaptureUserConfig(v *viper.Viper) ([]Feature, []Mount, error) {
 	configPath, err := userConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("finding user config directory: %w", err)
+		return nil, nil, fmt.Errorf("finding user config directory: %w", err)
 	}
 
 	v.SetConfigName("config")
@@ -95,29 +99,37 @@ func loadAndCaptureUserConfig(v *viper.Viper) ([]Feature, error) {
 	// user config" rather than a fatal error.
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("reading user config: %w", err)
+			return nil, nil, fmt.Errorf("reading user config: %w", err)
 		}
-		// No user config file — return empty features, viper defaults
+		// No user config file — return empty features/mounts, viper defaults
 		// still apply.
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	// Capture the user features before project config overwrites the key.
+	// Capture the user features and mounts before project config overwrites
+	// the keys.
 	var userFeatures []Feature
 	if v.IsSet("default_features") {
 		if err := v.UnmarshalKey("default_features", &userFeatures); err != nil {
-			return nil, fmt.Errorf("parsing user default_features: %w", err)
+			return nil, nil, fmt.Errorf("parsing user default_features: %w", err)
 		}
 	}
 
-	return userFeatures, nil
+	var userMounts []Mount
+	if v.IsSet("mounts") {
+		if err := v.UnmarshalKey("mounts", &userMounts); err != nil {
+			return nil, nil, fmt.Errorf("parsing user mounts: %w", err)
+		}
+	}
+
+	return userFeatures, userMounts, nil
 }
 
 // mergeProjectConfig merges the project-level config from
 // <cwd>/.devcontainer/dcx.yaml into the viper instance. It returns the
-// project's DefaultFeatures so the caller can apply custom union-merge logic.
-// Returns nil features when no project config file exists.
-func mergeProjectConfig(v *viper.Viper, cwd string) ([]Feature, error) {
+// project's DefaultFeatures and Mounts so the caller can apply custom merge
+// logic. Returns nil features/mounts when no project config file exists.
+func mergeProjectConfig(v *viper.Viper, cwd string) ([]Feature, []Mount, error) {
 	v.SetConfigName("dcx")
 	v.AddConfigPath(filepath.Join(cwd, ".devcontainer"))
 
@@ -125,20 +137,27 @@ func mergeProjectConfig(v *viper.Viper, cwd string) ([]Feature, error) {
 	// MergeInConfig merges on top of existing values.
 	if err := v.MergeInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("reading project config: %w", err)
+			return nil, nil, fmt.Errorf("reading project config: %w", err)
 		}
-		// No project config file — return empty features.
-		return nil, nil
+		// No project config file — return empty features/mounts.
+		return nil, nil, nil
 	}
 
 	var projectFeatures []Feature
 	if v.IsSet("default_features") {
 		if err := v.UnmarshalKey("default_features", &projectFeatures); err != nil {
-			return nil, fmt.Errorf("parsing project default_features: %w", err)
+			return nil, nil, fmt.Errorf("parsing project default_features: %w", err)
 		}
 	}
 
-	return projectFeatures, nil
+	var projectMounts []Mount
+	if v.IsSet("mounts") {
+		if err := v.UnmarshalKey("mounts", &projectMounts); err != nil {
+			return nil, nil, fmt.Errorf("parsing project mounts: %w", err)
+		}
+	}
+
+	return projectFeatures, projectMounts, nil
 }
 
 // userConfigDir resolves the directory containing the user config file.
@@ -204,5 +223,24 @@ func mergeFeatures(user, project []Feature) []Feature {
 		}
 	}
 
+	return result
+}
+
+// mergeMounts concatenates user and project mount lists. Unlike features,
+// mounts are not union-merged on conflict — Docker will handle duplicate
+// targets at runtime. Duplicate target warnings are emitted by the mounts
+// package during flag assembly. The order is: all user mounts first, then all
+// project mounts.
+func mergeMounts(user, project []Mount) []Mount {
+	if len(user) == 0 {
+		return project
+	}
+	if len(project) == 0 {
+		return user
+	}
+
+	result := make([]Mount, 0, len(user)+len(project))
+	result = append(result, user...)
+	result = append(result, project...)
 	return result
 }
