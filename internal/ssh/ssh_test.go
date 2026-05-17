@@ -16,7 +16,7 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot create unix socket: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	t.Setenv("SSH_AUTH_SOCK", socketPath)
 
