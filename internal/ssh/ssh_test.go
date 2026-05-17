@@ -5,10 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kobus-v-schoor/dcx/internal/config"
 )
 
 func TestDetectAgentSocketPresent(t *testing.T) {
-	// Create a temporary Unix domain socket to simulate SSH_AUTH_SOCK.
 	dir := t.TempDir()
 	socketPath := filepath.Join(dir, "agent.sock")
 
@@ -20,7 +21,8 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 
 	t.Setenv("SSH_AUTH_SOCK", socketPath)
 
-	result := DetectAgent()
+	cfg := config.SSHConfig{ForwardAgent: true}
+	result := DetectAgent(cfg)
 
 	if result.Mount == nil {
 		t.Fatal("expected Mount to be non-nil when socket exists")
@@ -28,8 +30,8 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 	if result.Mount.Source != socketPath {
 		t.Errorf("Mount.Source = %q, want %q", result.Mount.Source, socketPath)
 	}
-	if result.Mount.Target != agentMountTarget {
-		t.Errorf("Mount.Target = %q, want %q", result.Mount.Target, agentMountTarget)
+	if result.Mount.Target != defaultAgentMountTarget {
+		t.Errorf("Mount.Target = %q, want %q", result.Mount.Target, defaultAgentMountTarget)
 	}
 	if result.Mount.ReadOnly {
 		t.Error("Mount.ReadOnly should be false for SSH agent socket")
@@ -37,15 +39,45 @@ func TestDetectAgentSocketPresent(t *testing.T) {
 	if result.EnvName != "SSH_AUTH_SOCK" {
 		t.Errorf("EnvName = %q, want SSH_AUTH_SOCK", result.EnvName)
 	}
-	if result.EnvValue != agentEnvValue {
-		t.Errorf("EnvValue = %q, want %q", result.EnvValue, agentEnvValue)
+	if result.EnvValue != defaultAgentMountTarget {
+		t.Errorf("EnvValue = %q, want %q", result.EnvValue, defaultAgentMountTarget)
+	}
+}
+
+func TestDetectAgentCustomTarget(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "agent.sock")
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("cannot create unix socket: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	t.Setenv("SSH_AUTH_SOCK", socketPath)
+
+	cfg := config.SSHConfig{
+		ForwardAgent:      true,
+		AgentSocketTarget: "/custom/path/agent.sock",
+	}
+	result := DetectAgent(cfg)
+
+	if result.Mount == nil {
+		t.Fatal("expected Mount to be non-nil")
+	}
+	if result.Mount.Target != "/custom/path/agent.sock" {
+		t.Errorf("Mount.Target = %q, want /custom/path/agent.sock", result.Mount.Target)
+	}
+	if result.EnvValue != "/custom/path/agent.sock" {
+		t.Errorf("EnvValue = %q, want /custom/path/agent.sock", result.EnvValue)
 	}
 }
 
 func TestDetectAgentEnvNotSet(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
-	result := DetectAgent()
+	cfg := config.SSHConfig{ForwardAgent: true}
+	result := DetectAgent(cfg)
 
 	if result.Mount != nil {
 		t.Error("expected Mount to be nil when SSH_AUTH_SOCK is unset")
@@ -58,7 +90,8 @@ func TestDetectAgentEnvNotSet(t *testing.T) {
 func TestDetectAgentSocketMissing(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "/nonexistent/path/agent.sock")
 
-	result := DetectAgent()
+	cfg := config.SSHConfig{ForwardAgent: true}
+	result := DetectAgent(cfg)
 
 	if result.Mount != nil {
 		t.Error("expected Mount to be nil when socket path does not exist")
@@ -74,32 +107,10 @@ func TestDetectAgentPathIsNotSocket(t *testing.T) {
 
 	t.Setenv("SSH_AUTH_SOCK", regularFile)
 
-	result := DetectAgent()
+	cfg := config.SSHConfig{ForwardAgent: true}
+	result := DetectAgent(cfg)
 
 	if result.Mount != nil {
 		t.Error("expected Mount to be nil when path is not a socket")
-	}
-}
-
-func TestFormatAgentEnv(t *testing.T) {
-	result := AgentResult{
-		EnvName:  "SSH_AUTH_SOCK",
-		EnvValue: "/opt/dcx/sockets/ssh-agent.sock",
-	}
-
-	got := FormatAgentEnv(result)
-	want := "SSH_AUTH_SOCK=/opt/dcx/sockets/ssh-agent.sock"
-	if got != want {
-		t.Errorf("FormatAgentEnv() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatAgentEnvEmpty(t *testing.T) {
-	result := AgentResult{}
-
-	got := FormatAgentEnv(result)
-	want := "="
-	if got != want {
-		t.Errorf("FormatAgentEnv() with empty result = %q, want %q", got, want)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/features"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
-	dcxsShh "github.com/kobus-v-schoor/dcx/internal/ssh"
+	"github.com/kobus-v-schoor/dcx/internal/ssh"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config and
@@ -57,14 +57,14 @@ func buildMounts(cfg *config.Config) []string {
 	flags = append(flags, mounts.BuildFlags(cfg.Mounts)...)
 
 	if cfg.SSH.ForwardAgent {
-		agentResult := dcxsShh.DetectAgent()
+		agentResult := ssh.DetectAgent(cfg.SSH)
 		if agentResult.Mount != nil {
 			flags = append(flags, "--mount", mounts.Format(*agentResult.Mount))
 		}
 	}
 
 	if cfg.Git.InjectConfigs {
-		gitResult := dcxsShh.DetectGitConfigs(cfg.Git)
+		gitResult := ssh.DetectGitConfigs(cfg.Git)
 		for _, m := range gitResult.Mounts {
 			flags = append(flags, "--mount", mounts.Format(*m))
 		}
@@ -84,17 +84,16 @@ func buildRemoteEnv(cfg *config.Config) []string {
 	var flags []string
 
 	if cfg.SSH.ForwardAgent {
-		agentResult := dcxsShh.DetectAgent()
+		agentResult := ssh.DetectAgent(cfg.SSH)
 		if agentResult.Mount != nil {
-			flags = append(flags, "--remote-env", dcxsShh.FormatAgentEnv(agentResult))
+			flags = append(flags, "--remote-env", FormatRemoteEnv(agentResult.EnvName, agentResult.EnvValue))
 		}
 	}
 
 	if cfg.Git.InjectConfigs {
-		gitResult := dcxsShh.DetectGitConfigs(cfg.Git)
-		envStr := dcxsShh.FormatGitEnv(gitResult)
-		if envStr != "" {
-			flags = append(flags, "--remote-env", envStr)
+		gitResult := ssh.DetectGitConfigs(cfg.Git)
+		if gitResult.EnvName != "" {
+			flags = append(flags, "--remote-env", FormatRemoteEnv(gitResult.EnvName, gitResult.EnvValue))
 		}
 	}
 

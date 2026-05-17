@@ -48,11 +48,11 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.SSH.ForwardAgent {
 		t.Error("default SSH.ForwardAgent should be true")
 	}
-	if !cfg.Git.InjectConfigs {
-		t.Error("default Git.InjectConfigs should be true")
+	if cfg.Git.InjectConfigs {
+		t.Error("default Git.InjectConfigs should be false when no configs provided")
 	}
-	if len(cfg.Git.Configs) != 1 || cfg.Git.Configs[0] != "~/.gitconfig" {
-		t.Errorf("default Git.Configs = %v, want [~/.gitconfig]", cfg.Git.Configs)
+	if len(cfg.Git.Configs) != 0 {
+		t.Errorf("default Git.Configs = %v, want empty", cfg.Git.Configs)
 	}
 	if cfg.ComposeIntegration != nil {
 		t.Error("default ComposeIntegration should be nil")

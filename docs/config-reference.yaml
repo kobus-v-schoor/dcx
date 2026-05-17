@@ -14,7 +14,7 @@ log_level: warn
 
 # Automatically detect and forward SSH agent socket into the container.
 # When enabled, dcx reads SSH_AUTH_SOCK from the host, bind-mounts the socket
-# to /opt/dcx/sockets/ssh-agent.sock, and sets SSH_AUTH_SOCK inside the container.
+# into the container, and sets SSH_AUTH_SOCK inside the container.
 # If the socket is missing or SSH_AUTH_SOCK is unset, forwarding is silently skipped.
 ssh:
   # Forward the SSH agent socket from the host.
@@ -22,23 +22,37 @@ ssh:
   # Default: true
   forward_agent: true
 
+  # Container path for the bind-mounted SSH agent socket.
+  # Can also be set via the DCX_SSH_AGENT_SOCKET_TARGET environment variable.
+  # Default: /opt/dcx/sockets/ssh-agent.sock
+  # agent_socket_target: /opt/dcx/sockets/ssh-agent.sock
+
 # --- Git Config Forwarding ---
 
 # Automatically forward git configuration files into the container.
-# When enabled, dcx bind-mounts each listed file into /opt/dcx/git/<basename>
-# and sets GIT_CONFIG_GLOBAL to the first gitconfig file's container path.
+# When enabled and configs is non-empty, dcx bind-mounts each listed file into
+# <mount_base>/<index>-<basename> and sets GIT_CONFIG_GLOBAL to the first
+# mounted file's container path. When configs is empty, no git config injection
+# occurs regardless of inject_configs.
 git:
   # Enable git config file injection.
   # Can also be set via the DCX_GIT_INJECT_CONFIGS environment variable.
-  # Default: true
+  # Default: false (no injection unless configs are explicitly listed)
   inject_configs: true
 
   # List of git config files to forward. Supports ~ for home directory.
   # Missing files are silently skipped with a warning.
-  # Default: [~/.gitconfig]
+  # The first file in the list that exists on the host gets GIT_CONFIG_GLOBAL
+  # set to its container path, regardless of its filename.
+  # Default: [] (empty — no files injected by default)
   configs:
     - ~/.gitconfig
     # - ~/.gitignore_global
+
+  # Container directory under which git config files are bind-mounted.
+  # Can also be set via the DCX_GIT_MOUNT_BASE environment variable.
+  # Default: /opt/dcx/git
+  # mount_base: /opt/dcx/git
 
 # --- Docker Compose Integration ---
 

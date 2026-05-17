@@ -46,21 +46,28 @@ type Mount struct {
 // SSHConfig controls automatic SSH agent forwarding from the host into the
 // dev container. When ForwardAgent is true (the default), dcx reads
 // SSH_AUTH_SOCK from the host environment and bind-mounts the socket into the
-// container at /opt/dcx/sockets/ssh-agent.sock, then sets SSH_AUTH_SOCK inside
-// the container to point at the mounted path. If the socket is missing or
-// SSH_AUTH_SOCK is unset, the forwarding is silently skipped with a warning.
+// container, then sets SSH_AUTH_SOCK inside the container to point at the
+// mounted path. If the socket is missing or SSH_AUTH_SOCK is unset, the
+// forwarding is silently skipped with a warning. AgentSocketTarget is the
+// container path for the bind mount; it defaults to
+// /opt/dcx/sockets/ssh-agent.sock when empty.
 type SSHConfig struct {
-	ForwardAgent bool `yaml:"forward_agent" mapstructure:"forward_agent"`
+	ForwardAgent      bool   `yaml:"forward_agent" mapstructure:"forward_agent"`
+	AgentSocketTarget string `yaml:"agent_socket_target" mapstructure:"agent_socket_target"`
 }
 
 // GitConfig controls automatic git configuration forwarding from the host into
-// the dev container. When InjectConfigs is true (the default), dcx bind-mounts
-// each file listed in Configs into /opt/dcx/git/<basename> inside the container
-// and sets GIT_CONFIG_GLOBAL to the first mounted gitconfig. Configs defaults to
-// ["~/.gitconfig"]; missing files are silently skipped with a warning.
+// the dev container. When InjectConfigs is true and Configs is non-empty, dcx
+// bind-mounts each file listed in Configs into <MountBase>/<index>-<basename>
+// inside the container and sets GIT_CONFIG_GLOBAL to the first mounted file's
+// path. MountBase defaults to /opt/dcx/git when empty. Missing files are
+// silently skipped with a warning. When Configs is empty, InjectConfigs is
+// treated as false regardless of its value — no mounts or env vars are
+// produced.
 type GitConfig struct {
 	InjectConfigs bool     `yaml:"inject_configs" mapstructure:"inject_configs"`
 	Configs       []string `yaml:"configs" mapstructure:"configs"`
+	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
 // Config represents the fully-resolved dcx configuration. Bool fields use plain
