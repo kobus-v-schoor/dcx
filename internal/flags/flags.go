@@ -1,7 +1,6 @@
 package flags
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -27,7 +26,6 @@ func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []str
 
 	args = append(args, buildAdditionalFeatures(cfg)...)
 	args = append(args, buildMounts(cfg)...)
-	args = append(args, buildRemoteEnv(cfg)...)
 
 	return args
 }
@@ -76,37 +74,4 @@ func buildMounts(cfg *config.Config) []string {
 	}
 
 	return flags
-}
-
-// buildRemoteEnv returns --remote-env flags for environment variable
-// passthrough. It includes SSH agent and git config env vars when
-// auto-detection produced results. Returns nil when no env vars are produced.
-func buildRemoteEnv(cfg *config.Config) []string {
-	var flags []string
-
-	if cfg.SSH.ForwardAgent {
-		agentResult := ssh.DetectAgent(cfg.SSH)
-		if agentResult.Mount != nil {
-			flags = append(flags, "--remote-env", FormatRemoteEnv(agentResult.EnvName, agentResult.EnvValue))
-		}
-	}
-
-	if cfg.Git.InjectConfigs {
-		gitResult := git.DetectConfigs(cfg.Git)
-		if gitResult.EnvName != "" {
-			flags = append(flags, "--remote-env", FormatRemoteEnv(gitResult.EnvName, gitResult.EnvValue))
-		}
-	}
-
-	if len(flags) == 0 {
-		return nil
-	}
-
-	return flags
-}
-
-// FormatRemoteEnv formats a single --remote-env flag value. Exported for use
-// by other packages that need to format env var strings.
-func FormatRemoteEnv(name, value string) string {
-	return fmt.Sprintf("%s=%s", name, value)
 }

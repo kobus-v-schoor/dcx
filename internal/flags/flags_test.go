@@ -74,14 +74,6 @@ func TestBuildOverrideConfigPath(t *testing.T) {
 	}
 }
 
-func TestFormatRemoteEnv(t *testing.T) {
-	got := FormatRemoteEnv("MY_VAR", "hello")
-	want := "MY_VAR=hello"
-	if got != want {
-		t.Errorf("FormatRemoteEnv() = %q, want %q", got, want)
-	}
-}
-
 func TestBuildAdditionalFeaturesEmpty(t *testing.T) {
 	cfg := &config.Config{}
 	if buildAdditionalFeatures(cfg) != nil {
@@ -165,13 +157,21 @@ func TestBuildMountFlagsNoMounts(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteEnvNoEnvVars(t *testing.T) {
+func TestBuildNoRemoteEnvFlags(t *testing.T) {
+	t.Setenv("MY_VAR", "hello")
+
 	cfg := &config.Config{
-		SSH: config.SSHConfig{ForwardAgent: false},
-		Git: config.GitConfig{InjectConfigs: false},
+		SSH:         config.SSHConfig{ForwardAgent: false},
+		Git:         config.GitConfig{InjectConfigs: false},
+		Environment: []config.EnvVar{"MY_VAR"},
 	}
 
-	if buildRemoteEnv(cfg) != nil {
-		t.Error("buildRemoteEnv should return nil when no env vars to set")
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
+
+	// Env vars are injected into the override config, not via --remote-env flags.
+	for _, a := range args {
+		if a == "--remote-env" {
+			t.Error("--remote-env flag should not be present; env vars are injected via override config")
+		}
 	}
 }

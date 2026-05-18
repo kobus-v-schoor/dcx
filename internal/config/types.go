@@ -68,6 +68,16 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
+// EnvVar represents an environment variable passthrough declaration from the
+// dcx config. The string format follows one of two forms:
+//   - "NAME" — shorthand: reads host env var NAME, sets NAME in the container.
+//   - "CONTAINER_NAME=${HOST_VAR}" — explicit: reads HOST_VAR from the host,
+//     sets CONTAINER_NAME in the container.
+// If the referenced host variable is not set, the entry is silently skipped
+// during resolution (no error, no warning). This allows declaring a superset
+// of variables where only those existing on the current machine are forwarded.
+type EnvVar string
+
 // Config represents the fully-resolved dcx configuration. Bool fields use plain
 // types with viper defaults; viper's precedence chain (flag → env → config →
 // default) ensures unset fields receive their default value rather than zero.
@@ -78,5 +88,6 @@ type Config struct {
 	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
 	DefaultFeatures    []Feature           `yaml:"default_features" mapstructure:"default_features"`
 	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
+	Environment        []EnvVar            `yaml:"environment" mapstructure:"environment"`
 	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
 }

@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/env"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
+	"github.com/kobus-v-schoor/dcx/internal/git"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
+	"github.com/kobus-v-schoor/dcx/internal/ssh"
 	"github.com/spf13/cobra"
 )
 
@@ -47,6 +51,17 @@ func runUp(cmd *cobra.Command, args []string) error {
 
 	slog.Info("override dir", "path", overrideDir)
 
+	// Collect all container env vars (user-configured, SSH agent, git config)
+	// and inject them into the override config's containerEnv property. This
+	// makes the env vars persistent Docker-level environment variables in the
+	// running container (visible via env, docker exec, etc.), unlike remoteEnv
+	// which only applies to VS Code server processes or --remote-env flags
+	// which only apply during lifecycle commands.
+	containerEnvVars := collectContainerEnv(activeCfg)
+	if err := override.InjectContainerEnv(overrideDir, containerEnvVars); err != nil {
+		return fmt.Errorf("injecting container env: %w", err)
+	}
+
 	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir)
 
 	dcArgs = append(dcArgs, args...)
@@ -54,4 +69,39 @@ func runUp(cmd *cobra.Command, args []string) error {
 	slog.Debug("invoking devcontainer", "args", dcArgs)
 
 	return runner.Run(devcontainerPath, dcArgs)
+}
+
+// collectContainerEnv gathers all environment variables that should be set in the
+// devcontainer from three sources: (1) user-configured environment passthrough
+// declarations, (2) SSH agent forwarding env vars, and (3) git config env vars.
+// Each source is resolved independently; later sources overwrite earlier ones
+// on name conflict (user < SSH < git precedence for same env var name). Returns
+// an empty map when no env vars are produced. The returned map is injected into
+// the override config's containerEnv property so the vars become Docker-level
+// environment variables visible in the running container.
+func collectContainerEnv(cfg *config.Config) map[string]string {
+	result := make(map[string]string)
+
+	// 1. User-configured environment variable passthrough.
+	for _, resolved := range env.ResolveAll(cfg.Environment) {
+		result[resolved.Name] = resolved.Value
+	}
+
+	// 2. SSH agent forwarding env var.
+	if cfg.SSH.ForwardAgent {
+		agentResult := ssh.DetectAgent(cfg.SSH)
+		if agentResult.Mount != nil {
+			result[agentResult.EnvName] = agentResult.EnvValue
+		}
+	}
+
+	// 3. Git config forwarding env var.
+	if cfg.Git.InjectConfigs {
+		gitResult := git.DetectConfigs(cfg.Git)
+		if gitResult.EnvName != "" {
+			result[gitResult.EnvName] = gitResult.EnvValue
+		}
+	}
+
+	return result
 }

@@ -755,3 +755,135 @@ git:
 		t.Errorf("Git.Configs[1] = %q, want ~/.gitignore_global", cfg.Git.Configs[1])
 	}
 }
+
+func TestLoadUserConfigWithEnvironment(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+environment:
+  - AWS_ACCESS_KEY_ID
+  - SOMETHING_ELSE=${AWS_SECRET_ACCESS_KEY}
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Environment) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(cfg.Environment))
+	}
+	if string(cfg.Environment[0]) != "AWS_ACCESS_KEY_ID" {
+		t.Errorf("Environment[0] = %q, want AWS_ACCESS_KEY_ID", cfg.Environment[0])
+	}
+	if string(cfg.Environment[1]) != "SOMETHING_ELSE=${AWS_SECRET_ACCESS_KEY}" {
+		t.Errorf("Environment[1] = %q, want SOMETHING_ELSE=${AWS_SECRET_ACCESS_KEY}", cfg.Environment[1])
+	}
+}
+
+func TestLoadProjectConfigWithEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	writeProjectConfig(t, dir, `
+environment:
+  - API_KEY
+  - DB_URL=${DATABASE_URL}
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Environment) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(cfg.Environment))
+	}
+	if string(cfg.Environment[0]) != "API_KEY" {
+		t.Errorf("Environment[0] = %q, want API_KEY", cfg.Environment[0])
+	}
+	if string(cfg.Environment[1]) != "DB_URL=${DATABASE_URL}" {
+		t.Errorf("Environment[1] = %q, want DB_URL=${DATABASE_URL}", cfg.Environment[1])
+	}
+}
+
+func TestLoadEnvironmentUserAndProject(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+environment:
+  - USER_VAR
+`)
+
+	projectDir := t.TempDir()
+	writeProjectConfig(t, projectDir, `
+environment:
+  - PROJECT_VAR
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Environment) != 2 {
+		t.Fatalf("expected 2 env vars (user + project), got %d", len(cfg.Environment))
+	}
+	if string(cfg.Environment[0]) != "USER_VAR" {
+		t.Errorf("Environment[0] = %q, want USER_VAR (user)", cfg.Environment[0])
+	}
+	if string(cfg.Environment[1]) != "PROJECT_VAR" {
+		t.Errorf("Environment[1] = %q, want PROJECT_VAR (project)", cfg.Environment[1])
+	}
+}
+
+func TestMergeEnvVarsUserOnly(t *testing.T) {
+	user := []EnvVar{"USER_VAR"}
+	merged := mergeEnvVars(user, nil)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 env var, got %d", len(merged))
+	}
+	if string(merged[0]) != "USER_VAR" {
+		t.Errorf("merged[0] = %q, want USER_VAR", merged[0])
+	}
+}
+
+func TestMergeEnvVarsProjectOnly(t *testing.T) {
+	project := []EnvVar{"PROJECT_VAR"}
+	merged := mergeEnvVars(nil, project)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 env var, got %d", len(merged))
+	}
+	if string(merged[0]) != "PROJECT_VAR" {
+		t.Errorf("merged[0] = %q, want PROJECT_VAR", merged[0])
+	}
+}
+
+func TestMergeEnvVarsNeither(t *testing.T) {
+	merged := mergeEnvVars(nil, nil)
+
+	if len(merged) != 0 {
+		t.Errorf("expected 0 env vars, got %d", len(merged))
+	}
+}
+
+func TestMergeEnvVarsConcatenates(t *testing.T) {
+	user := []EnvVar{"A", "B"}
+	project := []EnvVar{"C"}
+	merged := mergeEnvVars(user, project)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(merged))
+	}
+	if string(merged[0]) != "A" {
+		t.Errorf("merged[0] = %q, want A", merged[0])
+	}
+	if string(merged[1]) != "B" {
+		t.Errorf("merged[1] = %q, want B", merged[1])
+	}
+	if string(merged[2]) != "C" {
+		t.Errorf("merged[2] = %q, want C", merged[2])
+	}
+}
