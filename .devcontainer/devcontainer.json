@@ -4,11 +4,15 @@
 	  "dockerfile": "Dockerfile"
   },
   "features": {
+	"ghcr.io/devcontainers/features/github-cli:1": {},
 	"ghcr.io/devcontainers/features/docker-in-docker:2": {
 		"moby": false
 	}
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-  "postCreateCommand": "go mod download"
+  "postCreateCommand": "go mod download",
+  "mounts": [
+	  "source=${localEnv:HOME}/.pi,target=/home/vscode/.pi,type=bind,consistency=cached"
+  ]
 }
