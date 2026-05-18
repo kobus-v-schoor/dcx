@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
 	"github.com/moby/moby/client"
@@ -24,21 +26,72 @@ type DockerClient interface {
 	Close() error
 }
 
+// defaultDockerHost is the default Docker daemon socket path used when the
+// docker go-sdk cannot resolve the current Docker context (e.g. when
+// ~/.docker/ does not exist). It matches the go-sdk's own default on each
+// platform.
+var defaultDockerHost string
+
+func init() {
+	switch runtime.GOOS {
+	case "windows":
+		defaultDockerHost = "npipe://./pipe/docker_engine"
+	default:
+		defaultDockerHost = "unix:///var/run/docker.sock"
+	}
+}
+
 // NewClient creates a Docker Engine API client configured from the current
 // Docker context. Unlike the raw moby client's FromEnv (which only reads
 // DOCKER_HOST), the docker go-sdk resolves the Docker host by inspecting
 // the Docker CLI config (~/.docker/config.json) and context metadata
 // (~/.docker/contexts/meta/...), so tools like Colima that set a custom
-// context work out of the box. The client also performs a health check
-// (ping with retries) during construction, so the caller can assume the
-// daemon is reachable if no error is returned. The caller must call Close()
-// when done. Used by all dcx commands that interact with Docker directly.
+// context work out of the box.
+//
+// The docker go-sdk has a known issue where it fails if ~/.docker/ does not
+// exist: config.Dir() returns a fmt.Errorf-wrapped "file does not exist"
+// error, which os.IsNotExist does not match, preventing the SDK's own
+// fallback to the default context. This function works around that by
+// detecting the missing config dir and retrying with an explicit Docker
+// host, which skips context resolution entirely.
+//
+// The client also performs a health check (ping with retries) during
+// construction, so the caller can assume the daemon is reachable if no
+// error is returned. The caller must call Close() when done. Used by all
+// dcx commands that interact with Docker directly.
 func NewClient(ctx context.Context) (DockerClient, error) {
 	sdkClient, err := gosdkclient.New(ctx, gosdkclient.WithLogger(slog.Default()))
 	if err != nil {
+		// If the error is caused by a missing Docker config directory,
+		// retry with an explicit Docker host. The go-sdk's config.Dir()
+		// returns a fmt.Errorf-wrapped "file does not exist" error which
+		// os.IsNotExist does not match, so the SDK's own fallback to the
+		// default context never triggers. Passing WithDockerHost bypasses
+		// the context resolution entirely.
+		if isMissingDockerConfigDir(err) {
+			slog.Debug("docker config dir not found, falling back to default docker host", "host", defaultDockerHost)
+			sdkClient, err = gosdkclient.New(ctx, gosdkclient.WithLogger(slog.Default()), gosdkclient.WithDockerHost(defaultDockerHost))
+			if err != nil {
+				return nil, fmt.Errorf("creating Docker client with default host: %w", err)
+			}
+			return sdkClient, nil
+		}
 		return nil, fmt.Errorf("creating Docker client: %w", err)
 	}
 	return sdkClient, nil
+}
+
+// isMissingDockerConfigDir checks whether the given error (or any error in
+// its chain) was caused by the Docker config directory not existing. This
+// handles the docker go-sdk's config.Dir() error format
+// ("file does not exist (<path>)"), which does not wrap os.ErrNotExist and
+// therefore is not matched by os.IsNotExist.
+func isMissingDockerConfigDir(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "file does not exist") &&
+		strings.Contains(err.Error(), ".docker")
 }
 
 const (

@@ -246,6 +246,53 @@ func TestShortID(t *testing.T) {
 	}
 }
 
+func TestIsMissingDockerConfigDir(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "missing docker config dir",
+			err:  fmt.Errorf("creating Docker client: load config: default values: current docker host: current context: load docker config: config path: config dir: file does not exist (/home/vscode/.docker)"),
+			want: true,
+		},
+		{
+		name: "missing docker config dir with DOCKER_CONFIG override",
+			err:  fmt.Errorf("load config: config path: config dir: file does not exist (/custom/.docker)"),
+			want: true,
+		},
+		{
+			name: "unrelated file does not exist",
+			err:  fmt.Errorf("file does not exist (/tmp/other)"),
+			want: false,
+		},
+		{
+			name: "unrelated error",
+			err:  fmt.Errorf("connection refused"),
+			want: false,
+		},
+		{
+			name: "docker error without missing file",
+			err:  fmt.Errorf("docker daemon not ready"),
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMissingDockerConfigDir(tt.err)
+			if got != tt.want {
+				t.Errorf("isMissingDockerConfigDir() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		(len(s) > 0 && findSubstr(s, sub)))
