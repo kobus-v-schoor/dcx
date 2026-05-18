@@ -73,6 +73,7 @@ type GitConfig struct {
 //   - "NAME" — shorthand: reads host env var NAME, sets NAME in the container.
 //   - "CONTAINER_NAME=${HOST_VAR}" — explicit: reads HOST_VAR from the host,
 //     sets CONTAINER_NAME in the container.
+//
 // If the referenced host variable is not set, the entry is silently skipped
 // during resolution (no error, no warning). This allows declaring a superset
 // of variables where only those existing on the current machine are forwarded.
