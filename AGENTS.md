@@ -24,11 +24,18 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 
 ## Devcontainer
 
-- Image: `mcr.microsoft.com/devcontainers/go:1` (floating tag, resolves to latest Go 1.x).
-- `devcontainer up --workspace-folder .` to start.
-- `devcontainer exec --workspace-folder . bash -c "cd /workspace && ..."` to run commands inside.
+- Custom Dockerfile based on `mcr.microsoft.com/devcontainers/go:1` with the `devcontainer` CLI pre-installed (via upstream install script, binary at `/usr/local/bin/devcontainer`).
+- Docker-in-Docker feature (`ghcr.io/devcontainers/features/docker-in-docker:2`, `moby: false`) enables running nested containers inside the devcontainer — used for integration testing.
+- `devcontainer up` to start.
+- `devcontainer exec ...` to run commands inside.
 - Requires `-buildvcs=false` when building inside the devcontainer (VCS mount issue).
-- To stop and clean up a devcontainer, use `dcx down` (or `dcx stop` to stop without removing).
+
+## Integration Testing
+
+- The devcontainer has Docker-in-Docker and the `devcontainer` CLI, so full end-to-end integration tests can run **inside** the devcontainer.
+- A test devcontainer is provided at `test/.devcontainer/` (simple `mcr.microsoft.com/devcontainers/base:debian` image) for use as the target container in integration tests.
+- **Whenever changes are made to the codebase**, build `dcx` inside the devcontainer and run basic integration testing (e.g. `dcx up` against `test/`, verify the container starts, then `dcx down`) to catch regressions before committing.
+- Integration tests should not be run on the host — only inside the devcontainer where Docker is available.
 
 ## Architecture
 
@@ -66,7 +73,7 @@ In order of precedence, low to high:
 3. Environment variables: `DCX_*`
 4. CLI flags
 
-Higher precedence config should overide and be merged with lower precedence
+Higher precedence config should override and be merged with lower precedence
 config.
 
 ## Security Rules
