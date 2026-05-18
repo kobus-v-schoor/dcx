@@ -263,7 +263,7 @@ func TestIsMissingDockerConfigDir(t *testing.T) {
 			want: true,
 		},
 		{
-		name: "missing docker config dir with DOCKER_CONFIG override",
+			name: "missing docker config dir with DOCKER_CONFIG override",
 			err:  fmt.Errorf("load config: config path: config dir: file does not exist (/custom/.docker)"),
 			want: true,
 		},
