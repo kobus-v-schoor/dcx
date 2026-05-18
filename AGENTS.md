@@ -16,26 +16,15 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 ## Language & Build
 
 - Go. Single static binary named `dcx`.
-- **Never run `go` commands on the host.** All `go` commands (build, test, vet, get, etc.) must be run inside the devcontainer.
 - `go build ./cmd/dcx` to build.
 - `go test ./... -race` to run tests.
 - `go vet ./...` to vet.
 - No code generation. No CGO (`CGO_ENABLED=0` for release builds).
 
-## Devcontainer
-
-- Custom Dockerfile based on `mcr.microsoft.com/devcontainers/go:1` with the `devcontainer` CLI pre-installed (via upstream install script, binary at `/usr/local/bin/devcontainer`).
-- Docker-in-Docker feature (`ghcr.io/devcontainers/features/docker-in-docker:2`, `moby: false`) enables running nested containers inside the devcontainer — used for integration testing.
-- `devcontainer up` to start.
-- `devcontainer exec ...` to run commands inside.
-- Requires `-buildvcs=false` when building inside the devcontainer (VCS mount issue).
-
 ## Integration Testing
 
-- The devcontainer has Docker-in-Docker and the `devcontainer` CLI, so full end-to-end integration tests can run **inside** the devcontainer.
-- A test devcontainer is provided at `test/.devcontainer/` (simple `mcr.microsoft.com/devcontainers/base:debian` image) for use as the target container in integration tests.
-- **Whenever changes are made to the codebase**, build `dcx` inside the devcontainer and run basic integration testing (e.g. `dcx up` against `test/`, verify the container starts, then `dcx down`) to catch regressions before committing.
-- Integration tests should not be run on the host — only inside the devcontainer where Docker is available.
+- A test devcontainer setup is provided at `test/.devcontainer/` (simple `mcr.microsoft.com/devcontainers/base:debian` image) for use as the target container in integration tests.
+- **Whenever changes are made to the codebase**, run basic integration testing (e.g. `dcx up` against `test/`, verify the container starts, then `dcx down`) to catch regressions before committing.
 
 ## Architecture
 
