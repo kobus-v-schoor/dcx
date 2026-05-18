@@ -73,7 +73,7 @@ In order of precedence, low to high:
 3. Environment variables: `DCX_*`
 4. CLI flags
 
-Higher precedence config should overide and be merged with lower precedence
+Higher precedence config should override and be merged with lower precedence
 config.
 
 ## Security Rules
