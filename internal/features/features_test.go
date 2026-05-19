@@ -206,4 +206,3 @@ func TestBuildJSONMultipleFeatures(t *testing.T) {
 		}
 	}
 }
-

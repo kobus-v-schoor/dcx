@@ -293,4 +293,3 @@ func TestIsMissingDockerConfigDir(t *testing.T) {
 		})
 	}
 }
-
