@@ -81,11 +81,11 @@ func Load(cwd string) (*Config, error) {
 
 	// Concatenate user and project mounts; warn on duplicate targets but let
 	// Docker handle the conflict at runtime.
-	cfg.Mounts = mergeMounts(userCaptured.Mounts, projectCaptured.Mounts)
+	cfg.Mounts = concatSlices(userCaptured.Mounts, projectCaptured.Mounts)
 
 	// Concatenate user and project environment variables; later entries for
 	// the same container-side name take precedence (project wins over user).
-	cfg.Environment = mergeEnvVars(userCaptured.Environment, projectCaptured.Environment)
+	cfg.Environment = concatSlices(userCaptured.Environment, projectCaptured.Environment)
 
 	return &cfg, nil
 }
@@ -126,26 +126,9 @@ func loadAndCaptureUserConfig(v *viper.Viper) (*capturedConfig, error) {
 		return &capturedConfig{}, nil
 	}
 
-	// Capture the user features and mounts before project config overwrites
-	// the keys.
 	var captured capturedConfig
-
-	if v.IsSet("default_features") {
-		if err := v.UnmarshalKey("default_features", &captured.Features); err != nil {
-			return nil, fmt.Errorf("parsing user default_features: %w", err)
-		}
-	}
-
-	if v.IsSet("mounts") {
-		if err := v.UnmarshalKey("mounts", &captured.Mounts); err != nil {
-			return nil, fmt.Errorf("parsing user mounts: %w", err)
-		}
-	}
-
-	if v.IsSet("environment") {
-		if err := v.UnmarshalKey("environment", &captured.Environment); err != nil {
-			return nil, fmt.Errorf("parsing user environment: %w", err)
-		}
+	if err := captureSliceConfig(v, "user", &captured); err != nil {
+		return nil, err
 	}
 
 	return &captured, nil
@@ -171,26 +154,38 @@ func mergeProjectConfig(v *viper.Viper, cwd string) (*capturedConfig, error) {
 	}
 
 	var captured capturedConfig
+	if err := captureSliceConfig(v, "project", &captured); err != nil {
+		return nil, err
+	}
 
+	return &captured, nil
+}
+
+// captureSliceConfig extracts DefaultFeatures, Mounts, and Environment from
+// the current viper state into the captured struct. The source parameter
+// ("user" or "project") is used in error messages to identify which config
+// file caused a parse failure. Shared by loadAndCaptureUserConfig and
+// mergeProjectConfig to avoid duplicating the three-field capture logic.
+func captureSliceConfig(v *viper.Viper, source string, captured *capturedConfig) error {
 	if v.IsSet("default_features") {
 		if err := v.UnmarshalKey("default_features", &captured.Features); err != nil {
-			return nil, fmt.Errorf("parsing project default_features: %w", err)
+			return fmt.Errorf("parsing %s default_features: %w", source, err)
 		}
 	}
 
 	if v.IsSet("mounts") {
 		if err := v.UnmarshalKey("mounts", &captured.Mounts); err != nil {
-			return nil, fmt.Errorf("parsing project mounts: %w", err)
+			return fmt.Errorf("parsing %s mounts: %w", source, err)
 		}
 	}
 
 	if v.IsSet("environment") {
 		if err := v.UnmarshalKey("environment", &captured.Environment); err != nil {
-			return nil, fmt.Errorf("parsing project environment: %w", err)
+			return fmt.Errorf("parsing %s environment: %w", source, err)
 		}
 	}
 
-	return &captured, nil
+	return nil
 }
 
 // userConfigDir resolves the directory containing the user config file.
@@ -259,41 +254,19 @@ func mergeFeatures(user, project []Feature) []Feature {
 	return result
 }
 
-// mergeMounts concatenates user and project mount lists. Unlike features,
-// mounts are not union-merged on conflict — Docker will handle duplicate
-// targets at runtime. Duplicate target warnings are emitted by the mounts
-// package during flag assembly. The order is: all user mounts first, then all
-// project mounts.
-func mergeMounts(user, project []Mount) []Mount {
-	if len(user) == 0 {
-		return project
+// concatSlices concatenates two slices, returning the non-nil one when either
+// is empty. Generalised over concat-specific merge functions (mounts, env
+// vars) that share identical append logic but differ only in element type.
+func concatSlices[T any](a, b []T) []T {
+	if len(a) == 0 {
+		return b
 	}
-	if len(project) == 0 {
-		return user
+	if len(b) == 0 {
+		return a
 	}
 
-	result := make([]Mount, 0, len(user)+len(project))
-	result = append(result, user...)
-	result = append(result, project...)
-	return result
-}
-
-// mergeEnvVars concatenates user and project environment variable lists.
-// Like mounts, env vars are concatenated rather than union-merged on conflict.
-// When the same container-side name appears in both user and project lists,
-// the project entry appears later in the --remote-env flags and therefore
-// takes precedence (the devcontainer CLI uses the last value for duplicate
-// names). The order is: all user env vars first, then all project env vars.
-func mergeEnvVars(user, project []EnvVar) []EnvVar {
-	if len(user) == 0 {
-		return project
-	}
-	if len(project) == 0 {
-		return user
-	}
-
-	result := make([]EnvVar, 0, len(user)+len(project))
-	result = append(result, user...)
-	result = append(result, project...)
+	result := make([]T, 0, len(a)+len(b))
+	result = append(result, a...)
+	result = append(result, b...)
 	return result
 }

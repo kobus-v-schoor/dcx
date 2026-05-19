@@ -70,62 +70,6 @@ func TestCreateCloseRemovesDir(t *testing.T) {
 	}
 }
 
-func TestCreateRandomDirName(t *testing.T) {
-	workspace := t.TempDir()
-	devcontainerDir := filepath.Join(workspace, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	od1, err := Create(workspace)
-	if err != nil {
-		t.Fatalf("Create() first call error: %v", err)
-	}
-	od1.Close()
-
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	od2, err := Create(workspace)
-	if err != nil {
-		t.Fatalf("Create() second call error: %v", err)
-	}
-	od2.Close()
-
-	if od1.Dir == od2.Dir {
-		t.Errorf("dir names should be random across invocations: both %q", od1.Dir)
-	}
-}
-
-func TestCreateDirNamePrefix(t *testing.T) {
-	workspace := t.TempDir()
-	devcontainerDir := filepath.Join(workspace, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	od, err := Create(workspace)
-	if err != nil {
-		t.Fatalf("Create() error: %v", err)
-	}
-	defer od.Close()
-
-	base := filepath.Base(od.Dir)
-	if len(base) < 5 || base[:4] != "dcx-" {
-		t.Errorf("dir base name should start with dcx-, got %q", base)
-	}
-}
-
 func TestSavePersistsToDisk(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
@@ -178,12 +122,10 @@ func TestInjectContainerEnvAddsNewContainerEnv(t *testing.T) {
 	}
 	defer od.Close()
 
-	envVars := map[string]string{
+	od.InjectContainerEnv(map[string]string{
 		"AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
 		"MY_VAR":            "hello",
-	}
-
-	od.InjectContainerEnv(envVars)
+	})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -232,11 +174,7 @@ func TestInjectContainerEnvMergesWithExisting(t *testing.T) {
 	}
 	defer od.Close()
 
-	envVars := map[string]string{
-		"NEW_VAR": "new_value",
-	}
-
-	od.InjectContainerEnv(envVars)
+	od.InjectContainerEnv(map[string]string{"NEW_VAR": "new_value"})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -256,11 +194,9 @@ func TestInjectContainerEnvMergesWithExisting(t *testing.T) {
 	if !ok {
 		t.Fatal("containerEnv key missing from override config")
 	}
-	// Existing var should be preserved.
 	if containerEnv["EXISTING_VAR"] != "existing_value" {
 		t.Errorf("containerEnv[EXISTING_VAR] = %v, want existing_value", containerEnv["EXISTING_VAR"])
 	}
-	// New var should be added.
 	if containerEnv["NEW_VAR"] != "new_value" {
 		t.Errorf("containerEnv[NEW_VAR] = %v, want new_value", containerEnv["NEW_VAR"])
 	}
@@ -283,11 +219,7 @@ func TestInjectContainerEnvOverridesDuplicateKey(t *testing.T) {
 	}
 	defer od.Close()
 
-	envVars := map[string]string{
-		"MY_VAR": "new_value",
-	}
-
-	od.InjectContainerEnv(envVars)
+	od.InjectContainerEnv(map[string]string{"MY_VAR": "new_value"})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)

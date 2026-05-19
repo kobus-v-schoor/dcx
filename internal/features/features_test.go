@@ -2,6 +2,7 @@ package features
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -75,14 +76,14 @@ func TestBuildJSONEmptyOptions(t *testing.T) {
 	key := "ghcr.io/opencode/devcontainer-feature/opencode:latest"
 	opts, ok := result[key]
 	if !ok {
-		t.Fatalf("expected feature ID %q in result, got keys: %v", key, mapKeys(result))
+		t.Fatalf("expected feature ID %q in result", key)
 	}
 	if len(opts) != 0 {
 		t.Errorf("options = %v, want empty map {}", opts)
 	}
 
 	raw := string(got)
-	if findStr(raw, ":null") {
+	if strings.Contains(raw, ":null") {
 		t.Errorf("JSON should not contain null, got: %s", raw)
 	}
 }
@@ -156,7 +157,7 @@ func TestBuildJSONLatestTagAppended(t *testing.T) {
 			}
 
 			if _, ok := result[tt.want]; !ok {
-				t.Errorf("expected key %q in result, got keys: %v", tt.want, mapKeys(result))
+				t.Errorf("expected key %q in result", tt.want)
 			}
 		})
 	}
@@ -204,21 +205,4 @@ func TestBuildJSONMultipleFeatures(t *testing.T) {
 			t.Errorf("expected key %q in result", k)
 		}
 	}
-}
-
-func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
-	keys := make([]K, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-func findStr(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -2,7 +2,7 @@ package runner
 
 import (
 	"os"
-	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -106,33 +106,7 @@ func TestFindErrorMessage(t *testing.T) {
 	}
 
 	msg := err.Error()
-	if !contains(msg, "https://github.com/devcontainers/cli") {
+	if !strings.Contains(msg, "https://github.com/devcontainers/cli") {
 		t.Errorf("error message should contain the install link, got: %s", msg)
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		(len(s) > 0 && findSubstr(s, sub)))
-}
-
-func findSubstr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-func TestMain(m *testing.M) {
-	if os.Getenv("GO_TEST_PROCESS") == "1" {
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
-
-func init() {
-	execErr := exec.Command("sh", "-c", "echo test").Run()
-	_ = execErr
 }

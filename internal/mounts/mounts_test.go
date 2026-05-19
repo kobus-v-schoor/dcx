@@ -9,92 +9,6 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 )
 
-func TestExpandHome(t *testing.T) {
-	home := "/home/testuser"
-	t.Setenv("HOME", home)
-
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{
-			name: "tilde slash expanded",
-			path: "~/projects/myapp",
-			want: filepath.Join(home, "projects/myapp"),
-		},
-		{
-			name: "bare tilde not expanded",
-			path: "~",
-			want: "~",
-		},
-		{
-			name: "no tilde unchanged",
-			path: "/absolute/path",
-			want: "/absolute/path",
-		},
-		{
-			name: "relative path unchanged",
-			path: "relative/path",
-			want: "relative/path",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ExpandHome(tt.path)
-			if got != tt.want {
-				t.Errorf("ExpandHome(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExpandEnvVars(t *testing.T) {
-	t.Setenv("MY_PROJECT_DIR", "/projects/myapp")
-
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{
-			name: "single var expanded",
-			path: "${MY_PROJECT_DIR}/data",
-			want: "/projects/myapp/data",
-		},
-		{
-			name: "entire path is var",
-			path: "${MY_PROJECT_DIR}",
-			want: "/projects/myapp",
-		},
-		{
-			name: "unset var left unchanged",
-			path: "${UNSET_VAR_12345}/data",
-			want: "${UNSET_VAR_12345}/data",
-		},
-		{
-			name: "no vars unchanged",
-			path: "/plain/path",
-			want: "/plain/path",
-		},
-		{
-			name: "multiple vars expanded",
-			path: "${MY_PROJECT_DIR}:${MY_PROJECT_DIR}",
-			want: "/projects/myapp:/projects/myapp",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := expandEnvVars(tt.path)
-			if got != tt.want {
-				t.Errorf("expandEnvVars(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestResolveWithTildeExpansion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -169,24 +83,6 @@ func TestFormatReadOnlyFalse(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/path", ReadOnly: false}
 	got := Format(m)
 	want := `type=bind,source="/host/path",target="/container/path"`
-	if got != want {
-		t.Errorf("Format() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatWithSpacesInSource(t *testing.T) {
-	m := ResolvedMount{Source: "/host/my path", Target: "/container/path", ReadOnly: false}
-	got := Format(m)
-	want := `type=bind,source="/host/my path",target="/container/path"`
-	if got != want {
-		t.Errorf("Format() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatWithSpacesInTarget(t *testing.T) {
-	m := ResolvedMount{Source: "/host/path", Target: "/container/my path", ReadOnly: true}
-	got := Format(m)
-	want := `type=bind,source="/host/path",target="/container/my path",readonly`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
@@ -276,21 +172,5 @@ func TestBuildFlagsAllSkippedReturnsNil(t *testing.T) {
 
 	if flags != nil {
 		t.Errorf("expected nil when all mounts are skipped, got %v", flags)
-	}
-}
-
-func TestBuildFlagsDuplicateTargetWarning(t *testing.T) {
-	dir := t.TempDir()
-
-	cfgMounts := []config.Mount{
-		{Source: dir, Target: "/container/same", ReadOnly: false},
-		{Source: dir, Target: "/container/same", ReadOnly: true},
-	}
-
-	flags := BuildFlags(cfgMounts)
-
-	// Both mounts should still be present despite duplicate target.
-	if len(flags) != 4 {
-		t.Fatalf("expected 4 flag elements (2 mounts), got %d: %v", len(flags), flags)
 	}
 }

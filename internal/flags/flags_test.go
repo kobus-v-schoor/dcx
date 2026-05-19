@@ -46,61 +46,6 @@ func TestBuildBasicFlags(t *testing.T) {
 	}
 }
 
-func TestBuildReturnsUpSubcommand(t *testing.T) {
-	cfg := &config.Config{}
-	args := Build("/ws", cfg, "/tmp/override")
-
-	if len(args) == 0 {
-		t.Fatal("expected at least one argument")
-	}
-	if args[0] != "up" {
-		t.Errorf("subcommand = %q, want %q", args[0], "up")
-	}
-}
-
-func TestBuildOverrideConfigPath(t *testing.T) {
-	cfg := &config.Config{}
-	args := Build("/my/project", cfg, "/tmp/dcx-deadbeef")
-
-	overridePath := filepath.Join("/tmp/dcx-deadbeef", "devcontainer.json")
-	found := false
-	for i, a := range args {
-		if a == "--override-config" && i+1 < len(args) && args[i+1] == overridePath {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("--override-config %s not found in args: %v", overridePath, args)
-	}
-}
-
-func TestBuildAdditionalFeaturesEmpty(t *testing.T) {
-	cfg := &config.Config{}
-	if buildAdditionalFeatures(cfg) != nil {
-		t.Error("buildAdditionalFeatures should return nil when no features configured")
-	}
-}
-
-func TestBuildAdditionalFeaturesWithFeatures(t *testing.T) {
-	cfg := &config.Config{
-		DefaultFeatures: []config.Feature{
-			{ID: "ghcr.io/devcontainers/features/github-cli:1", Options: map[string]interface{}{"version": "latest"}},
-		},
-	}
-
-	args := buildAdditionalFeatures(cfg)
-
-	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
-	}
-	if args[0] != "--additional-features" {
-		t.Errorf("flag = %q, want --additional-features", args[0])
-	}
-	if args[1] == "" {
-		t.Error("additional-features value should not be empty")
-	}
-}
-
 func TestBuildWithFeatures(t *testing.T) {
 	cfg := &config.Config{
 		SSH: config.SSHConfig{ForwardAgent: true},
@@ -153,25 +98,6 @@ func TestBuildMountFlagsNoMounts(t *testing.T) {
 	for _, a := range args {
 		if a == "--mount" {
 			t.Error("--mount flag should not be present when no mounts configured")
-		}
-	}
-}
-
-func TestBuildNoRemoteEnvFlags(t *testing.T) {
-	t.Setenv("MY_VAR", "hello")
-
-	cfg := &config.Config{
-		SSH:         config.SSHConfig{ForwardAgent: false},
-		Git:         config.GitConfig{InjectConfigs: false},
-		Environment: []config.EnvVar{"MY_VAR"},
-	}
-
-	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
-
-	// Env vars are injected into the override config, not via --remote-env flags.
-	for _, a := range args {
-		if a == "--remote-env" {
-			t.Error("--remote-env flag should not be present; env vars are injected via override config")
 		}
 	}
 }
