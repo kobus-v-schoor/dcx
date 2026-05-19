@@ -7,13 +7,17 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/features"
 )
 
-// Build assembles the devcontainer up CLI flags from the resolved config and
-// override directory. It returns a slice of string arguments suitable for
-// passing to exec.Command. Mounts are NOT included here — they are injected
-// via the override config's mounts property instead, because the devcontainer
-// CLI's --mount flag does not support options like readonly. Called by dcx up
+// Build assembles the devcontainer up CLI flags from the resolved config,
+// override directory, and rebuild flag. It returns a slice of string
+// arguments suitable for passing to exec.Command. When rebuild is true,
+// --remove-existing-container is appended so the devcontainer CLI
+// recreates the container rather than reusing an existing one — this
+// ensures config changes (env vars, mounts, features) take effect.
+// Mounts are NOT included here — they are injected via the override
+// config's mounts property instead, because the devcontainer CLI's
+// --mount flag does not support options like readonly. Called by dcx up
 // after config loading and override directory creation.
-func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []string {
+func Build(workspaceFolder string, cfg *config.Config, overrideDir string, rebuild bool) []string {
 	var args []string
 
 	args = append(args, "up")
@@ -24,6 +28,10 @@ func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []str
 	args = append(args, "--override-config", overrideConfigPath)
 
 	args = append(args, buildAdditionalFeatures(cfg)...)
+
+	if rebuild {
+		args = append(args, "--remove-existing-container")
+	}
 
 	return args
 }
