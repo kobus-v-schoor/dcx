@@ -100,7 +100,7 @@ type EnvVar string
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	GitHubCLI         GitHubCLIConfig     `yaml:"github_cli" mapstructure:"github_cli"`
+	GitHubCLI          GitHubCLIConfig     `yaml:"github_cli" mapstructure:"github_cli"`
 	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
 	Git                GitConfig           `yaml:"git" mapstructure:"git"`
 	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`

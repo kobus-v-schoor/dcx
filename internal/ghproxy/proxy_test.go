@@ -7,10 +7,10 @@ import (
 
 func TestExtractRepo(t *testing.T) {
 	tests := []struct {
-		name    string
-		path    string
-		want    string
-		wantOK  bool
+		name   string
+		path   string
+		want   string
+		wantOK bool
 	}{
 		{
 			name:   "repos owner repo issues",

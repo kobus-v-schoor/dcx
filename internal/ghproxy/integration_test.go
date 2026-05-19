@@ -158,7 +158,7 @@ func makeProxyClient(t *testing.T, caCertPEM []byte) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				RootCAs:    caCertPool,
+				RootCAs: caCertPool,
 				// The proxy's cert is issued to ProxyHost but we connect
 				// via 127.0.0.1, so we need to skip name verification in
 				// tests.
