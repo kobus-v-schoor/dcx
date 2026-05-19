@@ -72,6 +72,7 @@ func Execute(v string) error {
 	root.AddCommand(newUpCmd())
 	root.AddCommand(newDownCmd())
 	root.AddCommand(newStopCmd())
+	root.AddCommand(newExecCmd())
 
 	return root.Execute()
 }

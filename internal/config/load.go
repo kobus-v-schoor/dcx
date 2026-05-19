@@ -37,6 +37,8 @@ func Load(cwd string) (*Config, error) {
 	// corresponding YAML key is absent from all config files. Keys without
 	// explicit defaults are registered automatically when a config file
 	// provides a value.
+	v.SetDefault("github_cli.enabled", false)
+	v.SetDefault("github_cli.repository", "")
 	v.SetDefault("ssh.forward_agent", true)
 	v.SetDefault("ssh.agent_socket_target", "/opt/dcx/sockets/ssh-agent.sock")
 	v.SetDefault("git.inject_configs", true)

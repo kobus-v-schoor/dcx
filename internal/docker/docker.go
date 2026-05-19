@@ -1,9 +1,12 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,9 +16,10 @@ import (
 )
 
 // DockerClient is a narrow interface over the Docker Engine API, exposing only
-// the operations needed by dcx (container lifecycle and image cleanup). The
-// production implementation is *client.Client (obtained via the docker go-sdk),
-// which satisfies this interface. A mock implementation is used in tests.
+// the operations needed by dcx (container lifecycle, image cleanup, file
+// copy, and exec). The production implementation is *client.Client (obtained
+// via the docker go-sdk), which satisfies this interface. A mock
+// implementation is used in tests.
 type DockerClient interface {
 	Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error)
 	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
@@ -23,6 +27,10 @@ type DockerClient interface {
 	ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
 	ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error)
 	ImageRemove(ctx context.Context, imageID string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
+	CopyToContainer(ctx context.Context, containerID string, options client.CopyToContainerOptions) (client.CopyToContainerResult, error)
+	ExecCreate(ctx context.Context, containerID string, options client.ExecCreateOptions) (client.ExecCreateResult, error)
+	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
+	ExecInspect(ctx context.Context, execID string, options client.ExecInspectOptions) (client.ExecInspectResult, error)
 	Close() error
 }
 
@@ -113,10 +121,11 @@ func shortID(id string) string {
 	return id
 }
 
-// findDevcontainers lists all containers (running and stopped) that were
+// FindDevcontainers lists all containers (running and stopped) that were
 // created by the devcontainer CLI for the given workspace folder. Returns an
-// empty slice if none are found.
-func findDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder string) (client.ContainerListResult, error) {
+// empty slice if none are found. Exported so the exec command can check
+// whether a devcontainer exists before attempting to exec into it.
+func FindDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder string) (client.ContainerListResult, error) {
 	absPath, err := filepath.Abs(workspaceFolder)
 	if err != nil {
 		return client.ContainerListResult{}, fmt.Errorf("resolving workspace path: %w", err)
@@ -135,6 +144,31 @@ func findDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder st
 	}
 
 	return result, nil
+}
+
+// findDevcontainers is an alias for FindDevcontainers for backward
+// compatibility with existing callers in this package.
+func findDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder string) (client.ContainerListResult, error) {
+	return FindDevcontainers(ctx, cli, workspaceFolder)
+}
+
+// GatewayIP inspects the given container and returns the gateway IP address
+// of its primary network. This is the IP address the container can use to
+// reach the host. Used by dcx exec to determine the host IP so the
+// container can connect to the GitHub API proxy running on the host.
+func GatewayIP(ctx context.Context, cli DockerClient, containerID string) (string, error) {
+	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("inspecting container %s for gateway IP: %w", shortID(containerID), err)
+	}
+
+	for _, net := range inspect.Container.NetworkSettings.Networks {
+		if net.Gateway.IsValid() {
+			return net.Gateway.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("no gateway IP found for container %s", shortID(containerID))
 }
 
 // Stop stops the devcontainer for the given workspace folder without removing
@@ -209,6 +243,95 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 				slog.Debug("could not remove image (may still be in use)", "id", shortID(imageID), "error", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// CopyFileToContainer copies a file from the host into a running container.
+// It reads the file at hostPath, creates a tar archive in memory, and uses
+// the Docker API's CopyToContainer to place it at containerDir inside the
+// container. The file retains its basename. Used by dcx exec to copy the
+// proxy's CA certificate into the container so the gh CLI trusts the proxy's
+// self-signed TLS certificate.
+func CopyFileToContainer(ctx context.Context, cli DockerClient, containerID, hostPath, containerDir string) error {
+	data, err := os.ReadFile(hostPath)
+	if err != nil {
+		return fmt.Errorf("reading host file %s: %w", hostPath, err)
+	}
+
+	return CopyBytesToContainer(ctx, cli, containerID, filepath.Base(hostPath), data, containerDir)
+}
+
+// CopyBytesToContainer copies the given content as a file into a running
+// container. It creates a tar archive in memory containing a single file with
+// the given name and content, and uses the Docker API's CopyToContainer to
+// place it at containerDir inside the container. The target directory must
+// already exist inside the container — use MkdirInContainer to create it
+// first. Used by dcx exec to write the proxy's CA certificate into the
+// container.
+func CopyBytesToContainer(ctx context.Context, cli DockerClient, containerID, fileName string, content []byte, containerDir string) error {
+	// Create a tar archive containing the file. The Docker API's
+	// CopyToContainer expects a tar archive, not a raw file.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	hdr := &tar.Header{
+		Name: fileName,
+		Mode: 0o644,
+		Size: int64(len(content)),
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("writing tar header: %w", err)
+	}
+
+	if _, err := tw.Write(content); err != nil {
+		return fmt.Errorf("writing tar content: %w", err)
+	}
+
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("closing tar archive: %w", err)
+	}
+
+	_, err := cli.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{
+		DestinationPath: containerDir,
+		Content:         &buf,
+	})
+	if err != nil {
+		return fmt.Errorf("copying to container %s: %w", shortID(containerID), err)
+	}
+
+	return nil
+}
+
+// MkdirInContainer creates a directory inside a running container by
+// executing mkdir -p via the Docker exec API. Used by dcx exec to ensure
+// the target directory exists before copying the CA certificate into the
+// container.
+func MkdirInContainer(ctx context.Context, cli DockerClient, containerID, dir string) error {
+	execCreate, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		Cmd:          []string{"mkdir", "-p", dir},
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return fmt.Errorf("creating mkdir exec in container %s: %w", shortID(containerID), err)
+	}
+
+	_, err = cli.ExecStart(ctx, execCreate.ID, client.ExecStartOptions{})
+	if err != nil {
+		return fmt.Errorf("running mkdir in container %s: %w", shortID(containerID), err)
+	}
+
+	// Check the exit code of the mkdir command.
+	inspect, err := cli.ExecInspect(ctx, execCreate.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspecting mkdir exec in container %s: %w", shortID(containerID), err)
+	}
+
+	if inspect.ExitCode != 0 {
+		return fmt.Errorf("mkdir -p %s in container %s exited with code %d", dir, shortID(containerID), inspect.ExitCode)
 	}
 
 	return nil

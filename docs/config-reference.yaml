@@ -52,6 +52,30 @@ git:
   # Default: /opt/dcx/git
   # mount_base: /opt/dcx/git
 
+# --- GitHub CLI Proxy ---
+
+# Configure the GitHub CLI reverse proxy for repository-level token scoping.
+# When enabled, dcx exec starts a local HTTPS reverse proxy that intercepts
+# all gh CLI requests from the container and enforces repository-level access
+# control on the user's GitHub token. Requests targeting repositories other
+# than the configured one are rejected with 403 Forbidden. This prevents
+# accidental or malicious access to other repositories from within the
+# devcontainer.
+github_cli:
+  # Enable the GitHub CLI proxy for dcx exec sessions.
+  # Can also be set via the DCX_GITHUB_CLI_ENABLED environment variable.
+  # Default: false
+  enabled: false
+
+  # The allowed repository in "owner/repo" format. Only API requests targeting
+  # this repository are forwarded to api.github.com; all other repo-scoped
+  # requests are rejected. Non-repo paths (e.g. /user, /graphql) are always
+  # allowed. If empty, the repository is auto-detected from the git remote
+  # origin URL of the workspace.
+  # Can also be set via the DCX_GITHUB_CLI_REPOSITORY environment variable.
+  # Default: "" (auto-detect)
+  # repository: owner/repo
+
 # --- Docker Compose Integration ---
 
 # Connect the dev container to a Compose project's network.

@@ -68,6 +68,20 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
+// GitHubCLIConfig controls the GitHub CLI reverse proxy that enforces
+// repository-level scoping on the user's GitHub token. When Enabled is true,
+// dcx exec starts a local HTTPS reverse proxy inside the dcx process.
+// The gh CLI inside the container is configured (via GH_HOST and related env
+// vars) to route all requests through this proxy. The proxy intercepts each
+// request and enforces that it only targets the current project's repository
+// — rejecting any request that targets a different repo. Repository is
+// auto-detected from the git remote (origin URL) in the workspace when empty;
+// set it explicitly to override auto-detection.
+type GitHubCLIConfig struct {
+	Enabled    bool   `yaml:"enabled" mapstructure:"enabled"`
+	Repository string `yaml:"repository" mapstructure:"repository"`
+}
+
 // EnvVar represents an environment variable passthrough declaration from the
 // dcx config. The string format follows one of two forms:
 //   - "NAME" — shorthand: reads host env var NAME, sets NAME in the container.
@@ -86,6 +100,7 @@ type EnvVar string
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
+	GitHubCLI         GitHubCLIConfig     `yaml:"github_cli" mapstructure:"github_cli"`
 	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
 	Git                GitConfig           `yaml:"git" mapstructure:"git"`
 	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`

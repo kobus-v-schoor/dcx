@@ -3,10 +3,12 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
 
@@ -22,6 +24,11 @@ type mockDockerClient struct {
 	stopErr          error
 	removeErr        error
 	imageRemoveErr   error
+	copyErr          error
+	execCreateErr    error
+	execStartErr     error
+	execInspectErr   error
+	execInspectResult client.ExecInspectResult
 	closed           bool
 }
 
@@ -47,6 +54,22 @@ func (m *mockDockerClient) ContainerRemove(_ context.Context, _ string, _ client
 
 func (m *mockDockerClient) ImageRemove(_ context.Context, _ string, _ client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 	return client.ImageRemoveResult{}, m.imageRemoveErr
+}
+
+func (m *mockDockerClient) CopyToContainer(_ context.Context, _ string, _ client.CopyToContainerOptions) (client.CopyToContainerResult, error) {
+	return client.CopyToContainerResult{}, m.copyErr
+}
+
+func (m *mockDockerClient) ExecCreate(_ context.Context, _ string, _ client.ExecCreateOptions) (client.ExecCreateResult, error) {
+	return client.ExecCreateResult{ID: "exec123"}, m.execCreateErr
+}
+
+func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
+	return client.ExecStartResult{}, m.execStartErr
+}
+
+func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
+	return m.execInspectResult, m.execInspectErr
 }
 
 func (m *mockDockerClient) Close() error {
@@ -244,6 +267,112 @@ func TestShortID(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("shortID(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestGatewayIP(t *testing.T) {
+	// Test GatewayIP with a valid gateway IP in the container's network settings.
+	gatewayIP, err := netip.ParseAddr("172.18.0.1")
+	if err != nil {
+		t.Fatalf("parsing gateway IP: %v", err)
+	}
+
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				NetworkSettings: &container.NetworkSettings{
+					Networks: map[string]*network.EndpointSettings{
+						"bridge": {
+							Gateway: gatewayIP,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := GatewayIP(context.Background(), cli, "abc123")
+	if err != nil {
+		t.Fatalf("GatewayIP() error: %v", err)
+	}
+	if got != "172.18.0.1" {
+		t.Errorf("GatewayIP() = %q, want %q", got, "172.18.0.1")
+	}
+}
+
+func TestGatewayIPNoNetwork(t *testing.T) {
+	// Test GatewayIP when the container has no network settings.
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				NetworkSettings: &container.NetworkSettings{
+					Networks: map[string]*network.EndpointSettings{},
+				},
+			},
+		},
+	}
+
+	_, err := GatewayIP(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when no gateway IP found")
+	}
+	if !strings.Contains(err.Error(), "no gateway IP found") {
+		t.Errorf("error should mention no gateway IP found, got: %s", err.Error())
+	}
+}
+
+func TestGatewayIPInspectError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectErr: fmt.Errorf("inspect failed"),
+	}
+
+	_, err := GatewayIP(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when inspect fails")
+	}
+	if !strings.Contains(err.Error(), "inspecting container") {
+		t.Errorf("error should mention inspecting container, got: %s", err.Error())
+	}
+}
+
+func TestMkdirInContainer(t *testing.T) {
+	// Test successful mkdir.
+	cli := &mockDockerClient{
+		execInspectResult: client.ExecInspectResult{ExitCode: 0},
+	}
+
+	err := MkdirInContainer(context.Background(), cli, "abc123", "/opt/dcx/gh-proxy")
+	if err != nil {
+		t.Fatalf("MkdirInContainer() error: %v", err)
+	}
+}
+
+func TestMkdirInContainerNonZeroExit(t *testing.T) {
+	// Test mkdir with non-zero exit code (e.g. permission denied).
+	cli := &mockDockerClient{
+		execInspectResult: client.ExecInspectResult{ExitCode: 1},
+	}
+
+	err := MkdirInContainer(context.Background(), cli, "abc123", "/opt/dcx/gh-proxy")
+	if err == nil {
+		t.Fatal("expected error when mkdir exits non-zero")
+	}
+	if !strings.Contains(err.Error(), "exited with code") {
+		t.Errorf("error should mention exit code, got: %s", err.Error())
+	}
+}
+
+func TestMkdirInContainerCreateError(t *testing.T) {
+	cli := &mockDockerClient{
+		execCreateErr: fmt.Errorf("exec create failed"),
+	}
+
+	err := MkdirInContainer(context.Background(), cli, "abc123", "/opt/dcx/gh-proxy")
+	if err == nil {
+		t.Fatal("expected error when exec create fails")
+	}
+	if !strings.Contains(err.Error(), "creating mkdir exec") {
+		t.Errorf("error should mention creating mkdir exec, got: %s", err.Error())
 	}
 }
 
