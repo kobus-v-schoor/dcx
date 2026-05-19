@@ -43,4 +43,3 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 
 	return []string{"--additional-features", jsonStr}
 }
-

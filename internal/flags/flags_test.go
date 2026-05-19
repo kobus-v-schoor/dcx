@@ -67,5 +67,3 @@ func TestBuildWithFeatures(t *testing.T) {
 		t.Error("--additional-features flag not found in Build output")
 	}
 }
-
-
