@@ -8,6 +8,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/env"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
 	"github.com/kobus-v-schoor/dcx/internal/git"
+	"github.com/kobus-v-schoor/dcx/internal/mounts"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/kobus-v-schoor/dcx/internal/ssh"
@@ -60,6 +61,16 @@ func runUp(cmd *cobra.Command, args []string) error {
 	containerEnvVars := collectContainerEnv(activeCfg)
 	overrideDir.InjectContainerEnv(containerEnvVars)
 
+	// Collect all mount strings (user-configured, SSH agent, git config) and
+	// inject them into the override config's mounts property. Mounts are
+	// injected via the config rather than --mount CLI flags because the
+	// devcontainer CLI's --mount flag has a strict format that only accepts
+	// type, source, target and external — it does not support readonly or
+	// other Docker mount options. The devcontainer.json mounts property
+	// accepts the full Docker --mount format.
+	mountStrings := collectMountStrings(activeCfg)
+	overrideDir.InjectMounts(mountStrings)
+
 	// Persist all injected modifications to disk before delegating to the
 	// devcontainer CLI.
 	if err := overrideDir.Save(); err != nil {
@@ -104,6 +115,37 @@ func collectContainerEnv(cfg *config.Config) map[string]string {
 		gitResult := git.DetectConfigs(cfg.Git)
 		if gitResult.EnvName != "" {
 			result[gitResult.EnvName] = gitResult.EnvValue
+		}
+	}
+
+	return result
+}
+
+// collectMountStrings gathers all mount strings that should be injected into
+// the override config's mounts property from three sources: (1) user-configured
+// bind mounts from the config, (2) SSH agent socket mount, and (3) git config
+// file mounts. Each source is resolved independently; mounts with missing
+// source paths on the host are silently skipped. Returns nil when no mounts
+// are produced.
+func collectMountStrings(cfg *config.Config) []string {
+	var result []string
+
+	// 1. User-configured bind mounts.
+	result = append(result, mounts.BuildStrings(cfg.Mounts)...)
+
+	// 2. SSH agent forwarding mount.
+	if cfg.SSH.ForwardAgent {
+		agentResult := ssh.DetectAgent(cfg.SSH)
+		if agentResult.Mount != nil {
+			result = append(result, mounts.Format(*agentResult.Mount))
+		}
+	}
+
+	// 3. Git config forwarding mounts.
+	if cfg.Git.InjectConfigs {
+		gitResult := git.DetectConfigs(cfg.Git)
+		for _, m := range gitResult.Mounts {
+			result = append(result, mounts.Format(*m))
 		}
 	}
 

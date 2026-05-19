@@ -270,6 +270,129 @@ func TestInjectContainerEnvEmptyMapNoop(t *testing.T) {
 	}
 }
 
+func TestInjectMountsAddsNewMounts(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(`{"image": "test:latest"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	od.InjectMounts([]string{
+		"type=bind,source=/host/data,target=/container/data,readonly",
+		"type=bind,source=/host/config,target=/container/config",
+	})
+
+	if err := od.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(od.Dir, "devcontainer.json"))
+	if err != nil {
+		t.Fatalf("reading override file: %v", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshalling override config: %v", err)
+	}
+
+	mounts, ok := config["mounts"].([]interface{})
+	if !ok {
+		t.Fatal("mounts key missing from override config")
+	}
+	if len(mounts) != 2 {
+		t.Fatalf("expected 2 mounts, got %d", len(mounts))
+	}
+	if mounts[0] != "type=bind,source=/host/data,target=/container/data,readonly" {
+		t.Errorf("mounts[0] = %v, want readonly mount", mounts[0])
+	}
+	if mounts[1] != "type=bind,source=/host/config,target=/container/config" {
+		t.Errorf("mounts[1] = %v, want non-readonly mount", mounts[1])
+	}
+}
+
+func TestInjectMountsAppendsToExisting(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest", "mounts": ["type=volume,source=myvol,target=/data"]}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	od.InjectMounts([]string{"type=bind,source=/host/path,target=/container/path,readonly"})
+
+	if err := od.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(od.Dir, "devcontainer.json"))
+	if err != nil {
+		t.Fatalf("reading override file: %v", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshalling override config: %v", err)
+	}
+
+	mounts, ok := config["mounts"].([]interface{})
+	if !ok {
+		t.Fatal("mounts key missing from override config")
+	}
+	if len(mounts) != 2 {
+		t.Fatalf("expected 2 mounts (1 existing + 1 injected), got %d", len(mounts))
+	}
+	if mounts[0] != "type=volume,source=myvol,target=/data" {
+		t.Errorf("mounts[0] = %v, want existing mount", mounts[0])
+	}
+	if mounts[1] != "type=bind,source=/host/path,target=/container/path,readonly" {
+		t.Errorf("mounts[1] = %v, want injected mount", mounts[1])
+	}
+}
+
+func TestInjectMountsEmptySliceNoop(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	// Empty slice should be a no-op — config should not have mounts.
+	od.InjectMounts([]string{})
+
+	if _, ok := od.config["mounts"]; ok {
+		t.Error("mounts should not be present when mount strings slice is empty")
+	}
+}
+
 func TestMultipleInjectCallsBeforeSave(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")

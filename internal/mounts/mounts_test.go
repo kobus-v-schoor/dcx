@@ -73,7 +73,7 @@ func TestResolvePreservesTargetAndReadOnly(t *testing.T) {
 func TestFormatReadOnlyTrue(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/path", ReadOnly: true}
 	got := Format(m)
-	want := `type=bind,source="/host/path",target="/container/path",readonly`
+	want := `type=bind,source=/host/path,target=/container/path,readonly`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
@@ -82,46 +82,43 @@ func TestFormatReadOnlyTrue(t *testing.T) {
 func TestFormatReadOnlyFalse(t *testing.T) {
 	m := ResolvedMount{Source: "/host/path", Target: "/container/path", ReadOnly: false}
 	got := Format(m)
-	want := `type=bind,source="/host/path",target="/container/path"`
+	want := `type=bind,source=/host/path,target=/container/path`
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}
 }
 
-func TestBuildFlagsEmpty(t *testing.T) {
-	got := BuildFlags(nil)
+func TestBuildStringsEmpty(t *testing.T) {
+	got := BuildStrings(nil)
 	if got != nil {
-		t.Errorf("BuildFlags(nil) = %v, want nil", got)
+		t.Errorf("BuildStrings(nil) = %v, want nil", got)
 	}
 
-	got = BuildFlags([]config.Mount{})
+	got = BuildStrings([]config.Mount{})
 	if got != nil {
-		t.Errorf("BuildFlags([]) = %v, want nil", got)
+		t.Errorf("BuildStrings([]) = %v, want nil", got)
 	}
 }
 
-func TestBuildFlagsSingleMount(t *testing.T) {
+func TestBuildStringsSingleMount(t *testing.T) {
 	dir := t.TempDir()
 
 	cfgMounts := []config.Mount{
 		{Source: dir, Target: "/container/data", ReadOnly: true},
 	}
 
-	flags := BuildFlags(cfgMounts)
+	result := BuildStrings(cfgMounts)
 
-	if len(flags) != 2 {
-		t.Fatalf("expected 2 flag elements, got %d: %v", len(flags), flags)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 mount string, got %d: %v", len(result), result)
 	}
-	if flags[0] != "--mount" {
-		t.Errorf("flag = %q, want --mount", flags[0])
-	}
-	expected := fmt.Sprintf(`type=bind,source="%s",target="/container/data",readonly`, dir)
-	if flags[1] != expected {
-		t.Errorf("flag value = %q, want %q", flags[1], expected)
+	expected := fmt.Sprintf(`type=bind,source=%s,target=/container/data,readonly`, dir)
+	if result[0] != expected {
+		t.Errorf("mount string = %q, want %q", result[0], expected)
 	}
 }
 
-func TestBuildFlagsMultipleMounts(t *testing.T) {
+func TestBuildStringsMultipleMounts(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
@@ -130,20 +127,14 @@ func TestBuildFlagsMultipleMounts(t *testing.T) {
 		{Source: dir2, Target: "/container/b", ReadOnly: true},
 	}
 
-	flags := BuildFlags(cfgMounts)
+	result := BuildStrings(cfgMounts)
 
-	if len(flags) != 4 {
-		t.Fatalf("expected 4 flag elements, got %d: %v", len(flags), flags)
-	}
-	if flags[0] != "--mount" {
-		t.Errorf("flag[0] = %q, want --mount", flags[0])
-	}
-	if flags[2] != "--mount" {
-		t.Errorf("flag[2] = %q, want --mount", flags[2])
+	if len(result) != 2 {
+		t.Fatalf("expected 2 mount strings, got %d: %v", len(result), result)
 	}
 }
 
-func TestBuildFlagsSkipsMissingSource(t *testing.T) {
+func TestBuildStringsSkipsMissingSource(t *testing.T) {
 	dir := t.TempDir()
 
 	cfgMounts := []config.Mount{
@@ -151,26 +142,23 @@ func TestBuildFlagsSkipsMissingSource(t *testing.T) {
 		{Source: "/nonexistent/path", Target: "/container/missing", ReadOnly: false},
 	}
 
-	flags := BuildFlags(cfgMounts)
+	result := BuildStrings(cfgMounts)
 
 	// Only one mount should survive; missing source is skipped.
-	if len(flags) != 2 {
-		t.Fatalf("expected 2 flag elements (1 mount), got %d: %v", len(flags), flags)
-	}
-	if flags[0] != "--mount" {
-		t.Errorf("flag = %q, want --mount", flags[0])
+	if len(result) != 1 {
+		t.Fatalf("expected 1 mount string, got %d: %v", len(result), result)
 	}
 }
 
-func TestBuildFlagsAllSkippedReturnsNil(t *testing.T) {
+func TestBuildStringsAllSkippedReturnsNil(t *testing.T) {
 	cfgMounts := []config.Mount{
 		{Source: "/nonexistent/a", Target: "/container/a", ReadOnly: false},
 		{Source: "/nonexistent/b", Target: "/container/b", ReadOnly: false},
 	}
 
-	flags := BuildFlags(cfgMounts)
+	result := BuildStrings(cfgMounts)
 
-	if flags != nil {
-		t.Errorf("expected nil when all mounts are skipped, got %v", flags)
+	if result != nil {
+		t.Errorf("expected nil when all mounts are skipped, got %v", result)
 	}
 }

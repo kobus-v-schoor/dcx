@@ -48,30 +48,32 @@ func Resolve(m config.Mount) *ResolvedMount {
 }
 
 // Format serializes a ResolvedMount into the Docker mount format string used by
-// the --mount flag. The output format is type=bind,source="...",target="..."
+// the devcontainer.json mounts property. The output format is type=bind,source=...,target=...
 // with an optional ,readonly suffix when ReadOnly is true. The readonly option
-// is omitted when ReadOnly is false. Source and target values are always quoted
-// to handle paths containing spaces or special characters correctly.
-// Called by BuildFlags after successful resolution.
+// is omitted when ReadOnly is false. Source and target values are not quoted
+// because the string is embedded inside a JSON array where the JSON string
+// itself provides the quoting boundary. Called by the override package after
+// successful resolution.
 func Format(m ResolvedMount) string {
-	s := fmt.Sprintf("type=bind,source=\"%s\",target=\"%s\"", m.Source, m.Target)
+	s := fmt.Sprintf("type=bind,source=%s,target=%s", m.Source, m.Target)
 	if m.ReadOnly {
 		s += ",readonly"
 	}
 	return s
 }
 
-// BuildFlags resolves each mount from the config and produces --mount flag
-// pairs for the devcontainer CLI. Mounts whose source paths don't exist on the
-// host are skipped with a warning. Duplicate targets across the resolved mount
-// list produce a warning but are still passed through — Docker will handle the
-// conflict. Returns nil when the mount list is empty or all mounts are skipped.
-func BuildFlags(cfgMounts []config.Mount) []string {
+// BuildStrings resolves each mount from the config and produces formatted mount
+// strings suitable for the devcontainer.json mounts property. Mounts whose source
+// paths don't exist on the host are skipped with a warning. Duplicate targets
+// across the resolved mount list produce a warning but are still passed through
+// — Docker will handle the conflict. Returns nil when the mount list is empty or
+// all mounts are skipped.
+func BuildStrings(cfgMounts []config.Mount) []string {
 	if len(cfgMounts) == 0 {
 		return nil
 	}
 
-	var flags []string
+	var result []string
 	seenTargets := make(map[string]int)
 
 	for _, m := range cfgMounts {
@@ -85,14 +87,14 @@ func BuildFlags(cfgMounts []config.Mount) []string {
 		}
 		seenTargets[resolved.Target]++
 
-		flags = append(flags, "--mount", Format(*resolved))
+		result = append(result, Format(*resolved))
 	}
 
-	if len(flags) == 0 {
+	if len(result) == 0 {
 		return nil
 	}
 
-	return flags
+	return result
 }
 
 // ExpandHome replaces a leading ~/ in the path with the user's home directory.
