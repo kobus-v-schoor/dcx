@@ -81,6 +81,36 @@ func (o *OverrideDir) Save() error {
 	return nil
 }
 
+// InjectMounts appends formatted mount strings to the in-memory config's mounts
+// property. The devcontainer.json mounts property accepts Docker --mount format
+// strings (e.g. "type=bind,source=/host/path,target=/container/path,readonly"),
+// which support the full range of Docker mount options including readonly — unlike
+// the devcontainer CLI's --mount flag which only accepts type, source, target,
+// and external. If the config already has a mounts array, the new entries are
+// appended. If mounts is absent, it is created. The caller must call Save to
+// persist the change to disk. Called by dcx up after resolving all mount sources
+// (user-configured, SSH agent, git config).
+func (o *OverrideDir) InjectMounts(mountStrings []string) {
+	if len(mountStrings) == 0 {
+		return
+	}
+
+	// Decode existing mounts if present, otherwise start fresh.
+	var existingMounts []string
+	if raw, ok := o.config["mounts"]; ok {
+		_ = json.Unmarshal(raw, &existingMounts)
+	}
+
+	existingMounts = append(existingMounts, mountStrings...)
+
+	mountsJSON, err := json.Marshal(existingMounts)
+	if err != nil {
+		return
+	}
+
+	o.config["mounts"] = json.RawMessage(mountsJSON)
+}
+
 // InjectContainerEnv merges the provided environment variables into the
 // in-memory config's containerEnv property. If the config already has a
 // containerEnv object, the new values are merged on top (new values win on

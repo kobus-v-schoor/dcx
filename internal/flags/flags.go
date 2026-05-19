@@ -5,15 +5,14 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/features"
-	"github.com/kobus-v-schoor/dcx/internal/git"
-	"github.com/kobus-v-schoor/dcx/internal/mounts"
-	"github.com/kobus-v-schoor/dcx/internal/ssh"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config and
 // override directory. It returns a slice of string arguments suitable for
-// passing to exec.Command. Called by dcx up after config loading and override
-// directory creation.
+// passing to exec.Command. Mounts are NOT included here — they are injected
+// via the override config's mounts property instead, because the devcontainer
+// CLI's --mount flag does not support options like readonly. Called by dcx up
+// after config loading and override directory creation.
 func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []string {
 	var args []string
 
@@ -25,7 +24,6 @@ func Build(workspaceFolder string, cfg *config.Config, overrideDir string) []str
 	args = append(args, "--override-config", overrideConfigPath)
 
 	args = append(args, buildAdditionalFeatures(cfg)...)
-	args = append(args, buildMounts(cfg)...)
 
 	return args
 }
@@ -44,34 +42,4 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 	}
 
 	return []string{"--additional-features", jsonStr}
-}
-
-// buildMounts returns --mount flags based on config and auto-detected mounts.
-// It resolves user-configured bind mounts (expanding ~ and ${VAR} in source
-// paths, skipping non-existent sources), then appends SSH agent and git config
-// auto-detection mounts when enabled. Returns nil when no mounts are produced.
-func buildMounts(cfg *config.Config) []string {
-	var flags []string
-
-	flags = append(flags, mounts.BuildFlags(cfg.Mounts)...)
-
-	if cfg.SSH.ForwardAgent {
-		agentResult := ssh.DetectAgent(cfg.SSH)
-		if agentResult.Mount != nil {
-			flags = append(flags, "--mount", mounts.Format(*agentResult.Mount))
-		}
-	}
-
-	if cfg.Git.InjectConfigs {
-		gitResult := git.DetectConfigs(cfg.Git)
-		for _, m := range gitResult.Mounts {
-			flags = append(flags, "--mount", mounts.Format(*m))
-		}
-	}
-
-	if len(flags) == 0 {
-		return nil
-	}
-
-	return flags
 }
