@@ -13,7 +13,7 @@ func TestBuildBasicFlags(t *testing.T) {
 		Git: config.GitConfig{InjectConfigs: true, Configs: []string{"~/.gitconfig"}},
 	}
 
-	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123", false)
 
 	wantUp := "up"
 	if args[0] != wantUp {
@@ -55,7 +55,7 @@ func TestBuildWithFeatures(t *testing.T) {
 		},
 	}
 
-	args := Build("/workspace", cfg, "/tmp/dcx-abc123")
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123", false)
 
 	found := false
 	for i, a := range args {
@@ -65,5 +65,39 @@ func TestBuildWithFeatures(t *testing.T) {
 	}
 	if !found {
 		t.Error("--additional-features flag not found in Build output")
+	}
+}
+
+func TestBuildWithRebuild(t *testing.T) {
+	cfg := &config.Config{
+		SSH: config.SSHConfig{ForwardAgent: true},
+		Git: config.GitConfig{InjectConfigs: true},
+	}
+
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123", true)
+
+	found := false
+	for _, a := range args {
+		if a == "--remove-existing-container" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("--remove-existing-container flag not found in Build output when rebuild=true")
+	}
+}
+
+func TestBuildWithoutRebuild(t *testing.T) {
+	cfg := &config.Config{
+		SSH: config.SSHConfig{ForwardAgent: true},
+		Git: config.GitConfig{InjectConfigs: true},
+	}
+
+	args := Build("/workspace", cfg, "/tmp/dcx-abc123", false)
+
+	for _, a := range args {
+		if a == "--remove-existing-container" {
+			t.Error("--remove-existing-container flag should not be present when rebuild=false")
+		}
 	}
 }

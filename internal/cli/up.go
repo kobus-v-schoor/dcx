@@ -17,21 +17,34 @@ import (
 
 // newUpCmd creates the "up" subcommand. It reads the already-loaded config,
 // creates the override directory, assembles devcontainer CLI flags, and
-// delegates execution. Added to the root command tree in Execute().
+// delegates execution. The --rebuild flag maps to the devcontainer CLI's
+// --remove-existing-container flag, forcing container recreation so that
+// config changes (env vars, mounts, features) take effect. Added to the
+// root command tree in Execute().
 func newUpCmd() *cobra.Command {
-	return &cobra.Command{
+	var rebuild bool
+
+	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start a devcontainer using dcx configuration",
 		Long:  "Start a devcontainer by delegating to the devcontainer CLI with dcx-assembled flags.\nAny flags after -- are passed through to devcontainer up unchanged.",
 		Args:  cobra.ArbitraryArgs,
-		RunE:  runUp,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUp(rebuild, args)
+		},
 	}
+
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "recreate the container if it already exists, so config changes take effect")
+
+	return cmd
 }
 
 // runUp implements the dcx up workflow. Called by Cobra when the user
-// runs "dcx up". Config and log level are already initialised by the
-// root command's PersistentPreRunE.
-func runUp(cmd *cobra.Command, args []string) error {
+// runs "dcx up". The rebuild parameter controls whether the devcontainer
+// CLI's --remove-existing-container flag is emitted, forcing container
+// recreation so config changes take effect. Config and log level are
+// already initialised by the root command's PersistentPreRunE.
+func runUp(rebuild bool, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	devcontainerPath, err := runner.Find()
@@ -77,7 +90,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("saving override config: %w", err)
 	}
 
-	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir.Dir)
+	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir.Dir, rebuild)
 
 	dcArgs = append(dcArgs, args...)
 
