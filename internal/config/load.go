@@ -95,9 +95,9 @@ func Load(cwd string) (*Config, error) {
 // logic overwrites them. Using a struct avoids unwieldy multi-return
 // signatures and makes it straightforward to add new captured fields later.
 type capturedConfig struct {
-	Features     []Feature
-	Mounts       []Mount
-	Environment  []EnvVar
+	Features    []Feature
+	Mounts      []Mount
+	Environment []EnvVar
 }
 
 // loadAndCaptureUserConfig reads the user-level config from
