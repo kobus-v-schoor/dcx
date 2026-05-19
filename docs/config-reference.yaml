@@ -93,3 +93,35 @@ mounts:
     read_only: true
   - source: /data/project
     target: /workspace
+
+# --- Environment Variable Passthrough ---
+
+# List of environment variables to pass from the host to the devcontainer.
+# Two formats are supported:
+#   - "NAME" — reads host env var NAME, sets NAME in the container (shorthand).
+#   - "CONTAINER_NAME=${HOST_VAR}" — reads HOST_VAR from the host, sets CONTAINER_NAME (explicit).
+#
+# The value part (after '=') supports composite expressions that mix variable
+# substitutions and literal text, e.g. "PATH=${PATH}:/opt/bin". Each ${VAR}
+# reference is replaced with the corresponding host environment variable value.
+# Text outside ${...} is preserved as-is. If the value contains no ${...}
+# references at all, it is treated as a plain literal string, which is useful
+# for setting fixed values via config, e.g. "MY_FLAG=true".
+#
+# If a referenced host variable is not set, a warning is logged and the
+# reference is substituted with an empty string. This allows declaring a
+# superset of variables — only those existing on the current machine are
+# forwarded with their values.
+# User and project environment lists are concatenated; project entries appear after user entries.
+#
+# Env vars are injected into the override devcontainer.json's containerEnv property,
+# making them Docker-level environment variables that are persistent in the running
+# container (visible via env, docker exec, etc.). This is different from remoteEnv
+# which only applies to VS Code server processes, or --remote-env flags which only
+# apply during lifecycle command execution.
+environment:
+  - AWS_ACCESS_KEY_ID
+  - AWS_SECRET_ACCESS_KEY
+  - SOMETHING_ELSE=${HOST_SECRET_VAR}
+  # - PATH=${PATH}:/opt/bin
+  # - MY_FLAG=true
