@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -61,7 +62,7 @@ func TestStopNoContainer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no container found")
 	}
-	if !contains(err.Error(), "no devcontainer found") {
+	if !strings.Contains(err.Error(), "no devcontainer found") {
 		t.Errorf("error should mention no devcontainer found, got: %s", err.Error())
 	}
 }
@@ -93,7 +94,7 @@ func TestStopError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when stop fails")
 	}
-	if !contains(err.Error(), "stopping container") {
+	if !strings.Contains(err.Error(), "stopping container") {
 		t.Errorf("error should mention stopping container, got: %s", err.Error())
 	}
 }
@@ -106,7 +107,7 @@ func TestDownNoContainer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no container found")
 	}
-	if !contains(err.Error(), "no devcontainer found") {
+	if !strings.Contains(err.Error(), "no devcontainer found") {
 		t.Errorf("error should mention no devcontainer found, got: %s", err.Error())
 	}
 }
@@ -169,7 +170,7 @@ func TestDownStopError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when stop fails")
 	}
-	if !contains(err.Error(), "stopping container") {
+	if !strings.Contains(err.Error(), "stopping container") {
 		t.Errorf("error should mention stopping container, got: %s", err.Error())
 	}
 }
@@ -192,7 +193,7 @@ func TestDownRemoveError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when remove fails")
 	}
-	if !contains(err.Error(), "removing container") {
+	if !strings.Contains(err.Error(), "removing container") {
 		t.Errorf("error should mention removing container, got: %s", err.Error())
 	}
 }
@@ -210,7 +211,7 @@ func TestDownInspectError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when inspect fails")
 	}
-	if !contains(err.Error(), "inspecting container") {
+	if !strings.Contains(err.Error(), "inspecting container") {
 		t.Errorf("error should mention inspecting container, got: %s", err.Error())
 	}
 }
@@ -223,7 +224,7 @@ func TestDownContainerListError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when container list fails")
 	}
-	if !contains(err.Error(), "listing containers") {
+	if !strings.Contains(err.Error(), "listing containers") {
 		t.Errorf("error should mention listing containers, got: %s", err.Error())
 	}
 }
@@ -293,16 +294,3 @@ func TestIsMissingDockerConfigDir(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		(len(s) > 0 && findSubstr(s, sub)))
-}
-
-func findSubstr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
