@@ -332,5 +332,3 @@ func shortContainerID(id string) string {
 	}
 	return id
 }
-
-
