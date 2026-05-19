@@ -27,8 +27,15 @@ func TestResolveShorthandUnset(t *testing.T) {
 	ev := config.EnvVar("UNSET_VAR_12345")
 	resolved := Resolve(ev)
 
-	if resolved != nil {
-		t.Error("expected nil for unset shorthand env var")
+	if resolved == nil {
+		t.Fatal("expected non-nil resolved env even for unset variable")
+	}
+	if resolved.Name != "UNSET_VAR_12345" {
+		t.Errorf("Name = %q, want %q", resolved.Name, "UNSET_VAR_12345")
+	}
+	// Unset variable should resolve to empty string (with a warning logged).
+	if resolved.Value != "" {
+		t.Errorf("Value = %q, want empty string for unset variable", resolved.Value)
 	}
 }
 
@@ -53,8 +60,12 @@ func TestResolveExplicitUnsetHostVar(t *testing.T) {
 	ev := config.EnvVar("MY_VAR=${UNSET_HOST_VAR_12345}")
 	resolved := Resolve(ev)
 
-	if resolved != nil {
-		t.Error("expected nil for unset host env var")
+	if resolved == nil {
+		t.Fatal("expected non-nil resolved env even for unset host variable")
+	}
+	// Unset host variable should resolve to empty string (with a warning logged).
+	if resolved.Value != "" {
+		t.Errorf("Value = %q, want empty string for unset host variable", resolved.Value)
 	}
 }
 
@@ -134,28 +145,89 @@ func TestResolveEmptyHostValue(t *testing.T) {
 	}
 }
 
-func TestParseHostVarRef(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  string
-		want string
-	}{
-		{name: "standard ${VAR}", ref: "${MY_VAR}", want: "MY_VAR"},
-		{name: "no braces", ref: "MY_VAR", want: ""},
-		{name: "single brace", ref: "$MY_VAR", want: ""},
-		{name: "empty braces", ref: "${}", want: ""},
-		{name: "too short", ref: "${}", want: ""},
-		{name: "no closing brace", ref: "${MY_VAR", want: ""},
-		{name: "no opening brace", ref: "MY_VAR}", want: ""},
+func TestExpandValueLiteral(t *testing.T) {
+	// A value with no ${...} references should be returned as-is.
+	got := expandValue("hello world")
+	if got != "hello world" {
+		t.Errorf("expandValue(%q) = %q, want %q", "hello world", got, "hello world")
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseHostVarRef(tt.ref)
-			if got != tt.want {
-				t.Errorf("parseHostVarRef(%q) = %q, want %q", tt.ref, got, tt.want)
-			}
-		})
+func TestExpandValueSingleVar(t *testing.T) {
+	t.Setenv("MY_VAR", "value")
+
+	got := expandValue("${MY_VAR}")
+	if got != "value" {
+		t.Errorf("expandValue(%q) = %q, want %q", "${MY_VAR}", got, "value")
+	}
+}
+
+func TestExpandValueComposite(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+
+	got := expandValue("${PATH}:/opt/bin")
+	if got != "/usr/bin:/opt/bin" {
+		t.Errorf("expandValue(%q) = %q, want %q", "${PATH}:/opt/bin", got, "/usr/bin:/opt/bin")
+	}
+}
+
+func TestExpandValueMultipleVars(t *testing.T) {
+	t.Setenv("VAR_A", "alpha")
+	t.Setenv("VAR_B", "beta")
+
+	got := expandValue("${VAR_A}-${VAR_B}")
+	if got != "alpha-beta" {
+		t.Errorf("expandValue(%q) = %q, want %q", "${VAR_A}-${VAR_B}", got, "alpha-beta")
+	}
+}
+
+func TestExpandValueUnsetVar(t *testing.T) {
+	// Unset variable should be replaced with empty string (with warning logged).
+	got := expandValue("${UNSET_EXPAND_VAR_12345}")
+	if got != "" {
+		t.Errorf("expandValue(%q) = %q, want empty string", "${UNSET_EXPAND_VAR_12345}", got)
+	}
+}
+
+func TestExpandValueUnsetVarInComposite(t *testing.T) {
+	t.Setenv("SET_VAR", "exists")
+
+	got := expandValue("prefix/${SET_VAR}/${UNSET_EXPAND_VAR_99999}/suffix")
+	if got != "prefix/exists//suffix" {
+		t.Errorf("expandValue() = %q, want %q", got, "prefix/exists//suffix")
+	}
+}
+
+func TestResolveLiteralValue(t *testing.T) {
+	// When the value part has no ${...} references, it's treated as a literal.
+	ev := config.EnvVar("MY_FLAG=true")
+	resolved := Resolve(ev)
+
+	if resolved == nil {
+		t.Fatal("expected non-nil resolved env")
+	}
+	if resolved.Name != "MY_FLAG" {
+		t.Errorf("Name = %q, want %q", resolved.Name, "MY_FLAG")
+	}
+	if resolved.Value != "true" {
+		t.Errorf("Value = %q, want %q", resolved.Value, "true")
+	}
+}
+
+func TestResolveCompositeValue(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+
+	ev := config.EnvVar("PATH=${PATH}:/opt/bin")
+	resolved := Resolve(ev)
+
+	if resolved == nil {
+		t.Fatal("expected non-nil resolved env")
+	}
+	if resolved.Name != "PATH" {
+		t.Errorf("Name = %q, want %q", resolved.Name, "PATH")
+	}
+	if resolved.Value != "/usr/bin:/opt/bin" {
+		t.Errorf("Value = %q, want %q", resolved.Value, "/usr/bin:/opt/bin")
 	}
 }
 
@@ -212,21 +284,15 @@ func TestResolveAllMixedSetAndUnset(t *testing.T) {
 	envVars := []config.EnvVar{"SET_VAR", "UNSET_VAR_12345"}
 	result := ResolveAll(envVars)
 
-	// Only the set variable should appear.
-	if len(result) != 1 {
-		t.Fatalf("expected 1 resolved env, got %d: %v", len(result), result)
+	// Both should appear: set var with its value, unset var with empty string.
+	if len(result) != 2 {
+		t.Fatalf("expected 2 resolved envs, got %d: %v", len(result), result)
 	}
 	if result[0].Name != "SET_VAR" || result[0].Value != "value" {
 		t.Errorf("result[0] = {%q, %q}, want {SET_VAR, value}", result[0].Name, result[0].Value)
 	}
-}
-
-func TestResolveAllAllUnset(t *testing.T) {
-	envVars := []config.EnvVar{"UNSET_A_12345", "UNSET_B_12345"}
-	result := ResolveAll(envVars)
-
-	if result != nil {
-		t.Errorf("expected nil when all env vars are unset, got %v", result)
+	if result[1].Name != "UNSET_VAR_12345" || result[1].Value != "" {
+		t.Errorf("result[1] = {%q, %q}, want {UNSET_VAR_12345, }", result[1].Name, result[1].Value)
 	}
 }
 

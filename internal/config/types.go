@@ -74,9 +74,11 @@ type GitConfig struct {
 //   - "CONTAINER_NAME=${HOST_VAR}" — explicit: reads HOST_VAR from the host,
 //     sets CONTAINER_NAME in the container.
 //
-// If the referenced host variable is not set, the entry is silently skipped
-// during resolution (no error, no warning). This allows declaring a superset
-// of variables where only those existing on the current machine are forwarded.
+// The value part (after '=') supports composite expressions that mix
+// substitutions and literal text, e.g. "PATH=${PATH}:/opt/bin". If the value
+// contains no ${...} references, it is treated as a plain literal string.
+// If a referenced host variable is not set, a warning is logged and the
+// reference is substituted with an empty string.
 type EnvVar string
 
 // Config represents the fully-resolved dcx configuration. Bool fields use plain

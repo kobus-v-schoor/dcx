@@ -7,68 +7,101 @@ import (
 	"path/filepath"
 )
 
+// OverrideDir represents a temporary directory containing an override
+// devcontainer.json. It holds the parsed JSON config as a map so that
+// multiple Inject functions can modify it without repeated parse/marshal
+// cycles. Callers must call Save to persist changes to disk, and Close
+// to clean up the temporary directory.
+type OverrideDir struct {
+	// Dir is the path to the temporary directory containing the override
+	// devcontainer.json.
+	Dir string
+	// config holds the parsed devcontainer.json as a generic map. Inject
+	// functions modify this map directly; Save marshals it back to disk.
+	config map[string]json.RawMessage
+}
+
 // Create reads the project's devcontainer.json, writes it into a temporary
-// directory, and returns the directory path along with a cleanup function.
-// A fresh random directory is created on each invocation so that stale files
-// from previous runs cannot affect the current one. Called by dcx up to
-// prepare the override config before delegating to the devcontainer CLI.
-func Create(workspaceFolder string) (dir string, cleanup func(), err error) {
+// directory, and returns an OverrideDir with the config pre-parsed. A fresh
+// random directory is created on each invocation so that stale files from
+// previous runs cannot affect the current one. Callers should defer Close()
+// to clean up the temporary directory, and call Save() after all Inject
+// calls to persist modifications to disk. Called by dcx up to prepare the
+// override config before delegating to the devcontainer CLI.
+func Create(workspaceFolder string) (*OverrideDir, error) {
 	srcPath := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer.json")
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("reading devcontainer.json: %w", err)
+		return nil, fmt.Errorf("reading devcontainer.json: %w", err)
 	}
 
-	dir, err = os.MkdirTemp("", "dcx-")
+	dir, err := os.MkdirTemp("", "dcx-")
 	if err != nil {
-		return "", nil, fmt.Errorf("creating override directory: %w", err)
+		return nil, fmt.Errorf("creating override directory: %w", err)
 	}
 
-	dstPath := filepath.Join(dir, "devcontainer.json")
-	if err := os.WriteFile(dstPath, data, 0o644); err != nil {
-		return "", nil, fmt.Errorf("writing override devcontainer.json: %w", err)
-	}
-
-	cleanup = func() {
-		_ = os.RemoveAll(dir)
-	}
-
-	return dir, cleanup, nil
-}
-
-// InjectContainerEnv reads the override devcontainer.json, merges the provided
-// environment variables into its containerEnv property, and writes it back. If
-// the file already has a containerEnv object, the new values are merged on top
-// (new values win on key conflict). If containerEnv is absent, it is created.
-// containerEnv sets Docker-level environment variables that are persistent in
-// the running container (visible via env, docker exec, etc.), unlike remoteEnv
-// which only applies to VS Code server processes. Called by dcx up after
-// creating the override directory and resolving all env vars (user-configured,
-// SSH agent, git config).
-func InjectContainerEnv(dir string, envVars map[string]string) error {
-	if len(envVars) == 0 {
-		return nil
-	}
-
-	configPath := filepath.Join(dir, "devcontainer.json")
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("reading override config for containerEnv injection: %w", err)
-	}
-
-	// Parse into a generic map so we preserve any existing keys and formatting
-	// is controlled by our marshal call.
+	// Parse the JSON into a map once so Inject functions can modify it
+	// without re-reading and re-parsing the file each time.
 	var config map[string]json.RawMessage
 	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("parsing override config for containerEnv injection: %w", err)
+		// Clean up the temp dir if parsing fails.
+		_ = os.RemoveAll(dir)
+		return nil, fmt.Errorf("parsing devcontainer.json: %w", err)
+	}
+
+	return &OverrideDir{
+		Dir:    dir,
+		config: config,
+	}, nil
+}
+
+// Close removes the temporary directory and all its contents. Should be
+// called (typically via defer) when the override directory is no longer
+// needed.
+func (o *OverrideDir) Close() {
+	_ = os.RemoveAll(o.Dir)
+}
+
+// Save marshals the in-memory config back to the override devcontainer.json
+// on disk. This must be called after all Inject functions have modified the
+// config map to persist the changes. Called by dcx up after all injection
+// steps are complete, before delegating to the devcontainer CLI.
+func (o *OverrideDir) Save() error {
+	configPath := filepath.Join(o.Dir, "devcontainer.json")
+
+	updated, err := json.MarshalIndent(o.config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling override config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, updated, 0o644); err != nil {
+		return fmt.Errorf("writing override devcontainer.json: %w", err)
+	}
+
+	return nil
+}
+
+// InjectContainerEnv merges the provided environment variables into the
+// in-memory config's containerEnv property. If the config already has a
+// containerEnv object, the new values are merged on top (new values win on
+// key conflict). If containerEnv is absent, it is created. containerEnv sets
+// Docker-level environment variables that are persistent in the running
+// container (visible via env, docker exec, etc.), unlike remoteEnv which only
+// applies to VS Code server processes. The caller must call Save to persist
+// the change to disk. Called by dcx up after resolving all env vars
+// (user-configured, SSH agent, git config).
+func (o *OverrideDir) InjectContainerEnv(envVars map[string]string) {
+	if len(envVars) == 0 {
+		return
 	}
 
 	// Decode existing containerEnv if present, otherwise start fresh.
 	existingContainerEnv := make(map[string]string)
-	if raw, ok := config["containerEnv"]; ok {
+	if raw, ok := o.config["containerEnv"]; ok {
 		if err := json.Unmarshal(raw, &existingContainerEnv); err != nil {
-			return fmt.Errorf("parsing existing containerEnv: %w", err)
+			// If the existing containerEnv is malformed, overwrite it entirely
+			// rather than failing — the injected values take precedence.
+			existingContainerEnv = make(map[string]string)
 		}
 	}
 
@@ -79,19 +112,9 @@ func InjectContainerEnv(dir string, envVars map[string]string) error {
 
 	containerEnvJSON, err := json.Marshal(existingContainerEnv)
 	if err != nil {
-		return fmt.Errorf("marshalling containerEnv: %w", err)
+		// Marshal of a map[string]string should never fail; log and skip.
+		return
 	}
 
-	config["containerEnv"] = json.RawMessage(containerEnvJSON)
-
-	updated, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling updated override config: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, updated, 0o644); err != nil {
-		return fmt.Errorf("writing updated override config: %w", err)
-	}
-
-	return nil
+	o.config["containerEnv"] = json.RawMessage(containerEnvJSON)
 }

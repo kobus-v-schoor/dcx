@@ -5,7 +5,9 @@
 package env
 
 import (
+	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -19,6 +21,11 @@ type ResolvedEnv struct {
 	Value string
 }
 
+// varRefRegex matches ${VAR} substitution references in environment variable
+// value expressions. Used by expandValue to find and replace all ${VAR}
+// occurrences with their host environment values.
+var varRefRegex = regexp.MustCompile(`\$\{([^}]+)}`)
+
 // Resolve parses an EnvVar declaration and resolves the host environment
 // variable value. Two formats are supported:
 //
@@ -27,83 +34,83 @@ type ResolvedEnv struct {
 //   - "CONTAINER_NAME=${HOST_VAR}" — explicit: reads HOST_VAR from the host
 //     environment and assigns its value to CONTAINER_NAME in the container.
 //
-// If the referenced host variable is not set, nil is returned (the variable is
-// silently skipped). This allows declaring a superset of variables where only
-// those existing on the current machine are forwarded. Called by BuildFlags for
-// each environment entry in the config.
+// The value part (after '=') supports composite expressions that mix
+// substitutions and literal text, e.g. "PATH=${PATH}:/opt/bin". Each ${VAR}
+// reference is replaced with the corresponding host environment variable value.
+// If any referenced host variable is not set, a warning is logged and the
+// reference is replaced with an empty string. Text outside ${...} is treated as
+// a literal value. If the value part contains no ${...} references at all, it
+// is treated as a plain literal string (useful for setting fixed values).
+// Always returns a non-nil ResolvedEnv. Called by ResolveAll for each
+// environment entry in the config.
 func Resolve(ev config.EnvVar) *ResolvedEnv {
 	s := string(ev)
 
-	// Determine the container-side name and the host variable reference.
-	var containerName, hostVarRef string
+	// Determine the container-side name and the value expression.
+	var containerName, valueExpr string
 
 	if idx := strings.Index(s, "="); idx >= 0 {
-		// Explicit form: CONTAINER_NAME=${HOST_VAR}
+		// Explicit form: CONTAINER_NAME=<value expression>
 		containerName = s[:idx]
-		hostVarRef = s[idx+1:]
+		valueExpr = s[idx+1:]
 	} else {
 		// Shorthand form: NAME (equivalent to NAME=${NAME})
 		containerName = s
-		hostVarRef = "${" + s + "}"
+		valueExpr = "${" + s + "}"
 	}
 
-	// Parse the ${VAR} reference from the host variable specification.
-	// The value after '=' must be in ${VAR} format.
-	hostVarName := parseHostVarRef(hostVarRef)
-	if hostVarName == "" {
-		// If the reference isn't in ${VAR} format, treat the entire
-		// right-hand side as a literal value. This supports edge cases
-		// where the user wants to set a fixed value via config.
-		return &ResolvedEnv{
-			Name:  containerName,
-			Value: hostVarRef,
-		}
-	}
-
-	// Look up the host environment variable. If not set, silently skip.
-	hostValue, ok := os.LookupEnv(hostVarName)
-	if !ok {
-		return nil
-	}
+	// Expand all ${VAR} references in the value expression. If there are no
+	// references, the entire valueExpr is a literal string.
+	value := expandValue(valueExpr)
 
 	return &ResolvedEnv{
 		Name:  containerName,
-		Value: hostValue,
+		Value: value,
 	}
 }
 
-// parseHostVarRef extracts the variable name from a ${VAR} reference string.
-// Returns the variable name without braces, or an empty string if the input
-// is not in ${VAR} format. Only supports the ${VAR} form (with braces) to
-// match the config syntax specified in the issue.
-func parseHostVarRef(ref string) string {
-	if len(ref) < 3 || !strings.HasPrefix(ref, "${") || !strings.HasSuffix(ref, "}") {
-		return ""
+// expandValue replaces all ${VAR} references in the value expression with
+// their corresponding host environment variable values. Text outside ${...}
+// is preserved as-is, allowing composite expressions like ${PATH}:/opt/bin.
+// If a referenced host variable is not set, a warning is logged and the
+// reference is replaced with an empty string. If the value expression contains
+// no ${...} references, it is returned unchanged (treated as a literal).
+func expandValue(expr string) string {
+	// If there are no ${...} patterns at all, return the expression as a literal.
+	if !varRefRegex.MatchString(expr) {
+		return expr
 	}
-	inner := ref[2 : len(ref)-1]
-	if inner == "" {
-		return ""
-	}
-	return inner
+
+	return varRefRegex.ReplaceAllStringFunc(expr, func(match string) string {
+		// Extract the variable name from ${VAR}.
+		varName := match[2 : len(match)-1]
+		if varName == "" {
+			return ""
+		}
+
+		hostValue, ok := os.LookupEnv(varName)
+		if !ok {
+			slog.Warn("referenced host variable not set, substituting empty string", "variable", varName)
+			return ""
+		}
+		return hostValue
+	})
 }
 
 // ResolveAll resolves each environment variable declaration from the config
-// and returns the set of successfully resolved entries. Entries whose
-// referenced host variable is not set are silently skipped. Returns nil when
-// the environment list is empty or all entries are skipped. Called by the
-// cli package during dcx up to collect env vars for override config injection.
+// and returns the set of resolved entries. Referenced host variables that are
+// not set produce a warning and are substituted with empty strings. Returns
+// nil when the environment list is empty. Called by the cli package during
+// dcx up to collect env vars for override config injection.
 func ResolveAll(envVars []config.EnvVar) []ResolvedEnv {
 	if len(envVars) == 0 {
 		return nil
 	}
 
-	var result []ResolvedEnv
+	result := make([]ResolvedEnv, 0, len(envVars))
 
 	for _, ev := range envVars {
 		resolved := Resolve(ev)
-		if resolved == nil {
-			continue
-		}
 		result = append(result, *resolved)
 	}
 

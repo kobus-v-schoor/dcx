@@ -43,13 +43,13 @@ func runUp(cmd *cobra.Command, args []string) error {
 	slog.Debug("ssh.forward_agent", "enabled", activeCfg.SSH.ForwardAgent)
 	slog.Debug("git.inject_configs", "enabled", activeCfg.Git.InjectConfigs)
 
-	overrideDir, cleanup, err := override.Create(workspaceFolder)
+	overrideDir, err := override.Create(workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("creating override config: %w", err)
 	}
-	defer cleanup()
+	defer overrideDir.Close()
 
-	slog.Info("override dir", "path", overrideDir)
+	slog.Info("override dir", "path", overrideDir.Dir)
 
 	// Collect all container env vars (user-configured, SSH agent, git config)
 	// and inject them into the override config's containerEnv property. This
@@ -58,11 +58,15 @@ func runUp(cmd *cobra.Command, args []string) error {
 	// which only applies to VS Code server processes or --remote-env flags
 	// which only apply during lifecycle commands.
 	containerEnvVars := collectContainerEnv(activeCfg)
-	if err := override.InjectContainerEnv(overrideDir, containerEnvVars); err != nil {
-		return fmt.Errorf("injecting container env: %w", err)
+	overrideDir.InjectContainerEnv(containerEnvVars)
+
+	// Persist all injected modifications to disk before delegating to the
+	// devcontainer CLI.
+	if err := overrideDir.Save(); err != nil {
+		return fmt.Errorf("saving override config: %w", err)
 	}
 
-	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir)
+	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir.Dir)
 
 	dcArgs = append(dcArgs, args...)
 
