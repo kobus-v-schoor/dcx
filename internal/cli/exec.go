@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/ghproxy"
@@ -182,7 +179,7 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("creating Docker client: %w", err)
 	}
-	defer dockerCLI.Close()
+	defer func() { _ = dockerCLI.Close() }()
 
 	// Determine the host IP that the container can reach. The proxy listens
 	// on 0.0.0.0 so it is reachable from the container, but the container
@@ -252,7 +249,7 @@ func writeCACert(caCertPEM []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("creating temp file for CA cert: %w", err)
 	}
-	defer tmp.Close()
+	defer func() { _ = tmp.Close() }()
 
 	if _, err := tmp.Write(caCertPEM); err != nil {
 		_ = os.Remove(tmp.Name())
@@ -336,18 +333,4 @@ func shortContainerID(id string) string {
 	return id
 }
 
-// setupSignalHandler installs a signal handler for SIGINT and SIGTERM that
-// cancels the given context. This allows the proxy to shut down cleanly when
-// the user presses Ctrl+C or the process receives a termination signal.
-func setupSignalHandler() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	go func() {
-		<-sigCh
-		cancel()
-	}()
-
-	return ctx
-}

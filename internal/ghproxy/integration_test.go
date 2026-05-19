@@ -50,7 +50,7 @@ func TestProxyRejectsOtherRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
@@ -81,7 +81,7 @@ func TestProxyAllowsMatchingRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// The request should not be rejected at the scoping level (403).
 	// It will likely get a 401 or 502 from the actual GitHub API or proxy
@@ -109,7 +109,7 @@ func TestProxyAllowsNonRepoPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should not be 403 Forbidden from scoping.
 	if resp.StatusCode == http.StatusForbidden {
@@ -135,7 +135,7 @@ func TestProxyNoScopingWhenRepoEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should not be 403 Forbidden from scoping.
 	if resp.StatusCode == http.StatusForbidden {
