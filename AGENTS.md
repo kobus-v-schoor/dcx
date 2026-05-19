@@ -51,7 +51,6 @@ Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--ov
 - Each PR implements only what its referenced issue specifies — no scope creep.
 - PRs are squash-merged into `main`.
 - PR title format: `[component] what the PR implements` (e.g., `[config] add env var support`).
-- Implementation order follows issue numbering (#1 through #17).
 
 ## Config Loading Order
 
@@ -83,3 +82,13 @@ config.
 
 - PRs trigger lint + test workflow (`.github/workflows/ci.yml`).
 - Tag push (`v*`) triggers release workflow — builds 4 platform binaries, creates GitHub release with changelog.
+
+## Coding conventions
+
+- Develop with long-term maintainability in mind. Keep code DRY, interfaces
+  simple and well-organised.
+- When writing tests, write simple tests that only tests the core logic and
+  operation of the code you want to test. Avoid overly thorough testing (lots
+  of maintenance to keep up), don't test std-lib/external library functionality
+  and keep tests as simple as possible while covering core functionality and
+  edge-cases
