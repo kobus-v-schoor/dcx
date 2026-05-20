@@ -1,2 +1,3 @@
-github_cli:
-  enabled: true
+proxy:
+  github:
+    enabled: true

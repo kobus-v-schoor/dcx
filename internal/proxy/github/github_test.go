@@ -1,18 +1,19 @@
-package ghproxy
+package github
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kobus-v-schoor/dcx/internal/proxy"
 )
 
-// TestProxyStartAndShutdown tests that the proxy can start on a dynamic port
-// and shut down cleanly without errors.
+// TestProxyStartAndShutdown tests that the GitHub proxy can start on a dynamic
+// port and shut down cleanly without errors.
 func TestProxyStartAndShutdown(t *testing.T) {
 	proxy := New(Options{
 		Token:     "test-token",
@@ -65,60 +66,6 @@ func TestProxyForwardsRequests(t *testing.T) {
 	}
 }
 
-// makeProxyClient creates an http.Client that trusts the given CA certificate
-// for TLS connections. Used in tests to connect to the proxy's self-signed
-// HTTPS server.
-func makeProxyClient(t *testing.T, caCertPEM []byte) *http.Client {
-	t.Helper()
-
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
-		t.Fatal("failed to append CA cert to pool")
-	}
-
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: caCertPool,
-				// The proxy's cert is issued to ProxyHost but we connect
-				// via 127.0.0.1, so we need to skip name verification in
-				// tests.
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-}
-
-// makeProxyRequest creates and sends an HTTP request to the proxy. It
-// constructs the URL using the proxy's listener address and sets the Host
-// header to ProxyHost so the proxy's director can rewrite it correctly.
-func makeProxyRequest(client *http.Client, proxy *Proxy, path string) (*http.Response, error) {
-	// Get the actual listener address from the proxy server.
-	addr := proxy.listenerAddr()
-	if addr == "" {
-		return nil, fmt.Errorf("proxy has no listener address")
-	}
-
-	reqURL := fmt.Sprintf("https://%s%s", addr, path)
-	req, err := http.NewRequest("GET", reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %v", err)
-	}
-	req.Host = ProxyHost
-
-	return client.Do(req)
-}
-
-// listenerAddr returns the address (host:port) the proxy is listening on.
-// Used in tests to construct request URLs. Returns empty string if the
-// proxy hasn't been started.
-func (p *Proxy) listenerAddr() string {
-	if p.listener == nil {
-		return ""
-	}
-	return p.listener.Addr().String()
-}
-
 // TestProxyPortIsDynamic tests that starting the proxy twice allocates
 // different ports (verifying dynamic port allocation).
 func TestProxyPortIsDynamic(t *testing.T) {
@@ -151,87 +98,70 @@ func TestProxyPortIsDynamic(t *testing.T) {
 	}
 }
 
-// TestBuildProxyURL tests the URL construction for proxy requests.
-func TestBuildProxyURL(t *testing.T) {
-	port := 12345
-	u := fmt.Sprintf("https://127.0.0.1:%d/repos/owner/repo/issues", port)
-	parsed, err := url.Parse(u)
-	if err != nil {
-		t.Fatalf("parsing URL: %v", err)
-	}
-	if parsed.Port() != "12345" {
-		t.Errorf("port = %q, want 12345", parsed.Port())
-	}
-}
-
-func TestOptionsCABundlePath(t *testing.T) {
-	tests := []struct {
-		name       string
-		caCertPath string
-		want       string
-	}{
-		{
-			name:       "standard path",
-			caCertPath: "/opt/dcx/gh-proxy/ca.crt",
-			want:       "/opt/dcx/gh-proxy/ca-bundle.crt",
-		},
-		{
-			name:       "custom path",
-			caCertPath: "/custom/path/cert.crt",
-			want:       "/custom/path/cert-bundle.crt",
-		},
-		{
-			name:       "path without crt extension",
-			caCertPath: "/custom/path/cert.pem",
-			want:       "/custom/path/cert.pem-bundle",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := Options{CACertPath: tt.caCertPath}
-			got := opts.caBundlePath()
-			if got != tt.want {
-				t.Errorf("caBundlePath() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestOptionsDefaults(t *testing.T) {
-	opts := Options{
+// TestBuildRemoteEnv tests that BuildRemoteEnv produces the correct set of
+// environment variable flags for configuring the gh CLI and git.
+func TestBuildRemoteEnv(t *testing.T) {
+	proxy := New(Options{
+		Token:      "test-token",
 		GatewayIP:  "172.17.0.1",
 		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
-		APIURL:     "https://api.github.com",
-		CertExpiry: 24 * time.Hour,
+	})
+
+	envVars := proxy.BuildRemoteEnv(12345)
+
+	// Should contain GH_HOST with gateway IP and port.
+	foundGHHost := false
+	for _, env := range envVars {
+		if strings.HasPrefix(env, "--remote-env=GH_HOST=") {
+			foundGHHost = true
+			if env != "--remote-env=GH_HOST=172.17.0.1:12345" {
+				t.Errorf("GH_HOST = %q, want %q", env, "--remote-env=GH_HOST=172.17.0.1:12345")
+			}
+		}
+	}
+	if !foundGHHost {
+		t.Error("BuildRemoteEnv missing GH_HOST")
 	}
 
-	if got := opts.caCertPath(); got != "/opt/dcx/gh-proxy/ca.crt" {
-		t.Errorf("caCertPath() = %q, want %q", got, "/opt/dcx/gh-proxy/ca.crt")
+	// Should contain SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, and git config.
+	if len(envVars) < 5 {
+		t.Errorf("BuildRemoteEnv returned %d env vars, want at least 5", len(envVars))
 	}
+}
+
+// TestOptionsDefaults tests the resolved defaults for Options fields.
+func TestOptionsDefaults(t *testing.T) {
+	opts := Options{
+		GatewayIP: "172.17.0.1",
+	}
+
 	if got := opts.apiURL(); got != "https://api.github.com" {
 		t.Errorf("apiURL() = %q, want %q", got, "https://api.github.com")
+	}
+	if got := opts.caCertPath(); got != "/opt/dcx/gh-proxy/ca.crt" {
+		t.Errorf("caCertPath() = %q, want %q", got, "/opt/dcx/gh-proxy/ca.crt")
 	}
 	if got := opts.certExpiry(); got != 24*time.Hour {
 		t.Errorf("certExpiry() = %v, want %v", got, 24*time.Hour)
 	}
-	if got := opts.bindAddr(); got != "172.17.0.1" {
-		t.Errorf("bindAddr() = %q, want %q", got, "172.17.0.1")
-	}
 
-	// Override bind address.
-	opts.BindAddr = "0.0.0.0"
-	if got := opts.bindAddr(); got != "0.0.0.0" {
-		t.Errorf("bindAddr() = %q, want %q", got, "0.0.0.0")
-	}
-
-	// Override cert expiry.
+	// Override values.
+	opts.APIURL = "https://github.example.com/api/v3"
+	opts.CACertPath = "/custom/ca.crt"
 	opts.CertExpiry = 1 * time.Hour
+
+	if got := opts.apiURL(); got != "https://github.example.com/api/v3" {
+		t.Errorf("apiURL() = %q, want %q", got, "https://github.example.com/api/v3")
+	}
+	if got := opts.caCertPath(); got != "/custom/ca.crt" {
+		t.Errorf("caCertPath() = %q, want %q", got, "/custom/ca.crt")
+	}
 	if got := opts.certExpiry(); got != 1*time.Hour {
 		t.Errorf("certExpiry() = %v, want %v", got, 1*time.Hour)
 	}
 }
 
+// TestDirectorPathRewrite tests the path rewriting logic from the director.
 func TestDirectorPathRewrite(t *testing.T) {
 	tests := []struct {
 		name string
@@ -276,4 +206,47 @@ func TestDirectorPathRewrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+// makeProxyClient creates an http.Client that trusts the given CA certificate
+// for TLS connections. Used in tests to connect to the proxy's self-signed
+// HTTPS server.
+func makeProxyClient(t *testing.T, caCertPEM []byte) *http.Client {
+	t.Helper()
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+		t.Fatal("failed to append CA cert to pool")
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs: caCertPool,
+				// The proxy's cert is issued to ProxyHost but we connect
+				// via 127.0.0.1, so we need to skip name verification in
+				// tests.
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
+// makeProxyRequest creates and sends an HTTP request to the proxy. It
+// constructs the URL using the proxy's listener address and sets the Host
+// header to ProxyHost so the proxy's director can rewrite it correctly.
+func makeProxyRequest(client *http.Client, p *Proxy, path string) (*http.Response, error) {
+	addr := p.svc.ListenerAddr()
+	if addr == "" {
+		return nil, fmt.Errorf("proxy has no listener address")
+	}
+
+	reqURL := fmt.Sprintf("https://%s%s", addr, path)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %v", err)
+	}
+	req.Host = proxy.ProxyHost
+
+	return client.Do(req)
 }

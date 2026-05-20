@@ -71,7 +71,7 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
-// GitHubCLIConfig controls the GitHub CLI reverse proxy that injects the
+// GitHubProxyConfig controls the GitHub API reverse proxy that injects the
 // host's GitHub token into gh CLI requests from the devcontainer. When
 // Enabled is true, dcx exec starts a local HTTPS reverse proxy inside the
 // dcx process. The gh CLI inside the container is configured (via GH_HOST
@@ -86,8 +86,8 @@ type GitConfig struct {
 // all requests to the GitHub API with the host token. The purpose of the
 // proxy is to keep the token on the host side and inject it at the network
 // layer, not to restrict access to specific repositories.
-type GitHubCLIConfig struct {
-	// Enabled controls whether the GitHub CLI proxy is active for dcx exec
+type GitHubProxyConfig struct {
+	// Enabled controls whether the GitHub API proxy is active for dcx exec
 	// sessions.
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 
@@ -110,6 +110,15 @@ type GitHubCLIConfig struct {
 	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
 }
 
+// ProxyConfig holds the configuration for all proxy services. Each service
+// (e.g. GitHub, OpenAI) gets its own sub-configuration and listens on a
+// separate port. This structure maps to the "proxy:" block in the YAML
+// config file.
+type ProxyConfig struct {
+	// GitHub controls the GitHub API reverse proxy.
+	GitHub GitHubProxyConfig `yaml:"github" mapstructure:"github"`
+}
+
 // EnvVar represents an environment variable passthrough declaration from the
 // dcx config. The string format follows one of two forms:
 //   - "NAME" — shorthand: reads host env var NAME, sets NAME in the container.
@@ -128,12 +137,12 @@ type EnvVar string
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	GitHubCLI          GitHubCLIConfig     `yaml:"github_cli" mapstructure:"github_cli"`
-	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
-	Git                GitConfig           `yaml:"git" mapstructure:"git"`
-	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
-	DefaultFeatures    []Feature           `yaml:"default_features" mapstructure:"default_features"`
-	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
-	Environment        []EnvVar            `yaml:"environment" mapstructure:"environment"`
-	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
+	Proxy              ProxyConfig          `yaml:"proxy" mapstructure:"proxy"`
+	SSH                SSHConfig            `yaml:"ssh" mapstructure:"ssh"`
+	Git                GitConfig            `yaml:"git" mapstructure:"git"`
+	ComposeIntegration *ComposeIntegration  `yaml:"compose_integration" mapstructure:"compose_integration"`
+	DefaultFeatures    []Feature            `yaml:"default_features" mapstructure:"default_features"`
+	Mounts             []Mount              `yaml:"mounts" mapstructure:"mounts"`
+	Environment        []EnvVar             `yaml:"environment" mapstructure:"environment"`
+	LogLevel           string               `yaml:"log_level" mapstructure:"log_level"`
 }

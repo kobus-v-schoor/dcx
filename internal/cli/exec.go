@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/kobus-v-schoor/dcx/internal/ghproxy"
+	"github.com/kobus-v-schoor/dcx/internal/proxy"
+	proxygithub "github.com/kobus-v-schoor/dcx/internal/proxy/github"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,7 @@ func newExecCmd() *cobra.Command {
 		Use:   "exec [flags] [-- command [args...]]",
 		Short: "Execute a shell or command inside the devcontainer with optional GitHub API proxy",
 		Long: `Open an interactive shell or execute a command inside the running devcontainer.
-When github_cli is enabled in the config, starts a GitHub API proxy that injects
+When proxy.github is enabled in the config, starts a GitHub API proxy that injects
 the host's GitHub token into all gh CLI requests for the duration of the session.
 The token is never exposed inside the container.
 If the devcontainer is not running, it is started first.`,
@@ -58,21 +59,21 @@ func runExec(cmd *cobra.Command, args []string) error {
 	// intercepts all gh CLI requests from the container and injects
 	// the host's GitHub token. If no token is available on the host,
 	// a warning is logged and the container runs without proxy.
-	var proxy *ghproxy.Proxy
+	var ghProxy *proxygithub.Proxy
 	var caCertPath string
 	var remoteEnv []string
 
-	if activeCfg.GitHubCLI.Enabled {
+	if activeCfg.Proxy.GitHub.Enabled {
 		var err error
-		proxy, caCertPath, remoteEnv, err = setupProxy(cmd, containerID)
+		ghProxy, caCertPath, remoteEnv, err = setupProxy(cmd, containerID)
 		if err != nil {
 			// If proxy setup fails, log a warning and proceed without it —
 			// the user gets a shell but without GitHub API access via proxy.
 			slog.Warn("GitHub API proxy setup failed, proceeding without proxy", "error", err)
-			proxy = nil
+			ghProxy = nil
 		} else {
 			defer func() {
-				proxy.Shutdown()
+				ghProxy.Shutdown()
 				// Clean up the temporary CA cert file.
 				if caCertPath != "" {
 					_ = os.Remove(caCertPath)
@@ -158,9 +159,9 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 // Returns an error if no token is available or the proxy fails to start.
 // The caller is responsible for calling proxy.Shutdown() and cleaning up
 // the CA cert file.
-func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string, []string, error) {
+func setupProxy(cmd *cobra.Command, containerID string) (*proxygithub.Proxy, string, []string, error) {
 	// Detect the host's GitHub token.
-	token, ok := ghproxy.DetectToken()
+	token, ok := proxygithub.DetectToken()
 	if !ok {
 		return nil, "", nil, fmt.Errorf("no GitHub token available on host")
 	}
@@ -190,17 +191,17 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	// By default the proxy binds to the gateway IP only (not 0.0.0.0), which
 	// is more secure as it limits the attack surface to the Docker bridge
 	// network.
-	opts := ghproxy.Options{
+	opts := proxygithub.Options{
 		Token:      token,
 		GatewayIP:  gatewayIP,
-		BindAddr:   activeCfg.GitHubCLI.BindAddr,
-		APIURL:     activeCfg.GitHubCLI.APIURL,
-		CACertPath: activeCfg.GitHubCLI.CACertPath,
-		CertExpiry: activeCfg.GitHubCLI.CertExpiry,
+		BindAddr:   activeCfg.Proxy.GitHub.BindAddr,
+		APIURL:     activeCfg.Proxy.GitHub.APIURL,
+		CACertPath: activeCfg.Proxy.GitHub.CACertPath,
+		CertExpiry: activeCfg.Proxy.GitHub.CertExpiry,
 	}
 
-	proxy := ghproxy.New(opts)
-	port, err := proxy.Start()
+	ghProxy := proxygithub.New(opts)
+	port, err := ghProxy.Start()
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("starting GitHub API proxy: %w", err)
 	}
@@ -209,18 +210,18 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	// the container via the Docker API. The devcontainer exec command does not
 	// support --mount flags, so we use the Docker API's CopyToContainer to
 	// place the CA cert file directly into the container filesystem.
-	caCertPath, err := ghproxy.WriteCACertToFile(proxy.CACertPEM())
+	caCertPath, err := proxygithub.WriteCACertToFile(ghProxy.CACertPEM())
 	if err != nil {
-		proxy.Shutdown()
+		ghProxy.Shutdown()
 		return nil, "", nil, fmt.Errorf("writing CA certificate: %w", err)
 	}
 
 	// Create the target directory inside the container and copy the CA cert.
 	// The directory must exist before CopyToContainer can place files into it.
-	resolvedOpts := proxy.Opts()
+	resolvedOpts := ghProxy.ServiceOpts()
 	caDir := filepath.Dir(resolvedOpts.CACertPathResolved())
 	if err := docker.MkdirInContainer(cmd.Context(), dockerCLI, containerID, caDir); err != nil {
-		proxy.Shutdown()
+		ghProxy.Shutdown()
 		_ = os.Remove(caCertPath)
 		return nil, "", nil, fmt.Errorf("creating CA cert directory in container: %w", err)
 	}
@@ -230,7 +231,7 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 		dockerCLI,
 		containerID,
 		"ca.crt",
-		proxy.CACertPEM(),
+		ghProxy.CACertPEM(),
 		caDir,
 	); err != nil {
 		// Log the error and proceed — the gh CLI may still work without
@@ -251,9 +252,9 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 
 	// Build the remote env vars that configure the gh CLI and git inside
 	// the container to route through the proxy.
-	remoteEnv := proxy.BuildRemoteEnv(port)
+	remoteEnv := ghProxy.BuildRemoteEnv(port)
 
-	return proxy, caCertPath, remoteEnv, nil
+	return ghProxy, caCertPath, remoteEnv, nil
 }
 
 // createCABundleInContainer creates a combined CA bundle file inside the
@@ -264,7 +265,7 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 // connectivity for Go programs in the container. The combined bundle is
 // referenced by SSL_CERT_FILE, while NODE_EXTRA_CA_CERTS points to the
 // proxy CA alone (Node.js appends rather than replaces).
-func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClient, containerID string, opts ghproxy.Options) error {
+func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClient, containerID string, opts proxy.Options) error {
 	// Build a multi-line script that concatenates the system CA bundle with the
 	// proxy's CA cert. The system CA bundle location varies by distro; we
 	// check the most common paths in order.
