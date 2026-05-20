@@ -1,6 +1,9 @@
 {
   "name": "dcx-test",
   "image": "mcr.microsoft.com/devcontainers/base:debian",
+  "features": {
+	  "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind"
 }
