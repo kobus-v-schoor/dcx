@@ -1,6 +1,9 @@
 package config
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // ComposeIntegration holds settings for Docker Compose integration strategies.
 // Pointer fields distinguish "not set" (nil) from a zero value during viper
@@ -68,6 +71,56 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
+// GitHubCLIConfig controls the GitHub CLI reverse proxy that enforces
+// repository-level scoping on the user's GitHub token. When Enabled is true,
+// dcx exec starts a local HTTPS reverse proxy inside the dcx process.
+// The gh CLI inside the container is configured (via GH_HOST and related env
+// vars) to route all requests through this proxy. The proxy intercepts each
+// request and enforces that it only targets the current project's repository
+// — rejecting any request that targets a different repo. Repository is
+// auto-detected from the git remote (origin URL) in the workspace when empty;
+// set it explicitly to override auto-detection.
+//
+// The user's auth token is never exposed inside the container — the proxy
+// injects it as an Authorization header on forwarded requests, replacing
+// whatever token the container-side gh CLI provides. The token exists only
+// in the host-side dcx process memory and is never written to disk or logged.
+type GitHubCLIConfig struct {
+	// Enabled controls whether the GitHub CLI proxy is active for dcx exec
+	// sessions.
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+
+	// Repository is the allowed repository in "owner/repo" format. Only API
+	// requests targeting this repository are forwarded; all other repo-scoped
+	// requests are rejected. Non-repo paths are controlled by AllowedPaths.
+	// If empty, the repository is auto-detected from the git remote origin URL.
+	Repository string `yaml:"repository" mapstructure:"repository"`
+
+	// BindAddr is the address the proxy listens on. Defaults to the gateway IP
+	// (more secure — only reachable from the container's network). Set to
+	// "0.0.0.0" to listen on all interfaces.
+	BindAddr string `yaml:"bind_addr" mapstructure:"bind_addr"`
+
+	// APIURL is the GitHub API URL to forward requests to. Defaults to
+	// "https://api.github.com". Override for GitHub Enterprise Server.
+	APIURL string `yaml:"api_url" mapstructure:"api_url"`
+
+	// CACertPath is the container path where the CA certificate is copied.
+	// Defaults to "/opt/dcx/gh-proxy/ca.crt".
+	CACertPath string `yaml:"ca_cert_path" mapstructure:"ca_cert_path"`
+
+	// CertExpiry is the validity duration for the generated TLS certificates.
+	// Defaults to 24 hours. The certificates are ephemeral — they only need to
+	// last for the duration of a dcx exec session.
+	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
+
+	// AllowedPaths is a list of non-repository API path prefixes that are
+	// allowed through the proxy. If empty, all non-repo paths are allowed
+	// (default). When non-empty, only paths starting with one of the listed
+	// prefixes are allowed in addition to repo-scoped paths.
+	AllowedPaths []string `yaml:"allowed_paths" mapstructure:"allowed_paths"`
+}
+
 // EnvVar represents an environment variable passthrough declaration from the
 // dcx config. The string format follows one of two forms:
 //   - "NAME" — shorthand: reads host env var NAME, sets NAME in the container.
@@ -86,6 +139,7 @@ type EnvVar string
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
+	GitHubCLI          GitHubCLIConfig     `yaml:"github_cli" mapstructure:"github_cli"`
 	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
 	Git                GitConfig           `yaml:"git" mapstructure:"git"`
 	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
