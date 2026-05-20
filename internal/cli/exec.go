@@ -15,16 +15,17 @@ import (
 
 // newExecCmd creates the "exec" subcommand. It opens an interactive shell or
 // executes a command inside the running devcontainer, with the GitHub API
-// proxy active if enabled in the config. The proxy enforces repository-level
-// scoping on the user's GitHub token for the duration of the shell session.
+// proxy active if enabled in the config. The proxy injects the host's GitHub
+// token into gh CLI requests without exposing the token inside the container.
 // Added to the root command tree in Execute().
 func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [flags] [-- command [args...]]",
 		Short: "Execute a shell or command inside the devcontainer with optional GitHub API proxy",
 		Long: `Open an interactive shell or execute a command inside the running devcontainer.
-When github_cli is enabled in the config, starts a GitHub API proxy that enforces
-repository-level scoping on the user's GitHub token for the duration of the session.
+When github_cli is enabled in the config, starts a GitHub API proxy that injects
+the host's GitHub token into all gh CLI requests for the duration of the session.
+The token is never exposed inside the container.
 If the devcontainer is not running, it is started first.`,
 		RunE: runExec,
 	}
@@ -54,9 +55,9 @@ func runExec(cmd *cobra.Command, args []string) error {
 	slog.Info("found devcontainer", "id", shortContainerID(containerID))
 
 	// Set up the GitHub API proxy if enabled in the config. The proxy
-	// intercepts all gh CLI requests from the container and enforces
-	// repository-level scoping. If no GitHub token is available on the
-	// host, a warning is logged and the container runs without proxy.
+	// intercepts all gh CLI requests from the container and injects
+	// the host's GitHub token. If no token is available on the host,
+	// a warning is logged and the container runs without proxy.
 	var proxy *ghproxy.Proxy
 	var caCertPath string
 	var remoteEnv []string
@@ -66,7 +67,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 		proxy, caCertPath, remoteEnv, err = setupProxy(cmd, containerID)
 		if err != nil {
 			// If proxy setup fails, log a warning and proceed without it —
-			// the user gets a shell but without repo-scoped GitHub access.
+			// the user gets a shell but without GitHub API access via proxy.
 			slog.Warn("GitHub API proxy setup failed, proceeding without proxy", "error", err)
 			proxy = nil
 		} else {
@@ -150,29 +151,18 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 }
 
 // setupProxy initializes and starts the GitHub API reverse proxy. It detects
-// the host's GitHub token and the repository from the git remote, creates the
-// proxy with options from the config, writes the CA cert to a temp file, copies
-// it into the container via the Docker API, creates a combined CA bundle, and
-// returns the proxy instance, CA cert file path, and the remote env vars to
-// inject into the container. Returns an error if no token is available or the
-// proxy fails to start. The caller is responsible for calling proxy.Shutdown()
-// and cleaning up the CA cert file.
+// the host's GitHub token, creates the proxy with options from the config,
+// writes the CA cert to a temp file, copies it into the container via the
+// Docker API, creates a combined CA bundle, and returns the proxy instance,
+// CA cert file path, and the remote env vars to inject into the container.
+// Returns an error if no token is available or the proxy fails to start.
+// The caller is responsible for calling proxy.Shutdown() and cleaning up
+// the CA cert file.
 func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string, []string, error) {
 	// Detect the host's GitHub token.
 	token, ok := ghproxy.DetectToken()
 	if !ok {
 		return nil, "", nil, fmt.Errorf("no GitHub token available on host")
-	}
-
-	// Determine the allowed repository. Use the config value if set, otherwise
-	// auto-detect from the git remote.
-	repository := activeCfg.GitHubCLI.Repository
-	if repository == "" {
-		detected, ok := ghproxy.DetectRepository(workspaceFolder)
-		if !ok {
-			return nil, "", nil, fmt.Errorf("cannot detect repository from git remote and no repository configured")
-		}
-		repository = detected
 	}
 
 	// Get the Docker client early — we need it to detect the gateway IP
@@ -201,14 +191,12 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	// is more secure as it limits the attack surface to the Docker bridge
 	// network.
 	opts := ghproxy.Options{
-		Token:        token,
-		Repository:   repository,
-		GatewayIP:    gatewayIP,
-		BindAddr:     activeCfg.GitHubCLI.BindAddr,
-		APIURL:       activeCfg.GitHubCLI.APIURL,
-		CACertPath:   activeCfg.GitHubCLI.CACertPath,
-		CertExpiry:   activeCfg.GitHubCLI.CertExpiry,
-		AllowedPaths: activeCfg.GitHubCLI.AllowedPaths,
+		Token:      token,
+		GatewayIP:  gatewayIP,
+		BindAddr:   activeCfg.GitHubCLI.BindAddr,
+		APIURL:     activeCfg.GitHubCLI.APIURL,
+		CACertPath: activeCfg.GitHubCLI.CACertPath,
+		CertExpiry: activeCfg.GitHubCLI.CertExpiry,
 	}
 
 	proxy := ghproxy.New(opts)

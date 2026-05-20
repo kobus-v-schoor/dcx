@@ -54,33 +54,27 @@ git:
 
 # --- GitHub CLI Proxy ---
 
-# Configure the GitHub CLI reverse proxy for repository-level token scoping.
+# Configure the GitHub CLI reverse proxy for token injection.
 # When enabled, dcx exec starts a local HTTPS reverse proxy that intercepts
-# all gh CLI requests from the container and enforces repository-level access
-# control on the user's GitHub token. Requests targeting repositories other
-# than the configured one are rejected with 403 Forbidden. This prevents
-# accidental or malicious access to other repositories from within the
-# devcontainer.
+# all gh CLI requests from the container and injects the host's GitHub token
+# as the Authorization header. This keeps the token on the host side — it
+# is never exposed inside the container.
 #
 # IMPORTANT: The user's auth token is never exposed inside the container.
 # The proxy injects it as an Authorization header on forwarded requests,
 # replacing whatever token the container-side gh CLI provides. The token
 # exists only in the host-side dcx process memory and is never written to
 # disk or logged.
+#
+# Note: The proxy does not enforce repository-level scoping. It forwards
+# all requests to the GitHub API with the host token. The purpose of the
+# proxy is to keep the token on the host side and inject it at the network
+# layer, not to restrict access to specific repositories.
 github_cli:
   # Enable the GitHub CLI proxy for dcx exec sessions.
   # Can also be set via the DCX_GITHUB_CLI_ENABLED environment variable.
   # Default: false
   enabled: false
-
-  # The allowed repository in "owner/repo" format. Only API requests targeting
-  # this repository are forwarded to the GitHub API; all other repo-scoped
-  # requests are rejected. Non-repo paths are controlled by allowed_paths.
-  # If empty, the repository is auto-detected from the git remote
-  # origin URL of the workspace.
-  # Can also be set via the DCX_GITHUB_CLI_REPOSITORY environment variable.
-  # Default: "" (auto-detect)
-  # repository: owner/repo
 
   # The address the proxy listens on. Defaults to the Docker gateway IP
   # (more secure — only reachable from the container's network). Set to
@@ -108,18 +102,6 @@ github_cli:
   # Can also be set via the DCX_GITHUB_CLI_CERT_EXPIRY environment variable.
   # Default: 24h
   # cert_expiry: 24h
-
-  # A list of non-repository API path prefixes that are allowed through the
-  # proxy. If empty (the default), all non-repo paths are allowed — this is
-  # needed for commands like `gh auth status`. When non-empty, only paths
-  # starting with one of the listed prefixes are allowed in addition to
-  # repo-scoped paths. This provides finer-grained control over what the
-  # container can access. For example, restricting to only user info and
-  # GraphQL:
-  #   allowed_paths: ["/user", "/graphql"]
-  # Can also be set via the DCX_GITHUB_CLI_ALLOWED_PATHS environment variable.
-  # Default: [] (all non-repo paths allowed)
-  # allowed_paths: []
 
 # --- Docker Compose Integration ---
 

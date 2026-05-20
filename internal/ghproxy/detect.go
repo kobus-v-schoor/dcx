@@ -1,13 +1,13 @@
-// Package ghproxy implements a reverse proxy for the GitHub API that enforces
-// repository-level scoping on the user's GitHub token. The proxy runs inside
-// the dcx process, listens on HTTPS with a self-signed certificate, and
-// forwards allowed requests to api.github.com after rewriting the Host header
-// and injecting the host's GitHub token. Requests targeting repositories other
-// than the configured one are rejected with 403 Forbidden.
+// Package ghproxy implements a reverse proxy for the GitHub API that injects
+// the host's GitHub token into requests from the gh CLI inside the devcontainer.
+// The proxy runs inside the dcx process, listens on HTTPS with a self-signed
+// certificate, and forwards all requests to api.github.com after rewriting
+// the Host header and injecting the host's GitHub token. The user's token
+// is never exposed inside the container — it exists only in the host-side
+// dcx process memory and is never written to disk or logged.
 package ghproxy
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -55,92 +55,4 @@ func DetectToken() (string, bool) {
 
 	slog.Debug("using gh auth token for GitHub API proxy")
 	return token, true
-}
-
-// DetectRepository extracts the repository in "owner/repo" format from the
-// git remote (origin URL) in the given workspace directory. It supports both
-// HTTPS and SSH remote URL formats. Returns the repository string and true if
-// found, or empty string and false if git is not available, the directory is
-// not a git repository, or there is no origin remote. Called by dcx exec when
-// the github_cli config has an empty repository field (auto-detection).
-func DetectRepository(workspaceDir string) (string, bool) {
-	path, err := exec.LookPath("git")
-	if err != nil {
-		slog.Warn("git not found on PATH, cannot detect repository")
-		return "", false
-	}
-
-	out, err := exec.Command(path, "-C", workspaceDir, "remote", "get-url", "origin").Output()
-	if err != nil {
-		slog.Warn("cannot detect git remote origin", "dir", workspaceDir, "error", err)
-		return "", false
-	}
-
-	remoteURL := strings.TrimSpace(string(out))
-	repo, err := parseGitRemoteURL(remoteURL)
-	if err != nil {
-		slog.Warn("cannot parse git remote URL", "url", remoteURL, "error", err)
-		return "", false
-	}
-
-	slog.Debug("detected repository from git remote", "repository", repo)
-	return repo, true
-}
-
-// parseGitRemoteURL extracts the "owner/repo" segment from a git remote URL.
-// Supports three common formats:
-//   - HTTPS: https://github.com/owner/repo.git
-//   - SSH:   git@github.com:owner/repo.git
-//   - SSH with scheme: ssh://git@github.com/owner/repo.git
-//
-// The .git suffix is stripped if present. Returns an error for URLs that
-// cannot be parsed or do not contain a recognizable owner/repo segment.
-func parseGitRemoteURL(rawURL string) (string, error) {
-	// Strip trailing .git suffix if present.
-	u := strings.TrimSuffix(rawURL, ".git")
-
-	// SSH format: git@github.com:owner/repo
-	if strings.Contains(u, ":") && !strings.HasPrefix(u, "http") && !strings.HasPrefix(u, "ssh://") {
-		parts := strings.SplitN(u, ":", 2)
-		if len(parts) != 2 {
-			return "", fmt.Errorf("invalid SSH URL: %s", rawURL)
-		}
-		path := parts[1]
-		return extractRepoFromPath(path)
-	}
-
-	// ssh://git@github.com/owner/repo
-	if strings.HasPrefix(u, "ssh://") {
-		parts := strings.SplitN(u, "/", 4)
-		if len(parts) < 4 {
-			return "", fmt.Errorf("invalid SSH URL: %s", rawURL)
-		}
-		return extractRepoFromPath(parts[3])
-	}
-
-	// HTTPS format: https://github.com/owner/repo
-	if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-		parts := strings.SplitN(u, "/", 5)
-		if len(parts) < 5 {
-			return "", fmt.Errorf("invalid HTTPS URL: %s", rawURL)
-		}
-		return extractRepoFromPath(parts[3] + "/" + parts[4])
-	}
-
-	return "", fmt.Errorf("unrecognized remote URL format: %s", rawURL)
-}
-
-// extractRepoFromPath validates and returns the "owner/repo" string from a
-// path segment. The path should be in the form "owner/repo" (possibly with
-// additional trailing path segments which are ignored). Returns an error if
-// the path does not contain at least two non-empty segments.
-func extractRepoFromPath(path string) (string, error) {
-	// Remove any trailing slashes and split on the first two segments.
-	path = strings.TrimSuffix(path, "/")
-	segments := strings.SplitN(path, "/", 3)
-	if len(segments) < 2 || segments[0] == "" || segments[1] == "" {
-		return "", fmt.Errorf("path %q does not contain owner/repo", path)
-	}
-
-	return segments[0] + "/" + segments[1], nil
 }
