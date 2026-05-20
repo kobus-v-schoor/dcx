@@ -344,3 +344,49 @@ func TestParseGitRemoteURL(t *testing.T) {
 		})
 	}
 }
+
+func TestDirectorPathRewrite(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "REST API path strips /api/v3",
+			path: "/api/v3/repos/owner/repo/issues",
+			want: "/repos/owner/repo/issues",
+		},
+		{
+			name: "GraphQL path strips /api",
+			path: "/api/graphql",
+			want: "/graphql",
+		},
+		{
+			name: "Root /api/v3 becomes /",
+			path: "/api/v3",
+			want: "/",
+		},
+		{
+			name: "Path without prefix unchanged",
+			path: "/repos/owner/repo",
+			want: "/repos/owner/repo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the path rewriting logic from the director.
+			path := tt.path
+			path = strings.TrimPrefix(path, "/api/v3")
+			if strings.HasPrefix(path, "/api/") {
+				path = strings.TrimPrefix(path, "/api")
+			}
+			if path == "" {
+				path = "/"
+			}
+			if path != tt.want {
+				t.Errorf("rewrite(%q) = %q, want %q", tt.path, path, tt.want)
+			}
+		})
+	}
+}

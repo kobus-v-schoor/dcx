@@ -458,6 +458,17 @@ func (p *Proxy) director(target *url.URL) func(*http.Request) {
 		// does not use this prefix — API paths are at the root (e.g.
 		// /repos/owner/repo, not /api/v3/repos/owner/repo).
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/v3")
+
+		// Also strip the "/api" prefix used by the gh CLI for GraphQL
+		// requests. When GH_HOST is a custom host, the gh CLI sends
+		// GraphQL requests to https://GH_HOST/api/graphql, but
+		// api.github.com serves GraphQL at /graphql (without /api prefix).
+		// This must come after the /api/v3 strip so that REST paths are
+		// handled first.
+		if strings.HasPrefix(req.URL.Path, "/api/") {
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		}
+
 		if req.URL.Path == "" {
 			req.URL.Path = "/"
 		}
