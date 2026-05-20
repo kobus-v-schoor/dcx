@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -149,11 +150,12 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 
 // setupProxy initializes and starts the GitHub API reverse proxy. It detects
 // the host's GitHub token and the repository from the git remote, creates the
-// proxy, writes the CA cert to a temp file, copies it into the container via
-// the Docker API, and returns the proxy instance, CA cert file path, and the
-// remote env vars to inject into the container. Returns an error if no token
-// is available or the proxy fails to start. The caller is responsible for
-// calling proxy.Shutdown() and cleaning up the CA cert file.
+// proxy with options from the config, writes the CA cert to a temp file, copies
+// it into the container via the Docker API, creates a combined CA bundle, and
+// returns the proxy instance, CA cert file path, and the remote env vars to
+// inject into the container. Returns an error if no token is available or the
+// proxy fails to start. The caller is responsible for calling proxy.Shutdown()
+// and cleaning up the CA cert file.
 func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string, []string, error) {
 	// Detect the host's GitHub token.
 	token, ok := ghproxy.DetectToken()
@@ -182,19 +184,33 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	defer func() { _ = dockerCLI.Close() }()
 
 	// Determine the host IP that the container can reach. The proxy listens
-	// on 0.0.0.0 so it is reachable from the container, but the container
-	// needs the correct IP to connect. We inspect the container's network
-	// to find the gateway IP, which is the host's IP on the Docker bridge
-	// network. This is more reliable than host.docker.internal, which may
-	// not be routable in all environments (e.g. codespaces).
+	// on the gateway IP by default (more secure) so it is reachable from
+	// the container. We inspect the container's network to find the gateway
+	// IP, which is the host's IP on the Docker bridge network. This is more
+	// reliable than host.docker.internal, which may not be routable in all
+	// environments (e.g. codespaces).
 	gatewayIP, err := docker.GatewayIP(cmd.Context(), dockerCLI, containerID)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("detecting host gateway IP: %w", err)
 	}
 
-	// Create and start the proxy. The gateway IP is included in the TLS
-	// certificate's IP SANs so the container can verify the connection.
-	proxy := ghproxy.New(token, repository, gatewayIP)
+	// Build proxy options from the config. The gateway IP is included in the
+	// TLS certificate's IP SANs so the container can verify the connection.
+	// By default the proxy binds to the gateway IP only (not 0.0.0.0), which
+	// is more secure as it limits the attack surface to the Docker bridge
+	// network.
+	opts := ghproxy.Options{
+		Token:        token,
+		Repository:   repository,
+		GatewayIP:    gatewayIP,
+		BindAddr:     activeCfg.GitHubCLI.BindAddr,
+		APIURL:       activeCfg.GitHubCLI.APIURL,
+		CACertPath:   activeCfg.GitHubCLI.CACertPath,
+		CertExpiry:   activeCfg.GitHubCLI.CertExpiry,
+		AllowedPaths: activeCfg.GitHubCLI.AllowedPaths,
+	}
+
+	proxy := ghproxy.New(opts)
 	port, err := proxy.Start()
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("starting GitHub API proxy: %w", err)
@@ -204,7 +220,7 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	// the container via the Docker API. The devcontainer exec command does not
 	// support --mount flags, so we use the Docker API's CopyToContainer to
 	// place the CA cert file directly into the container filesystem.
-	caCertPath, err := writeCACert(proxy.CACertPEM())
+	caCertPath, err := ghproxy.WriteCACertToFile(proxy.CACertPEM())
 	if err != nil {
 		proxy.Shutdown()
 		return nil, "", nil, fmt.Errorf("writing CA certificate: %w", err)
@@ -212,7 +228,9 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 
 	// Create the target directory inside the container and copy the CA cert.
 	// The directory must exist before CopyToContainer can place files into it.
-	if err := docker.MkdirInContainer(cmd.Context(), dockerCLI, containerID, "/opt/dcx/gh-proxy"); err != nil {
+	resolvedOpts := proxy.Opts()
+	caDir := dirOfFile(resolvedOpts.CACertPathResolved())
+	if err := docker.MkdirInContainer(cmd.Context(), dockerCLI, containerID, caDir); err != nil {
 		proxy.Shutdown()
 		_ = os.Remove(caCertPath)
 		return nil, "", nil, fmt.Errorf("creating CA cert directory in container: %w", err)
@@ -224,76 +242,83 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 		containerID,
 		"ca.crt",
 		proxy.CACertPEM(),
-		"/opt/dcx/gh-proxy",
+		caDir,
 	); err != nil {
 		// Log the error and proceed — the gh CLI may still work without
 		// the CA cert if the proxy is not used for HTTPS verification.
 		slog.Warn("could not copy CA cert into container, gh CLI may not trust the proxy", "error", err)
 	}
 
+	// Create a combined CA bundle inside the container that merges the
+	// system CA certificates with the proxy's self-signed CA certificate.
+	// This is required because Go's SSL_CERT_FILE replaces the system CA
+	// pool entirely (rather than appending to it), so a bundle containing
+	// only the proxy CA would break HTTPS for all other Go programs in the
+	// container. NODE_EXTRA_CA_CERTS does not need this — Node.js appends
+	// to the system trust store.
+	if err := createCABundleInContainer(cmd.Context(), dockerCLI, containerID, resolvedOpts); err != nil {
+		slog.Warn("could not create combined CA bundle in container, Go programs may have HTTPS issues", "error", err)
+	}
+
 	// Build the remote env vars that configure the gh CLI and git inside
 	// the container to route through the proxy.
-	remoteEnv := buildProxyRemoteEnv(port, gatewayIP)
+	remoteEnv := proxy.BuildRemoteEnv(port)
 
 	return proxy, caCertPath, remoteEnv, nil
 }
 
-// writeCACert writes the PEM-encoded CA certificate to a temporary file on
-// the host. The file is used as an intermediate step before copying the cert
-// into the container so the gh CLI trusts the proxy's self-signed TLS
-// certificate via SSL_CERT_FILE and NODE_EXTRA_CA_CERTS.
-// Returns the path to the temp file. The caller should clean up the file when
-// the proxy is shut down.
-func writeCACert(caCertPEM []byte) (string, error) {
-	tmp, err := os.CreateTemp("", "dcx-gh-proxy-ca-*.crt")
-	if err != nil {
-		return "", fmt.Errorf("creating temp file for CA cert: %w", err)
-	}
-	defer func() { _ = tmp.Close() }()
+// createCABundleInContainer creates a combined CA bundle file inside the
+// container that includes both the system CA certificates and the proxy's
+// self-signed CA certificate. This is necessary because Go's SSL_CERT_FILE
+// environment variable replaces the system CA pool entirely (it does not
+// append), so setting it to only the proxy CA would break all HTTPS
+// connectivity for Go programs in the container. The combined bundle is
+// referenced by SSL_CERT_FILE, while NODE_EXTRA_CA_CERTS points to the
+// proxy CA alone (Node.js appends rather than replaces).
+func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClient, containerID string, opts ghproxy.Options) error {
+	// Write a shell script that concatenates the system CA bundle with the
+	// proxy's CA cert into a combined bundle file. The system CA bundle
+	// location varies by distro; we check the most common paths.
+	//
+	// Debian/Ubuntu: /etc/ssl/certs/ca-certificates.crt
+	// Alpine:        /etc/ssl/certs/ca-certificates.crt (same)
+	// RHEL/Fedora:   /etc/pki/tls/certs/ca-bundle.crt
+	// OpenSUSE:      /etc/ssl/ca-bundle.pem
+	script := fmt.Sprintf(
+		`sys_ca=""; for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem; do if [ -f "$f" ]; then sys_ca="$f"; break; fi; done; if [ -n "$sys_ca" ]; then cat "$sys_ca" %s > %s; else cp %s %s; fi`,
+		opts.CACertPathResolved(),
+		opts.CABundlePathResolved(),
+		opts.CACertPathResolved(),
+		opts.CABundlePathResolved(),
+	)
 
-	if _, err := tmp.Write(caCertPEM); err != nil {
-		_ = os.Remove(tmp.Name())
-		return "", fmt.Errorf("writing CA cert: %w", err)
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "sh", "-c", script); err != nil {
+		return fmt.Errorf("creating combined CA bundle in container: %w", err)
 	}
 
-	return tmp.Name(), nil
+	return nil
 }
 
-// buildProxyRemoteEnv constructs the environment variable flags that
-// configure the gh CLI and git inside the container to route all GitHub API
-// requests through the proxy. These are passed as --remote-env flags to
-// devcontainer exec. Returns a slice of "--remote-env=NAME=VALUE" strings.
-//
-// The gatewayIP is the host's IP address on the Docker bridge network,
-// which the container uses to reach the proxy. The proxyPort is the port
-// the proxy is listening on.
-func buildProxyRemoteEnv(proxyPort int, gatewayIP string) []string {
-	var envVars []string
+// dirOfFile returns the directory component of a file path. Used to determine
+// the container directory where the CA cert should be placed.
+func dirOfFile(path string) string {
+	// Simple path directory extraction — find the last slash.
+	if idx := lastIdx(path, '/'); idx >= 0 {
+		return path[:idx]
+	}
+	return "."
+}
 
-	// GH_HOST tells the gh CLI which GitHub host to target. The gh CLI
-	// constructs the API URL as https://GH_HOST/api/v3/... so including
-	// the port directs it to the proxy. Using the gateway IP (not
-	// host.docker.internal) ensures connectivity in all environments.
-	ghHost := fmt.Sprintf("%s:%d", gatewayIP, proxyPort)
-	envVars = append(envVars, fmt.Sprintf("--remote-env=GH_HOST=%s", ghHost))
-
-	// SSL_CERT_FILE tells Go-based programs (like the gh CLI binary) to trust
-	// the proxy's self-signed CA certificate. The CA cert is copied into the
-	// container at the fixed path CACertMountPath via the Docker API.
-	// NODE_EXTRA_CA_CERTS is also set for Node.js-based tools.
-	envVars = append(envVars, fmt.Sprintf("--remote-env=SSL_CERT_FILE=%s", ghproxy.CACertMountPath))
-	envVars = append(envVars, fmt.Sprintf("--remote-env=NODE_EXTRA_CA_CERTS=%s", ghproxy.CACertMountPath))
-
-	// GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, and GIT_CONFIG_VALUE_0 configure
-	// git to rewrite GitHub URLs so that git operations (clone, push, pull)
-	// also route through the proxy. The insteadOf directive maps
-	// https://GH_HOST/ URLs to https://github.com/ URLs so git can reach
-	// the proxy when users clone/push to GitHub remotes.
-	envVars = append(envVars, "--remote-env=GIT_CONFIG_COUNT=1")
-	envVars = append(envVars, fmt.Sprintf("--remote-env=GIT_CONFIG_KEY_0=url.https://%s/.insteadOf", ghHost))
-	envVars = append(envVars, "--remote-env=GIT_CONFIG_VALUE_0=https://github.com/")
-
-	return envVars
+// lastIdx returns the last index of the given byte in the string, or -1 if
+// not found. Used instead of strings.LastIndex to avoid importing strings in
+// this file.
+func lastIdx(s string, c byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // buildExecArgs assembles the arguments for devcontainer exec. It includes

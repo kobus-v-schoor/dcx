@@ -13,7 +13,11 @@ import (
 // TestProxyStartAndShutdown tests that the proxy can start on a dynamic port
 // and shut down cleanly without errors.
 func TestProxyStartAndShutdown(t *testing.T) {
-	proxy := New("test-token", "owner/repo", "127.0.0.1")
+	proxy := New(Options{
+		Token:      "test-token",
+		Repository: "owner/repo",
+		GatewayIP:  "127.0.0.1",
+	})
 	port, err := proxy.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -35,7 +39,11 @@ func TestProxyStartAndShutdown(t *testing.T) {
 // TestProxyRejectsOtherRepo tests that the proxy rejects requests targeting
 // a different repository with 403 Forbidden.
 func TestProxyRejectsOtherRepo(t *testing.T) {
-	proxy := New("test-token", "owner/allowed-repo", "127.0.0.1")
+	proxy := New(Options{
+		Token:      "test-token",
+		Repository: "owner/allowed-repo",
+		GatewayIP:  "127.0.0.1",
+	})
 	_, err := proxy.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -67,7 +75,11 @@ func TestProxyRejectsOtherRepo(t *testing.T) {
 // we're using a fake token and the real GitHub API will reject it, but we can
 // verify the request is not rejected at the scoping layer.
 func TestProxyAllowsMatchingRepo(t *testing.T) {
-	proxy := New("test-token", "owner/allowed-repo", "127.0.0.1")
+	proxy := New(Options{
+		Token:      "test-token",
+		Repository: "owner/allowed-repo",
+		GatewayIP:  "127.0.0.1",
+	})
 	_, err := proxy.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -95,7 +107,11 @@ func TestProxyAllowsMatchingRepo(t *testing.T) {
 // TestProxyAllowsNonRepoPaths tests that the proxy allows requests that don't
 // target a specific repository (e.g. /user, /graphql).
 func TestProxyAllowsNonRepoPaths(t *testing.T) {
-	proxy := New("test-token", "owner/repo", "127.0.0.1")
+	proxy := New(Options{
+		Token:      "test-token",
+		Repository: "owner/repo",
+		GatewayIP:  "127.0.0.1",
+	})
 	_, err := proxy.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -121,7 +137,10 @@ func TestProxyAllowsNonRepoPaths(t *testing.T) {
 // TestProxyNoScopingWhenRepoEmpty tests that no repository scoping is enforced
 // when the repository is empty.
 func TestProxyNoScopingWhenRepoEmpty(t *testing.T) {
-	proxy := New("test-token", "", "127.0.0.1")
+	proxy := New(Options{
+		Token:     "test-token",
+		GatewayIP: "127.0.0.1",
+	})
 	_, err := proxy.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -141,6 +160,46 @@ func TestProxyNoScopingWhenRepoEmpty(t *testing.T) {
 	if resp.StatusCode == http.StatusForbidden {
 		body, _ := io.ReadAll(resp.Body)
 		t.Errorf("got 403 Forbidden with no repo configured, body: %s", body)
+	}
+}
+
+// TestProxyAllowedPathsRestrictsNonRepoPaths tests that when AllowedPaths is
+// set, non-repo paths not in the list are rejected.
+func TestProxyAllowedPathsRestrictsNonRepoPaths(t *testing.T) {
+	proxy := New(Options{
+		Token:        "test-token",
+		Repository:   "owner/repo",
+		GatewayIP:    "127.0.0.1",
+		AllowedPaths: []string{"/user", "/graphql"},
+	})
+	_, err := proxy.Start()
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer proxy.Shutdown()
+
+	client := makeProxyClient(t, proxy.CACertPEM())
+
+	// /user should be allowed — it's in AllowedPaths.
+	resp, err := makeProxyRequest(client, proxy, "/user")
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusForbidden {
+		t.Errorf("got 403 for /user, which is in AllowedPaths")
+	}
+
+	// /orgs/some-org should be rejected — it's not in AllowedPaths and not a repo path.
+	resp2, err := makeProxyRequest(client, proxy, "/orgs/some-org")
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("status for /orgs/some-org = %d, want %d", resp2.StatusCode, http.StatusForbidden)
 	}
 }
 
@@ -172,15 +231,7 @@ func makeProxyClient(t *testing.T, caCertPEM []byte) *http.Client {
 // constructs the URL using the proxy's listener address and sets the Host
 // header to ProxyHost so the proxy's director can rewrite it correctly.
 func makeProxyRequest(client *http.Client, proxy *Proxy, path string) (*http.Response, error) {
-	// We need to get the port from the proxy. Since the listener is internal,
-	// we reconstruct the URL from the known port. For tests, we read the
-	// port from the listener address directly.
-	// However, since Proxy doesn't expose the port, we use the test
-	// infrastructure differently — we construct a URL pointing to 127.0.0.1
-	// with the Host header set to ProxyHost.
-
 	// Get the actual listener address from the proxy server.
-	// Since we can't access the listener directly, we'll use a helper.
 	addr := proxy.listenerAddr()
 	if addr == "" {
 		return nil, fmt.Errorf("proxy has no listener address")
@@ -209,13 +260,23 @@ func (p *Proxy) listenerAddr() string {
 // TestProxyPortIsDynamic tests that starting the proxy twice allocates
 // different ports (verifying dynamic port allocation).
 func TestProxyPortIsDynamic(t *testing.T) {
-	proxy1 := New("test-token", "owner/repo", "127.0.0.1")
+	proxy1 := New(Options{
+		Token:      "test-token",
+		Repository: "owner/repo",
+		GatewayIP:  "127.0.0.1",
+		BindAddr:   "127.0.0.1",
+	})
 	port1, err := proxy1.Start()
 	if err != nil {
 		t.Fatalf("Start() proxy1 error: %v", err)
 	}
 
-	proxy2 := New("test-token", "owner/repo", "127.0.0.1")
+	proxy2 := New(Options{
+		Token:      "test-token",
+		Repository: "owner/repo",
+		GatewayIP:  "127.0.0.1",
+		BindAddr:   "127.0.0.1",
+	})
 	port2, err := proxy2.Start()
 	if err != nil {
 		proxy1.Shutdown()

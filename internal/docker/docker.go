@@ -146,12 +146,6 @@ func FindDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder st
 	return result, nil
 }
 
-// findDevcontainers is an alias for FindDevcontainers for backward
-// compatibility with existing callers in this package.
-func findDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder string) (client.ContainerListResult, error) {
-	return FindDevcontainers(ctx, cli, workspaceFolder)
-}
-
 // GatewayIP inspects the given container and returns the gateway IP address
 // of its primary network. This is the IP address the container can use to
 // reach the host. Used by dcx exec to determine the host IP so the
@@ -175,7 +169,7 @@ func GatewayIP(ctx context.Context, cli DockerClient, containerID string) (strin
 // it. Returns an error if no devcontainer is found. If the container is
 // already stopped, this is a no-op.
 func Stop(ctx context.Context, cli DockerClient, workspaceFolder string) error {
-	containers, err := findDevcontainers(ctx, cli, workspaceFolder)
+	containers, err := FindDevcontainers(ctx, cli, workspaceFolder)
 	if err != nil {
 		return err
 	}
@@ -203,7 +197,7 @@ func Stop(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 // Image removal errors are logged but not treated as fatal, since other
 // containers may still reference the image.
 func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
-	containers, err := findDevcontainers(ctx, cli, workspaceFolder)
+	containers, err := FindDevcontainers(ctx, cli, workspaceFolder)
 	if err != nil {
 		return err
 	}
@@ -310,28 +304,36 @@ func CopyBytesToContainer(ctx context.Context, cli DockerClient, containerID, fi
 // the target directory exists before copying the CA certificate into the
 // container.
 func MkdirInContainer(ctx context.Context, cli DockerClient, containerID, dir string) error {
+	return ExecInContainer(ctx, cli, containerID, "mkdir", "-p", dir)
+}
+
+// ExecInContainer executes the given command inside a running container via
+// the Docker exec API. Returns an error if the exec cannot be created, fails
+// to start, or exits with a non-zero code. Used by dcx exec to run commands
+// inside the container (e.g. creating directories, building CA bundles).
+func ExecInContainer(ctx context.Context, cli DockerClient, containerID string, cmd ...string) error {
 	execCreate, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
-		Cmd:          []string{"mkdir", "-p", dir},
+		Cmd:          cmd,
 		AttachStdout: true,
 		AttachStderr: true,
 	})
 	if err != nil {
-		return fmt.Errorf("creating mkdir exec in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("creating exec in container %s: %w", shortID(containerID), err)
 	}
 
 	_, err = cli.ExecStart(ctx, execCreate.ID, client.ExecStartOptions{})
 	if err != nil {
-		return fmt.Errorf("running mkdir in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("running exec in container %s: %w", shortID(containerID), err)
 	}
 
-	// Check the exit code of the mkdir command.
+	// Check the exit code of the command.
 	inspect, err := cli.ExecInspect(ctx, execCreate.ID, client.ExecInspectOptions{})
 	if err != nil {
-		return fmt.Errorf("inspecting mkdir exec in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("inspecting exec in container %s: %w", shortID(containerID), err)
 	}
 
 	if inspect.ExitCode != 0 {
-		return fmt.Errorf("mkdir -p %s in container %s exited with code %d", dir, shortID(containerID), inspect.ExitCode)
+		return fmt.Errorf("command %v in container %s exited with code %d", cmd, shortID(containerID), inspect.ExitCode)
 	}
 
 	return nil

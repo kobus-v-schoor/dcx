@@ -371,8 +371,8 @@ func TestMkdirInContainerCreateError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when exec create fails")
 	}
-	if !strings.Contains(err.Error(), "creating mkdir exec") {
-		t.Errorf("error should mention creating mkdir exec, got: %s", err.Error())
+	if !strings.Contains(err.Error(), "creating exec in container") {
+		t.Errorf("error should mention creating exec in container, got: %s", err.Error())
 	}
 }
 

@@ -39,6 +39,11 @@ func Load(cwd string) (*Config, error) {
 	// provides a value.
 	v.SetDefault("github_cli.enabled", false)
 	v.SetDefault("github_cli.repository", "")
+	v.SetDefault("github_cli.bind_addr", "")
+	v.SetDefault("github_cli.api_url", "")
+	v.SetDefault("github_cli.ca_cert_path", "")
+	v.SetDefault("github_cli.cert_expiry", 0)
+	v.SetDefault("github_cli.allowed_paths", nil)
 	v.SetDefault("ssh.forward_agent", true)
 	v.SetDefault("ssh.agent_socket_target", "/opt/dcx/sockets/ssh-agent.sock")
 	v.SetDefault("git.inject_configs", true)

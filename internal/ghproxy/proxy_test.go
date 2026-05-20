@@ -3,6 +3,7 @@ package ghproxy
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExtractRepo(t *testing.T) {
@@ -105,12 +106,13 @@ func TestExtractRepo(t *testing.T) {
 	}
 }
 
-func TestScopingTransportCheckRepoScope(t *testing.T) {
+func TestScopingTransportCheckScope(t *testing.T) {
 	tests := []struct {
-		name       string
-		repository string
-		path       string
-		wantErr    bool
+		name         string
+		repository   string
+		allowedPaths []string
+		path         string
+		wantErr      bool
 	}{
 		{
 			name:       "matching repository",
@@ -125,13 +127,13 @@ func TestScopingTransportCheckRepoScope(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "non-repo path allowed",
+			name:       "non-repo path allowed by default",
 			repository: "owner/repo",
 			path:       "/user",
 			wantErr:    false,
 		},
 		{
-			name:       "graphql allowed",
+			name:       "graphql allowed by default",
 			repository: "owner/repo",
 			path:       "/graphql",
 			wantErr:    false,
@@ -148,19 +150,125 @@ func TestScopingTransportCheckRepoScope(t *testing.T) {
 			path:       "/repos/other-org/repo",
 			wantErr:    true,
 		},
+		// Allowed paths tests.
+		{
+			name:         "non-repo path matching allowed path",
+			repository:   "owner/repo",
+			allowedPaths: []string{"/user", "/graphql"},
+			path:         "/user",
+			wantErr:      false,
+		},
+		{
+			name:         "non-repo path not in allowed paths",
+			repository:   "owner/repo",
+			allowedPaths: []string{"/user", "/graphql"},
+			path:         "/orgs/some-org",
+			wantErr:      true,
+		},
+		{
+			name:         "graphql in allowed paths",
+			repository:   "owner/repo",
+			allowedPaths: []string{"/user", "/graphql"},
+			path:         "/graphql",
+			wantErr:      false,
+		},
+		{
+			name:         "sub-path of allowed path",
+			repository:   "owner/repo",
+			allowedPaths: []string{"/user"},
+			path:         "/user/emails",
+			wantErr:      false,
+		},
+		{
+			name:         "repo path always allowed with allowed paths",
+			repository:   "owner/repo",
+			allowedPaths: []string{"/user"},
+			path:         "/repos/owner/repo/issues",
+			wantErr:      false,
+		},
+		{
+			name:         "empty allowed paths allows all non-repo",
+			repository:   "owner/repo",
+			allowedPaths: []string{},
+			path:         "/orgs/some-org",
+			wantErr:      false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tr := &scopingTransport{repository: tt.repository, token: "test-token"}
-			err := tr.checkRepoScope(tt.path)
+			tr := &scopingTransport{repository: tt.repository, token: "test-token", allowedPaths: tt.allowedPaths}
+			err := tr.checkScope(tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("checkRepoScope(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+				t.Errorf("checkScope(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
 			}
-			if err != nil && !strings.Contains(err.Error(), tt.repository) {
+			if err != nil && !strings.Contains(err.Error(), tt.repository) && len(tt.allowedPaths) == 0 {
 				t.Errorf("error should mention allowed repository %q, got: %s", tt.repository, err.Error())
 			}
 		})
+	}
+}
+
+func TestOptionsCABundlePath(t *testing.T) {
+	tests := []struct {
+		name       string
+		caCertPath string
+		want       string
+	}{
+		{
+			name:       "default path",
+			caCertPath: "",
+			want:       "/opt/dcx/gh-proxy/ca-bundle.crt",
+		},
+		{
+			name:       "custom path",
+			caCertPath: "/custom/path/cert.crt",
+			want:       "/custom/path/cert-bundle.crt",
+		},
+		{
+			name:       "path without crt extension",
+			caCertPath: "/custom/path/cert.pem",
+			want:       "/custom/path/cert.pem-bundle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := Options{CACertPath: tt.caCertPath}
+			got := opts.caBundlePath()
+			if got != tt.want {
+				t.Errorf("caBundlePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOptionsDefaults(t *testing.T) {
+	opts := Options{GatewayIP: "172.17.0.1"}
+
+	if got := opts.caCertPath(); got != DefaultCACertPath {
+		t.Errorf("caCertPath() = %q, want %q", got, DefaultCACertPath)
+	}
+	if got := opts.apiURL(); got != DefaultAPIURL {
+		t.Errorf("apiURL() = %q, want %q", got, DefaultAPIURL)
+	}
+	if got := opts.certExpiry(); got != DefaultCertExpiry {
+		t.Errorf("certExpiry() = %v, want %v", got, DefaultCertExpiry)
+	}
+	if got := opts.bindAddr(); got != "172.17.0.1" {
+		t.Errorf("bindAddr() = %q, want %q", got, "172.17.0.1")
+	}
+
+	// Override bind address.
+	opts.BindAddr = "0.0.0.0"
+	if got := opts.bindAddr(); got != "0.0.0.0" {
+		t.Errorf("bindAddr() = %q, want %q", got, "0.0.0.0")
+	}
+
+	// Override cert expiry.
+	opts.CertExpiry = 1 * time.Hour
+	if got := opts.certExpiry(); got != 1*time.Hour {
+		t.Errorf("certExpiry() = %v, want %v", got, 1*time.Hour)
 	}
 }
 
