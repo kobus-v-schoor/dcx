@@ -137,12 +137,12 @@ type EnvVar string
 // default) ensures unset fields receive their default value rather than zero.
 // ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	Proxy              ProxyConfig          `yaml:"proxy" mapstructure:"proxy"`
-	SSH                SSHConfig            `yaml:"ssh" mapstructure:"ssh"`
-	Git                GitConfig            `yaml:"git" mapstructure:"git"`
-	ComposeIntegration *ComposeIntegration  `yaml:"compose_integration" mapstructure:"compose_integration"`
-	DefaultFeatures    []Feature            `yaml:"default_features" mapstructure:"default_features"`
-	Mounts             []Mount              `yaml:"mounts" mapstructure:"mounts"`
-	Environment        []EnvVar             `yaml:"environment" mapstructure:"environment"`
-	LogLevel           string               `yaml:"log_level" mapstructure:"log_level"`
+	Proxy              ProxyConfig         `yaml:"proxy" mapstructure:"proxy"`
+	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
+	Git                GitConfig           `yaml:"git" mapstructure:"git"`
+	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
+	DefaultFeatures    []Feature           `yaml:"default_features" mapstructure:"default_features"`
+	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
+	Environment        []EnvVar            `yaml:"environment" mapstructure:"environment"`
+	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
 }
