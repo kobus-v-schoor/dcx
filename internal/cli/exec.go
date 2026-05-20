@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/ghproxy"
@@ -229,7 +230,7 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 	// Create the target directory inside the container and copy the CA cert.
 	// The directory must exist before CopyToContainer can place files into it.
 	resolvedOpts := proxy.Opts()
-	caDir := dirOfFile(resolvedOpts.CACertPathResolved())
+	caDir := filepath.Dir(resolvedOpts.CACertPathResolved())
 	if err := docker.MkdirInContainer(cmd.Context(), dockerCLI, containerID, caDir); err != nil {
 		proxy.Shutdown()
 		_ = os.Remove(caCertPath)
@@ -276,16 +277,27 @@ func setupProxy(cmd *cobra.Command, containerID string) (*ghproxy.Proxy, string,
 // referenced by SSL_CERT_FILE, while NODE_EXTRA_CA_CERTS points to the
 // proxy CA alone (Node.js appends rather than replaces).
 func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClient, containerID string, opts ghproxy.Options) error {
-	// Write a shell script that concatenates the system CA bundle with the
-	// proxy's CA cert into a combined bundle file. The system CA bundle
-	// location varies by distro; we check the most common paths.
+	// Build a multi-line script that concatenates the system CA bundle with the
+	// proxy's CA cert. The system CA bundle location varies by distro; we
+	// check the most common paths in order.
 	//
 	// Debian/Ubuntu: /etc/ssl/certs/ca-certificates.crt
 	// Alpine:        /etc/ssl/certs/ca-certificates.crt (same)
 	// RHEL/Fedora:   /etc/pki/tls/certs/ca-bundle.crt
 	// OpenSUSE:      /etc/ssl/ca-bundle.pem
-	script := fmt.Sprintf(
-		`sys_ca=""; for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem; do if [ -f "$f" ]; then sys_ca="$f"; break; fi; done; if [ -n "$sys_ca" ]; then cat "$sys_ca" %s > %s; else cp %s %s; fi`,
+	script := fmt.Sprintf(`
+		sys_ca=""
+		for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem; do
+			if [ -f "$f" ]; then
+				sys_ca="$f"
+				break
+			fi
+		done
+		if [ -n "$sys_ca" ]; then
+			cat "$sys_ca" %s > %s
+		else
+			cp %s %s
+		fi`,
 		opts.CACertPathResolved(),
 		opts.CABundlePathResolved(),
 		opts.CACertPathResolved(),
@@ -297,28 +309,6 @@ func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClien
 	}
 
 	return nil
-}
-
-// dirOfFile returns the directory component of a file path. Used to determine
-// the container directory where the CA cert should be placed.
-func dirOfFile(path string) string {
-	// Simple path directory extraction — find the last slash.
-	if idx := lastIdx(path, '/'); idx >= 0 {
-		return path[:idx]
-	}
-	return "."
-}
-
-// lastIdx returns the last index of the given byte in the string, or -1 if
-// not found. Used instead of strings.LastIndex to avoid importing strings in
-// this file.
-func lastIdx(s string, c byte) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
 }
 
 // buildExecArgs assembles the arguments for devcontainer exec. It includes
