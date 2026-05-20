@@ -1,9 +1,10 @@
-// Package ghproxy implements a reverse proxy for the GitHub API that enforces
-// repository-level scoping on the user's GitHub token. The proxy runs inside
-// the dcx process, listens on HTTPS with a self-signed certificate, and
-// forwards allowed requests to api.github.com after rewriting the Host header
-// and injecting the host's GitHub token. Requests targeting repositories other
-// than the configured one are rejected with 403 Forbidden.
+// Package ghproxy implements a reverse proxy for the GitHub API that injects
+// the host's GitHub token into requests from the gh CLI inside the devcontainer.
+// The proxy runs inside the dcx process, listens on HTTPS with a self-signed
+// certificate, and forwards all requests to api.github.com after rewriting
+// the Host header and injecting the host's GitHub token. The user's token
+// is never exposed inside the container — it exists only in the host-side
+// dcx process memory and is never written to disk or logged.
 package ghproxy
 
 import (
@@ -16,7 +17,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/big"
 	"net"
@@ -49,11 +49,6 @@ type Options struct {
 	// requests, replacing whatever the container-side gh CLI sends.
 	Token string
 
-	// Repository is the allowed repository in "owner/repo" format. Requests
-	// targeting a different repository are rejected with 403 Forbidden. If
-	// empty, all repository-scoped requests are allowed (no scoping enforced).
-	Repository string
-
 	// GatewayIP is the host's IP address on the Docker bridge network. The
 	// container uses this IP to reach the proxy. It is included in the TLS
 	// certificate's IP SANs so the gh CLI can verify the connection.
@@ -82,14 +77,6 @@ type Options struct {
 	// certificates are ephemeral — they only need to last for the duration
 	// of a dcx exec session.
 	CertExpiry time.Duration
-
-	// AllowedPaths is a list of non-repository API path prefixes that are
-	// allowed through the proxy even when they don't match the configured
-	// repository. If empty, all non-repo paths are allowed (default behaviour).
-	// When non-empty, only paths that start with one of the listed prefixes
-	// are allowed through in addition to repo-scoped paths. For example,
-	// ["/user", "/graphql"] allows /user and /graphql but blocks /orgs/...
-	AllowedPaths []string
 }
 
 // caCertPath returns the CA cert container path. Defaults are expected to
@@ -168,12 +155,11 @@ func (o Options) BindAddrResolved() string {
 }
 
 // Proxy handles HTTP/HTTPS requests from the gh CLI inside the devcontainer,
-// enforces repository-level scoping, and forwards allowed requests to the
-// configured GitHub API URL. It runs as an HTTPS server with a self-signed
-// certificate generated on startup.
+// injects the host's GitHub token, and forwards all requests to the configured
+// GitHub API URL. It runs as an HTTPS server with a self-signed certificate
+// generated on startup.
 type Proxy struct {
-	// opts holds the proxy configuration including token, repository, and
-	// network settings.
+	// opts holds the proxy configuration including token and network settings.
 	opts Options
 
 	// listener is the TCP listener the proxy server uses. Bound to the
@@ -262,14 +248,8 @@ func (p *Proxy) Start() (int, error) {
 	}
 	reverseProxy := httputil.NewSingleHostReverseProxy(target)
 
-	// Override the transport so we can intercept and check requests before
-	// they are forwarded. The default transport would send requests directly
-	// to the GitHub API; we need to enforce repository scoping and inject
-	// the host token.
-	reverseProxy.Transport = &scopingTransport{
-		repository:   p.opts.Repository,
-		token:        p.opts.Token,
-		allowedPaths: p.opts.AllowedPaths,
+	reverseProxy.Transport = &tokenTransport{
+		token: p.opts.Token,
 	}
 
 	reverseProxy.Director = p.director(target)
@@ -300,7 +280,6 @@ func (p *Proxy) Start() (int, error) {
 
 	slog.Info("GitHub API proxy started",
 		"port", port,
-		"repository", p.opts.Repository,
 		"bind_addr", bindAddr,
 		"api_url", p.opts.apiURL())
 
@@ -469,43 +448,22 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 	http.Error(w, fmt.Sprintf("proxy error: %v", err), http.StatusBadGateway)
 }
 
-// scopingTransport is an http.RoundTripper that enforces repository-level
-// scoping on GitHub API requests. Before forwarding each request, it checks
-// whether the request targets the allowed repository (or a non-repo path
-// matching the allowed paths list). Requests failing both checks are rejected
-// with 403 Forbidden. Allowed requests have the host's GitHub token injected
-// as the Authorization header.
-type scopingTransport struct {
-	// repository is the allowed repository in "owner/repo" format. If empty,
-	// no repository scoping is enforced and all requests are forwarded.
-	repository string
-
+// tokenTransport is an http.RoundTripper that injects the host's GitHub
+// token as the Authorization header on every forwarded request. The director
+// already cleared any incoming Authorization header, so this is the only
+// token the forwarded request will carry. All requests are forwarded without
+// scoping — the proxy's purpose is to keep the token on the host side and
+// inject it at the network layer, not to restrict access.
+type tokenTransport struct {
 	// token is the host's GitHub token, injected as the Authorization header
-	// on forwarded requests. It replaces whatever the container-side gh CLI
-	// sends (the director already cleared the incoming Authorization header).
+	// on forwarded requests.
 	token string
-
-	// allowedPaths is a list of non-repository API path prefixes that are
-	// allowed through the proxy. If empty, all non-repo paths are allowed
-	// (default behaviour). When non-empty, only paths starting with one of
-	// the listed prefixes are allowed in addition to repo-scoped paths.
-	allowedPaths []string
 }
 
-// RoundTrip implements http.RoundTripper. It checks the request path for
-// repository scoping and allowed path prefixes, then either forwards the
-// request to the GitHub API or rejects it with 403 Forbidden. The host token
-// is always injected as the Authorization header on forwarded requests.
-func (t *scopingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Enforce repository and path scoping.
-	if err := t.checkScope(req.URL.Path); err != nil {
-		return &http.Response{
-			StatusCode: http.StatusForbidden,
-			Header:     make(http.Header),
-			Body:       ioBody(fmt.Sprintf("dcx-proxy: %s\n", err.Error())),
-		}, nil
-	}
-
+// RoundTrip implements http.RoundTripper. It injects the host's GitHub token
+// as the Authorization header and forwards the request to the GitHub API via
+// the default transport.
+func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Inject the host's GitHub token as the Authorization header. The director
 	// already cleared any incoming Authorization header, so this is the only
 	// token the forwarded request will carry.
@@ -513,72 +471,6 @@ func (t *scopingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	// Use the default transport to forward the request to the GitHub API.
 	return http.DefaultTransport.RoundTrip(req)
-}
-
-// checkScope validates that the request path targets the allowed repository
-// or an allowed non-repo path. GitHub API v3 paths for repository operations
-// follow the pattern /repos/{owner}/{repo}/... . The function first checks
-// if the path targets the allowed repository. If not, it checks whether the
-// path matches an allowed non-repo prefix. If neither check passes, the
-// request is rejected.
-func (t *scopingTransport) checkScope(path string) error {
-	repo, ok := extractRepo(path)
-	if ok {
-		// Path targets a specific repository — check if it matches the
-		// allowed repository.
-		if t.repository != "" && repo != t.repository {
-			return fmt.Errorf("repository %q is not in the allowed scope (%q)", repo, t.repository)
-		}
-		return nil
-	}
-
-	// Path does not target a specific repository (e.g. /user, /app,
-	// /graphql). Check it against the allowed paths list.
-	if len(t.allowedPaths) > 0 {
-		for _, prefix := range t.allowedPaths {
-			if strings.HasPrefix(path, prefix) {
-				return nil
-			}
-		}
-		return fmt.Errorf("non-repo path %q is not in the allowed paths list", path)
-	}
-
-	// No allowed paths configured — allow all non-repo paths through.
-	// These are needed for gh auth status and similar commands.
-	return nil
-}
-
-// extractRepo parses a GitHub API v3 request path to extract the owner/repo
-// segment. GitHub API paths for repository operations follow the pattern
-// /repos/{owner}/{repo}/... . Returns the "owner/repo" string and true if
-// found, or empty string and false if the path does not target a specific
-// repository (e.g. /user, /app, /graphql).
-func extractRepo(path string) (string, bool) {
-	// Normalize: remove leading slash and split on slashes.
-	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
-
-	// GitHub API v3 repository paths start with "repos/{owner}/{repo}".
-	if len(segments) < 3 || segments[0] != "repos" {
-		return "", false
-	}
-
-	owner := segments[1]
-	repo := segments[2]
-
-	// The repo name may have additional segments after it (e.g.
-	// /repos/owner/repo/issues), but we only need owner/repo.
-	if owner == "" || repo == "" {
-		return "", false
-	}
-
-	return owner + "/" + repo, true
-}
-
-// ioBody returns an io.ReadCloser that yields the given string. Used to
-// construct response bodies for rejected requests without allocating a
-// bytes.Buffer or pipe.
-func ioBody(s string) io.ReadCloser {
-	return io.NopCloser(strings.NewReader(s))
 }
 
 // generateCA creates a self-signed CA certificate and ECDSA private key. The

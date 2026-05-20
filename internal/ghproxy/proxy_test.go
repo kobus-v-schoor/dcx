@@ -1,211 +1,166 @@
 package ghproxy
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestExtractRepo(t *testing.T) {
-	tests := []struct {
-		name   string
-		path   string
-		want   string
-		wantOK bool
-	}{
-		{
-			name:   "repos owner repo issues",
-			path:   "/repos/owner/repo/issues",
-			want:   "owner/repo",
-			wantOK: true,
-		},
-		{
-			name:   "repos owner repo",
-			path:   "/repos/owner/repo",
-			want:   "owner/repo",
-			wantOK: true,
-		},
-		{
-			name:   "repos owner repo pull requests",
-			path:   "/repos/owner/repo/pulls/123",
-			want:   "owner/repo",
-			wantOK: true,
-		},
-		{
-			name:   "repos owner repo contents",
-			path:   "/repos/owner/repo/contents/README.md",
-			want:   "owner/repo",
-			wantOK: true,
-		},
-		{
-			name:   "repos owner repo git refs",
-			path:   "/repos/owner/repo/git/refs/heads/main",
-			want:   "owner/repo",
-			wantOK: true,
-		},
-		{
-			name:   "user endpoint no repo",
-			path:   "/user",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "app endpoint no repo",
-			path:   "/app",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "graphql endpoint no repo",
-			path:   "/graphql",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "root path",
-			path:   "/",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "repos only one segment after",
-			path:   "/repos/owner",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "empty path",
-			path:   "",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "repos with hyphenated names",
-			path:   "/repos/my-org/my-repo/actions/runs",
-			want:   "my-org/my-repo",
-			wantOK: true,
-		},
-		{
-			name:   "repos with dots",
-			path:   "/repos/owner/repo.js/pulls",
-			want:   "owner/repo.js",
-			wantOK: true,
-		},
+// TestProxyStartAndShutdown tests that the proxy can start on a dynamic port
+// and shut down cleanly without errors.
+func TestProxyStartAndShutdown(t *testing.T) {
+	proxy := New(Options{
+		Token:     "test-token",
+		GatewayIP: "127.0.0.1",
+	})
+	port, err := proxy.Start()
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := extractRepo(tt.path)
-			if ok != tt.wantOK {
-				t.Errorf("extractRepo(%q) ok = %v, want %v", tt.path, ok, tt.wantOK)
-			}
-			if got != tt.want {
-				t.Errorf("extractRepo(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
+	if port <= 0 {
+		t.Errorf("port = %d, want > 0", port)
+	}
+
+	// Verify CA cert is available.
+	caPEM := proxy.CACertPEM()
+	if len(caPEM) == 0 {
+		t.Error("CACertPEM() returned empty bytes")
+	}
+
+	proxy.Shutdown()
+}
+
+// TestProxyForwardsRequests tests that the proxy does not reject any requests
+// (no repo scoping). Requests will fail at the forwarding step since we use
+// a fake token, but they must not be rejected at the proxy layer (no 403).
+func TestProxyForwardsRequests(t *testing.T) {
+	proxy := New(Options{
+		Token:     "test-token",
+		GatewayIP: "127.0.0.1",
+	})
+	_, err := proxy.Start()
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer proxy.Shutdown()
+
+	client := makeProxyClient(t, proxy.CACertPEM())
+
+	// Make a request to any repo path — should not be rejected by the proxy.
+	resp, err := makeProxyRequest(client, proxy, "/repos/any/repo/issues")
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Should not be 403 Forbidden — the proxy forwards all requests.
+	if resp.StatusCode == http.StatusForbidden {
+		t.Errorf("got 403 Forbidden, expected request to be forwarded")
 	}
 }
 
-func TestScopingTransportCheckScope(t *testing.T) {
-	tests := []struct {
-		name         string
-		repository   string
-		allowedPaths []string
-		path         string
-		wantErr      bool
-	}{
-		{
-			name:       "matching repository",
-			repository: "owner/repo",
-			path:       "/repos/owner/repo/issues",
-			wantErr:    false,
-		},
-		{
-			name:       "non-matching repository",
-			repository: "owner/repo",
-			path:       "/repos/other/repo/issues",
-			wantErr:    true,
-		},
-		{
-			name:       "non-repo path allowed by default",
-			repository: "owner/repo",
-			path:       "/user",
-			wantErr:    false,
-		},
-		{
-			name:       "graphql allowed by default",
-			repository: "owner/repo",
-			path:       "/graphql",
-			wantErr:    false,
-		},
-		{
-			name:       "matching with hyphens",
-			repository: "my-org/my-repo",
-			path:       "/repos/my-org/my-repo/pulls",
-			wantErr:    false,
-		},
-		{
-			name:       "different org same repo name",
-			repository: "owner/repo",
-			path:       "/repos/other-org/repo",
-			wantErr:    true,
-		},
-		// Allowed paths tests.
-		{
-			name:         "non-repo path matching allowed path",
-			repository:   "owner/repo",
-			allowedPaths: []string{"/user", "/graphql"},
-			path:         "/user",
-			wantErr:      false,
-		},
-		{
-			name:         "non-repo path not in allowed paths",
-			repository:   "owner/repo",
-			allowedPaths: []string{"/user", "/graphql"},
-			path:         "/orgs/some-org",
-			wantErr:      true,
-		},
-		{
-			name:         "graphql in allowed paths",
-			repository:   "owner/repo",
-			allowedPaths: []string{"/user", "/graphql"},
-			path:         "/graphql",
-			wantErr:      false,
-		},
-		{
-			name:         "sub-path of allowed path",
-			repository:   "owner/repo",
-			allowedPaths: []string{"/user"},
-			path:         "/user/emails",
-			wantErr:      false,
-		},
-		{
-			name:         "repo path always allowed with allowed paths",
-			repository:   "owner/repo",
-			allowedPaths: []string{"/user"},
-			path:         "/repos/owner/repo/issues",
-			wantErr:      false,
-		},
-		{
-			name:         "empty allowed paths allows all non-repo",
-			repository:   "owner/repo",
-			allowedPaths: []string{},
-			path:         "/orgs/some-org",
-			wantErr:      false,
-		},
+// makeProxyClient creates an http.Client that trusts the given CA certificate
+// for TLS connections. Used in tests to connect to the proxy's self-signed
+// HTTPS server.
+func makeProxyClient(t *testing.T, caCertPEM []byte) *http.Client {
+	t.Helper()
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+		t.Fatal("failed to append CA cert to pool")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tr := &scopingTransport{repository: tt.repository, token: "test-token", allowedPaths: tt.allowedPaths}
-			err := tr.checkScope(tt.path)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("checkScope(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
-			}
-			if err != nil && !strings.Contains(err.Error(), tt.repository) && len(tt.allowedPaths) == 0 {
-				t.Errorf("error should mention allowed repository %q, got: %s", tt.repository, err.Error())
-			}
-		})
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs: caCertPool,
+				// The proxy's cert is issued to ProxyHost but we connect
+				// via 127.0.0.1, so we need to skip name verification in
+				// tests.
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
+// makeProxyRequest creates and sends an HTTP request to the proxy. It
+// constructs the URL using the proxy's listener address and sets the Host
+// header to ProxyHost so the proxy's director can rewrite it correctly.
+func makeProxyRequest(client *http.Client, proxy *Proxy, path string) (*http.Response, error) {
+	// Get the actual listener address from the proxy server.
+	addr := proxy.listenerAddr()
+	if addr == "" {
+		return nil, fmt.Errorf("proxy has no listener address")
+	}
+
+	reqURL := fmt.Sprintf("https://%s%s", addr, path)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %v", err)
+	}
+	req.Host = ProxyHost
+
+	return client.Do(req)
+}
+
+// listenerAddr returns the address (host:port) the proxy is listening on.
+// Used in tests to construct request URLs. Returns empty string if the
+// proxy hasn't been started.
+func (p *Proxy) listenerAddr() string {
+	if p.listener == nil {
+		return ""
+	}
+	return p.listener.Addr().String()
+}
+
+// TestProxyPortIsDynamic tests that starting the proxy twice allocates
+// different ports (verifying dynamic port allocation).
+func TestProxyPortIsDynamic(t *testing.T) {
+	proxy1 := New(Options{
+		Token:     "test-token",
+		GatewayIP: "127.0.0.1",
+		BindAddr:  "127.0.0.1",
+	})
+	port1, err := proxy1.Start()
+	if err != nil {
+		t.Fatalf("Start() proxy1 error: %v", err)
+	}
+
+	proxy2 := New(Options{
+		Token:     "test-token",
+		GatewayIP: "127.0.0.1",
+		BindAddr:  "127.0.0.1",
+	})
+	port2, err := proxy2.Start()
+	if err != nil {
+		proxy1.Shutdown()
+		t.Fatalf("Start() proxy2 error: %v", err)
+	}
+
+	defer proxy1.Shutdown()
+	defer proxy2.Shutdown()
+
+	if port1 == port2 {
+		t.Errorf("both proxies got the same port %d, expected different dynamic ports", port1)
+	}
+}
+
+// TestBuildProxyURL tests the URL construction for proxy requests.
+func TestBuildProxyURL(t *testing.T) {
+	port := 12345
+	u := fmt.Sprintf("https://127.0.0.1:%d/repos/owner/repo/issues", port)
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatalf("parsing URL: %v", err)
+	}
+	if parsed.Port() != "12345" {
+		t.Errorf("port = %q, want 12345", parsed.Port())
 	}
 }
 
@@ -274,79 +229,6 @@ func TestOptionsDefaults(t *testing.T) {
 	opts.CertExpiry = 1 * time.Hour
 	if got := opts.certExpiry(); got != 1*time.Hour {
 		t.Errorf("certExpiry() = %v, want %v", got, 1*time.Hour)
-	}
-}
-
-func TestParseGitRemoteURL(t *testing.T) {
-	tests := []struct {
-		name    string
-		url     string
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "https URL",
-			url:  "https://github.com/owner/repo.git",
-			want: "owner/repo",
-		},
-		{
-			name: "https URL without .git",
-			url:  "https://github.com/owner/repo",
-			want: "owner/repo",
-		},
-		{
-			name: "SSH URL",
-			url:  "git@github.com:owner/repo.git",
-			want: "owner/repo",
-		},
-		{
-			name: "SSH URL without .git",
-			url:  "git@github.com:owner/repo",
-			want: "owner/repo",
-		},
-		{
-			name: "SSH URL with scheme",
-			url:  "ssh://git@github.com/owner/repo.git",
-			want: "owner/repo",
-		},
-		{
-			name: "hyphenated names",
-			url:  "https://github.com/my-org/my-repo.git",
-			want: "my-org/my-repo",
-		},
-		{
-			name: "SSH hyphenated names",
-			url:  "git@github.com:my-org/my-repo.git",
-			want: "my-org/my-repo",
-		},
-		{
-			name:    "invalid format",
-			url:     "something-random",
-			wantErr: true,
-		},
-		{
-			name:    "HTTPS too short",
-			url:     "https://github.com/owner",
-			wantErr: true,
-		},
-		{
-			name:    "SSH too short",
-			url:     "git@github.com:owner",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseGitRemoteURL(tt.url)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseGitRemoteURL(%q) error = %v, wantErr %v", tt.url, err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("parseGitRemoteURL(%q) = %q, want %q", tt.url, got, tt.want)
-			}
-		})
 	}
 }
 
