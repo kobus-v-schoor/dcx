@@ -216,8 +216,8 @@ func TestOptionsCABundlePath(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "default path",
-			caCertPath: "",
+			name:       "standard path",
+			caCertPath: "/opt/dcx/gh-proxy/ca.crt",
 			want:       "/opt/dcx/gh-proxy/ca-bundle.crt",
 		},
 		{
@@ -244,16 +244,21 @@ func TestOptionsCABundlePath(t *testing.T) {
 }
 
 func TestOptionsDefaults(t *testing.T) {
-	opts := Options{GatewayIP: "172.17.0.1"}
+	opts := Options{
+		GatewayIP:  "172.17.0.1",
+		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
+		APIURL:     "https://api.github.com",
+		CertExpiry: 24 * time.Hour,
+	}
 
-	if got := opts.caCertPath(); got != DefaultCACertPath {
-		t.Errorf("caCertPath() = %q, want %q", got, DefaultCACertPath)
+	if got := opts.caCertPath(); got != "/opt/dcx/gh-proxy/ca.crt" {
+		t.Errorf("caCertPath() = %q, want %q", got, "/opt/dcx/gh-proxy/ca.crt")
 	}
-	if got := opts.apiURL(); got != DefaultAPIURL {
-		t.Errorf("apiURL() = %q, want %q", got, DefaultAPIURL)
+	if got := opts.apiURL(); got != "https://api.github.com" {
+		t.Errorf("apiURL() = %q, want %q", got, "https://api.github.com")
 	}
-	if got := opts.certExpiry(); got != DefaultCertExpiry {
-		t.Errorf("certExpiry() = %v, want %v", got, DefaultCertExpiry)
+	if got := opts.certExpiry(); got != 24*time.Hour {
+		t.Errorf("certExpiry() = %v, want %v", got, 24*time.Hour)
 	}
 	if got := opts.bindAddr(); got != "172.17.0.1" {
 		t.Errorf("bindAddr() = %q, want %q", got, "172.17.0.1")

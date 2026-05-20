@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -40,9 +41,9 @@ func Load(cwd string) (*Config, error) {
 	v.SetDefault("github_cli.enabled", false)
 	v.SetDefault("github_cli.repository", "")
 	v.SetDefault("github_cli.bind_addr", "")
-	v.SetDefault("github_cli.api_url", "")
-	v.SetDefault("github_cli.ca_cert_path", "")
-	v.SetDefault("github_cli.cert_expiry", 0)
+	v.SetDefault("github_cli.api_url", "https://api.github.com")
+	v.SetDefault("github_cli.ca_cert_path", "/opt/dcx/gh-proxy/ca.crt")
+	v.SetDefault("github_cli.cert_expiry", 24*time.Hour)
 	v.SetDefault("github_cli.allowed_paths", nil)
 	v.SetDefault("ssh.forward_agent", true)
 	v.SetDefault("ssh.agent_socket_target", "/opt/dcx/sockets/ssh-agent.sock")
