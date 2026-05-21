@@ -1,7 +1,9 @@
 // Package env implements environment variable passthrough from the host to the
 // devcontainer. It reads EnvVar declarations from the dcx config, resolves host
 // environment variable values, and returns them for injection into the override
-// devcontainer.json's containerEnv property.
+// devcontainer.json's containerEnv property. It also provides AutoForward which
+// returns environment variables that are automatically forwarded from the host
+// without requiring user configuration.
 package env
 
 import (
@@ -95,6 +97,42 @@ func expandValue(expr string) string {
 		}
 		return hostValue
 	})
+}
+
+// autoForwardNames lists environment variable names that are automatically
+// forwarded from the host to the devcontainer without requiring user
+// configuration. These variables are essential for correct terminal behaviour
+// inside the container. If a listed variable is not set on the host, it is
+// silently skipped (no warning). User-configured environment entries take
+// precedence over auto-forwarded variables when both set the same
+// container-side name.
+var autoForwardNames = []string{
+	"TERM",
+}
+
+// AutoForward returns resolved environment variables that are automatically
+// forwarded from the host to the devcontainer. Currently this includes TERM,
+// which ensures that TUI applications making use of advanced terminal features
+// (like true-colour support) work as expected inside the container.
+// Variables that are not set on the host are silently skipped. Called by the
+// cli package during dcx up before user-configured env vars are resolved, so
+// that user config takes precedence on name conflict.
+func AutoForward() []ResolvedEnv {
+	var result []ResolvedEnv
+
+	for _, name := range autoForwardNames {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			continue
+		}
+
+		result = append(result, ResolvedEnv{
+			Name:  name,
+			Value: value,
+		})
+	}
+
+	return result
 }
 
 // ResolveAll resolves each environment variable declaration from the config

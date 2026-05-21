@@ -1,6 +1,7 @@
 package env
 
 import (
+	"os"
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -128,6 +129,49 @@ func TestResolveAllEmpty(t *testing.T) {
 	got = ResolveAll([]config.EnvVar{})
 	if got != nil {
 		t.Errorf("ResolveAll([]) = %v, want nil", got)
+	}
+}
+
+func TestAutoForwardWithTerm(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+
+	result := AutoForward()
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 resolved env, got %d", len(result))
+	}
+	if result[0].Name != "TERM" {
+		t.Errorf("Name = %q, want %q", result[0].Name, "TERM")
+	}
+	if result[0].Value != "xterm-256color" {
+		t.Errorf("Value = %q, want %q", result[0].Value, "xterm-256color")
+	}
+}
+
+func TestAutoForwardWithoutTerm(t *testing.T) {
+	// Ensure TERM is unset — t.Setenv on a previously-set var only overrides
+	// it within the test's scope.
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatalf("failed to unset TERM: %v", err)
+	}
+
+	result := AutoForward()
+
+	if len(result) != 0 {
+		t.Fatalf("expected 0 resolved envs when TERM is unset, got %d", len(result))
+	}
+}
+
+func TestAutoForwardDoesNotWarnOnMissing(t *testing.T) {
+	// Auto-forwarded variables that are unset should be silently skipped,
+	// unlike user-configured vars which log a warning.
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatalf("failed to unset TERM: %v", err)
+	}
+
+	result := AutoForward()
+	if result != nil {
+		t.Errorf("expected nil when all auto-forward vars are unset, got %v", result)
 	}
 }
 
