@@ -31,6 +31,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +39,11 @@ import (
 
 // ProxyHost is the hostname used in the TLS certificate's Subject Alternative
 // Name. The proxy generates a self-signed certificate with this hostname so
-// clients can verify the TLS connection. In practice, GH_HOST is set to
-// the Docker gateway IP (detected at runtime) plus the proxy port, so the
-// certificate also includes an IP SAN for the gateway. The hostname SAN
-// provides a fallback for environments where host.docker.internal is
-// routable.
+// clients can verify the TLS connection. On non-Linux hosts GH_HOST is set
+// to this hostname plus the proxy port, since host.docker.internal is the
+// standard way for containers to reach the host on Docker Desktop / Colima.
+// The certificate also includes an IP SAN for the gateway so Linux hosts
+// (which fall back to the gateway IP) can verify the connection too.
 const ProxyHost = "host.docker.internal"
 
 // Service implements a service-specific reverse proxy. Each service
@@ -167,13 +168,17 @@ func (o Options) CertExpiryResolved() time.Duration {
 	return o.CertExpiry
 }
 
-// BindAddrResolved returns the effective bind address, using GatewayIP if the
-// option is empty. Binding to the gateway IP only (rather than 0.0.0.0) is
-// more secure as it limits the proxy's attack surface to the Docker bridge
-// network.
+// BindAddrResolved returns the effective bind address. If BindAddr is set
+// explicitly, that value is used. Otherwise, on Linux the proxy binds to the
+// Docker gateway IP (reachable from the container via the bridge network), and
+// on non-Linux hosts it binds to 127.0.0.1 since containers reach the host
+// via host.docker.internal which routes to localhost on Docker Desktop / Colima.
 func (o Options) BindAddrResolved() string {
 	if o.BindAddr != "" {
 		return o.BindAddr
+	}
+	if runtime.GOOS != "linux" {
+		return "127.0.0.1"
 	}
 	return o.GatewayIP
 }

@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -83,11 +84,13 @@ func (g *githubProvider) CreateHandler(opts proxy.Options, cfg *config.Config) (
 }
 
 // RemoteEnvVars returns the GitHub-specific remote environment variables for
-// the container. These configure the gh CLI and git to route all GitHub API
-// requests through the proxy:
-//   - GH_HOST: tells the gh CLI which host to target (gateway IP + port)
-//   - GIT_CONFIG_COUNT/KEY/VALUE: configures git to rewrite GitHub URLs
-//     through the proxy via insteadOf
+// the container. These configure the gh CLI to route GitHub API requests
+// through the proxy:
+//   - GH_HOST: tells the gh CLI which host to target
+//
+// On non-Linux hosts GH_HOST uses host.docker.internal (the standard way for
+// containers to reach the host on Docker Desktop / Colima). On Linux it falls
+// back to the gateway IP since host.docker.internal is not always available.
 //
 // Generic TLS env vars (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) are added by
 // the proxy infrastructure and should not be included here.
@@ -96,19 +99,14 @@ func (g *githubProvider) RemoteEnvVars(port int, opts proxy.Options, cfg *config
 
 	// GH_HOST tells the gh CLI which GitHub host to target. The gh CLI
 	// constructs the API URL as https://GH_HOST/api/v3/... so including
-	// the port directs it to the proxy. Using the gateway IP (not
-	// host.docker.internal) ensures connectivity in all environments.
-	ghHost := fmt.Sprintf("%s:%d", opts.GatewayIP, port)
+	// the port directs it to the proxy.
+	var ghHost string
+	if runtime.GOOS == "linux" {
+		ghHost = fmt.Sprintf("%s:%d", opts.GatewayIP, port)
+	} else {
+		ghHost = fmt.Sprintf("%s:%d", proxy.ProxyHost, port)
+	}
 	envVars = append(envVars, fmt.Sprintf("--remote-env=GH_HOST=%s", ghHost))
-
-	// GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, and GIT_CONFIG_VALUE_0 configure
-	// git to rewrite GitHub URLs so that git operations (clone, push, pull)
-	// also route through the proxy. The insteadOf directive maps
-	// https://GH_HOST/ URLs to https://github.com/ URLs so git can reach
-	// the proxy when users clone/push to GitHub remotes.
-	envVars = append(envVars, "--remote-env=GIT_CONFIG_COUNT=1")
-	envVars = append(envVars, fmt.Sprintf("--remote-env=GIT_CONFIG_KEY_0=url.https://%s/.insteadOf", ghHost))
-	envVars = append(envVars, "--remote-env=GIT_CONFIG_VALUE_0=https://github.com/")
 
 	return envVars
 }

@@ -44,10 +44,10 @@ type Provider interface {
 	CreateHandler(opts Options, cfg *config.Config) (http.Handler, error)
 
 	// RemoteEnvVars returns service-specific remote environment variables for
-	// the container (e.g. GH_HOST, GIT_CONFIG_* for the GitHub proxy). These
-	// are combined with generic TLS env vars (SSL_CERT_FILE,
-	// NODE_EXTRA_CA_CERTS) by the proxy infrastructure. The port parameter
-	// is the port the proxy is listening on.
+	// the container (e.g. GH_HOST for the GitHub proxy). These are combined
+	// with generic TLS env vars (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) by the
+	// proxy infrastructure. The port parameter is the port the proxy is
+	// listening on.
 	RemoteEnvVars(port int, opts Options, cfg *config.Config) []string
 }
 

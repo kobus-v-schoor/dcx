@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -270,8 +271,16 @@ func TestOptionsDefaults(t *testing.T) {
 	if got := opts.CertExpiryResolved(); got != 24*time.Hour {
 		t.Errorf("CertExpiryResolved() = %v, want %v", got, 24*time.Hour)
 	}
-	if got := opts.BindAddrResolved(); got != "172.17.0.1" {
-		t.Errorf("BindAddrResolved() = %q, want %q", got, "172.17.0.1")
+
+	// BindAddr default is platform-dependent.
+	var wantDefaultBindAddr string
+	if runtime.GOOS == "linux" {
+		wantDefaultBindAddr = "172.17.0.1"
+	} else {
+		wantDefaultBindAddr = "127.0.0.1"
+	}
+	if got := opts.BindAddrResolved(); got != wantDefaultBindAddr {
+		t.Errorf("BindAddrResolved() = %q, want %q", got, wantDefaultBindAddr)
 	}
 
 	// Override bind address.
