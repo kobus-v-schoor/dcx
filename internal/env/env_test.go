@@ -149,9 +149,11 @@ func TestAutoForwardWithTerm(t *testing.T) {
 }
 
 func TestAutoForwardWithoutTerm(t *testing.T) {
-	// Ensure TERM is unset — os.Unsetenv is needed because t.Setenv on a
-	// previously-set var only overrides it within the test's scope.
-	os.Unsetenv("TERM")
+	// Ensure TERM is unset — t.Setenv on a previously-set var only overrides
+	// it within the test's scope.
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatalf("failed to unset TERM: %v", err)
+	}
 
 	result := AutoForward()
 
@@ -163,7 +165,9 @@ func TestAutoForwardWithoutTerm(t *testing.T) {
 func TestAutoForwardDoesNotWarnOnMissing(t *testing.T) {
 	// Auto-forwarded variables that are unset should be silently skipped,
 	// unlike user-configured vars which log a warning.
-	os.Unsetenv("TERM")
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatalf("failed to unset TERM: %v", err)
+	}
 
 	result := AutoForward()
 	if result != nil {
