@@ -134,11 +134,12 @@ func TestResolveAllEmpty(t *testing.T) {
 
 func TestAutoForwardWithTerm(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
 
 	result := AutoForward()
 
-	if len(result) != 1 {
-		t.Fatalf("expected 1 resolved env, got %d", len(result))
+	if len(result) != 2 {
+		t.Fatalf("expected 2 resolved envs, got %d", len(result))
 	}
 	if result[0].Name != "TERM" {
 		t.Errorf("Name = %q, want %q", result[0].Name, "TERM")
@@ -146,19 +147,28 @@ func TestAutoForwardWithTerm(t *testing.T) {
 	if result[0].Value != "xterm-256color" {
 		t.Errorf("Value = %q, want %q", result[0].Value, "xterm-256color")
 	}
+	if result[1].Name != "COLORTERM" {
+		t.Errorf("Name = %q, want %q", result[1].Name, "COLORTERM")
+	}
+	if result[1].Value != "truecolor" {
+		t.Errorf("Value = %q, want %q", result[1].Value, "truecolor")
+	}
 }
 
 func TestAutoForwardWithoutTerm(t *testing.T) {
-	// Ensure TERM is unset — t.Setenv on a previously-set var only overrides
-	// it within the test's scope.
+	// Ensure TERM and COLORTERM are unset — t.Setenv on a previously-set var
+	// only overrides it within the test's scope.
 	if err := os.Unsetenv("TERM"); err != nil {
 		t.Fatalf("failed to unset TERM: %v", err)
+	}
+	if err := os.Unsetenv("COLORTERM"); err != nil {
+		t.Fatalf("failed to unset COLORTERM: %v", err)
 	}
 
 	result := AutoForward()
 
 	if len(result) != 0 {
-		t.Fatalf("expected 0 resolved envs when TERM is unset, got %d", len(result))
+		t.Fatalf("expected 0 resolved envs when TERM and COLORTERM are unset, got %d", len(result))
 	}
 }
 
@@ -168,10 +178,32 @@ func TestAutoForwardDoesNotWarnOnMissing(t *testing.T) {
 	if err := os.Unsetenv("TERM"); err != nil {
 		t.Fatalf("failed to unset TERM: %v", err)
 	}
+	if err := os.Unsetenv("COLORTERM"); err != nil {
+		t.Fatalf("failed to unset COLORTERM: %v", err)
+	}
 
 	result := AutoForward()
 	if result != nil {
 		t.Errorf("expected nil when all auto-forward vars are unset, got %v", result)
+	}
+}
+
+func TestAutoForwardWithColortermOnly(t *testing.T) {
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatalf("failed to unset TERM: %v", err)
+	}
+	t.Setenv("COLORTERM", "truecolor")
+
+	result := AutoForward()
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 resolved env, got %d", len(result))
+	}
+	if result[0].Name != "COLORTERM" {
+		t.Errorf("Name = %q, want %q", result[0].Name, "COLORTERM")
+	}
+	if result[0].Value != "truecolor" {
+		t.Errorf("Value = %q, want %q", result[0].Value, "truecolor")
 	}
 }
 
