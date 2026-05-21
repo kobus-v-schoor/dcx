@@ -479,3 +479,72 @@ git:
 		t.Errorf("Git.Configs[1] = %q, want ~/.gitignore_global", cfg.Git.Configs[1])
 	}
 }
+
+func TestLoadProxyGitHubDefaults(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Proxy should default to disabled.
+	if cfg.Proxy.GitHub.Enabled {
+		t.Error("default Proxy.GitHub.Enabled should be false")
+	}
+	if cfg.Proxy.GitHub.APIURL != "https://api.github.com" {
+		t.Errorf("default Proxy.GitHub.APIURL = %q, want https://api.github.com", cfg.Proxy.GitHub.APIURL)
+	}
+	if cfg.Proxy.GitHub.CACertPath != "/opt/dcx/gh-proxy/ca.crt" {
+		t.Errorf("default Proxy.GitHub.CACertPath = %q, want /opt/dcx/gh-proxy/ca.crt", cfg.Proxy.GitHub.CACertPath)
+	}
+}
+
+func TestLoadProxyGitHubUserConfig(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+proxy:
+  github:
+    enabled: true
+    bind_addr: "0.0.0.0"
+    api_url: "https://github.example.com/api/v3"
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !cfg.Proxy.GitHub.Enabled {
+		t.Error("Proxy.GitHub.Enabled should be true")
+	}
+	if cfg.Proxy.GitHub.BindAddr != "0.0.0.0" {
+		t.Errorf("Proxy.GitHub.BindAddr = %q, want 0.0.0.0", cfg.Proxy.GitHub.BindAddr)
+	}
+	if cfg.Proxy.GitHub.APIURL != "https://github.example.com/api/v3" {
+		t.Errorf("Proxy.GitHub.APIURL = %q, want https://github.example.com/api/v3", cfg.Proxy.GitHub.APIURL)
+	}
+}
+
+func TestLoadProxyGitHubEnvOverride(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+proxy:
+  github:
+    enabled: false
+`)
+
+	setupUserConfigEnv(t, home)
+	t.Setenv("DCX_PROXY_GITHUB_ENABLED", "true")
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !cfg.Proxy.GitHub.Enabled {
+		t.Error("Proxy.GitHub.Enabled should be true after env override")
+	}
+}

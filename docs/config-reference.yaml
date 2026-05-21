@@ -52,56 +52,59 @@ git:
   # Default: /opt/dcx/git
   # mount_base: /opt/dcx/git
 
-# --- GitHub CLI Proxy ---
+# --- Proxy Services ---
 
-# Configure the GitHub CLI reverse proxy for token injection.
-# When enabled, dcx exec starts a local HTTPS reverse proxy that intercepts
-# all gh CLI requests from the container and injects the host's GitHub token
-# as the Authorization header. This keeps the token on the host side — it
-# is never exposed inside the container.
-#
-# IMPORTANT: The user's auth token is never exposed inside the container.
-# The proxy injects it as an Authorization header on forwarded requests,
-# replacing whatever token the container-side gh CLI provides. The token
-# exists only in the host-side dcx process memory and is never written to
-# disk or logged.
-#
-# Note: The proxy does not enforce repository-level scoping. It forwards
-# all requests to the GitHub API with the host token. The purpose of the
-# proxy is to keep the token on the host side and inject it at the network
-# layer, not to restrict access to specific repositories.
-github_cli:
-  # Enable the GitHub CLI proxy for dcx exec sessions.
-  # Can also be set via the DCX_GITHUB_CLI_ENABLED environment variable.
-  # Default: false
-  enabled: false
+# Configure API reverse proxies for credential injection. Each service
+# (e.g. GitHub, OpenAI) gets its own sub-configuration and listens on a
+# separate port. When enabled, dcx exec starts local HTTPS reverse proxies
+# that intercept API requests from the container and inject the host's
+# credentials as authorization headers. This keeps credentials on the host
+# side — they are never exposed inside the container.
+proxy:
+  # --- GitHub API Proxy ---
 
-  # The address the proxy listens on. Defaults to the Docker gateway IP
-  # (more secure — only reachable from the container's network). Set to
-  # "0.0.0.0" to listen on all interfaces (needed in some Docker network
-  # setups where the gateway IP is not routable from the container).
-  # Can also be set via the DCX_GITHUB_CLI_BIND_ADDR environment variable.
-  # Default: "" (use gateway IP)
-  # bind_addr: ""
+  # Configure the GitHub API reverse proxy for token injection.
+  # When enabled, dcx exec starts a local HTTPS reverse proxy that intercepts
+  # all gh CLI requests from the container and injects the host's GitHub token
+  # as the Authorization header. This keeps the token on the host side — it
+  # is never exposed inside the container.
 
-  # The GitHub API URL to forward requests to. Defaults to the public
-  # GitHub API. Override for GitHub Enterprise Server deployments.
-  # Can also be set via the DCX_GITHUB_CLI_API_URL environment variable.
-  # Default: "https://api.github.com"
-  # api_url: "https://api.github.com"
+  # Note: The proxy does not enforce repository-level scoping. It forwards
+  # all requests to the GitHub API with the host token. The purpose of the
+  # proxy is to keep the token on the host side and inject it at the network
+  # layer, not to restrict access to specific repositories.
+  github:
+    # Enable the GitHub API proxy for dcx exec sessions.
+    # Can also be set via the DCX_PROXY_GITHUB_ENABLED environment variable.
+    # Default: false
+    enabled: false
 
-  # The container path where the CA certificate is copied so the gh CLI
-  # trusts the proxy's self-signed TLS certificate.
-  # Can also be set via the DCX_GITHUB_CLI_CA_CERT_PATH environment variable.
-  # Default: /opt/dcx/gh-proxy/ca.crt
-  # ca_cert_path: /opt/dcx/gh-proxy/ca.crt
+    # The address the proxy listens on. Defaults to the Docker gateway IP
+    # (more secure — only reachable from the container's network). Set to
+    # "0.0.0.0" to listen on all interfaces (needed in some Docker network
+    # setups where the gateway IP is not routable from the container).
+    # Can also be set via the DCX_PROXY_GITHUB_BIND_ADDR environment variable.
+    # Default: "" (use gateway IP)
+    # bind_addr: ""
 
-  # The validity duration for the generated TLS certificates (both CA and
-  # server). The certificates are ephemeral — they only need to last for the
-  # duration of a dcx exec session.
-  # Can also be set via the DCX_GITHUB_CLI_CERT_EXPIRY environment variable.
-  # Default: 24h
-  # cert_expiry: 24h
+    # The GitHub API URL to forward requests to. Defaults to the public
+    # GitHub API. Override for GitHub Enterprise Server deployments.
+    # Can also be set via the DCX_PROXY_GITHUB_API_URL environment variable.
+    # Default: "https://api.github.com"
+    # api_url: "https://api.github.com"
+
+    # The container path where the CA certificate is copied so the gh CLI
+    # trusts the proxy's self-signed TLS certificate.
+    # Can also be set via the DCX_PROXY_GITHUB_CA_CERT_PATH environment variable.
+    # Default: /opt/dcx/gh-proxy/ca.crt
+    # ca_cert_path: /opt/dcx/gh-proxy/ca.crt
+
+    # The validity duration for the generated TLS certificates (both CA and
+    # server). The certificates are ephemeral — they only need to last for the
+    # duration of a dcx exec session.
+    # Can also be set via the DCX_PROXY_GITHUB_CERT_EXPIRY environment variable.
+    # Default: 24h
+    # cert_expiry: 24h
 
 # --- Docker Compose Integration ---
 
