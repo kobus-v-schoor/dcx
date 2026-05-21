@@ -144,6 +144,7 @@ func TestProviderRemoteEnvVars(t *testing.T) {
 // TestProxyStartAndShutdown tests that the GitHub proxy can start on a dynamic
 // port and shut down cleanly without errors, using the Provider interface.
 func TestProxyStartAndShutdown(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fake-token-for-testing")
 	p := &githubProvider{}
 	cfg := &config.Config{
 		Proxy: config.ProxyConfig{
@@ -180,6 +181,7 @@ func TestProxyStartAndShutdown(t *testing.T) {
 // (no repo scoping). Requests will fail at the forwarding step since we use
 // a fake token, but they must not be rejected at the proxy layer (no 403).
 func TestProxyForwardsRequests(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fake-token-for-testing")
 	p := &githubProvider{}
 	cfg := &config.Config{
 		Proxy: config.ProxyConfig{
@@ -217,6 +219,7 @@ func TestProxyForwardsRequests(t *testing.T) {
 // TestProxyPortIsDynamic tests that starting the proxy twice allocates
 // different ports (verifying dynamic port allocation).
 func TestProxyPortIsDynamic(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fake-token-for-testing")
 	p := &githubProvider{}
 	cfg := &config.Config{
 		Proxy: config.ProxyConfig{
