@@ -37,7 +37,7 @@ changelog:
   use: github
   sort: asc
   abbrev: -1
-  format: "* {{ .Message }}{{ if .Logins }} ({{ .Logins | englishJoin }}){{ end }}"
+  format: "{{ .Message }}{{ if .Logins }} ({{ .Logins | englishJoin }}){{ end }}"
 
 release:
   github:
