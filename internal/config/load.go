@@ -194,11 +194,16 @@ func captureSliceConfig(v *viper.Viper, source string, captured *capturedConfig)
 }
 
 // userConfigDir resolves the directory containing the user config file.
-// The path is always ~/.config/dcx (via os.UserHomeDir) so the location is
-// consistent across platforms, including macOS where os.UserConfigDir would
-// return ~/Library/Application Support. Returns the directory (not the file
-// path), since viper's SetConfigName + AddConfigPath expect a directory.
+// If XDG_CONFIG_HOME is set, it returns $XDG_CONFIG_HOME/dcx to respect the
+// XDG Base Directory specification. Otherwise it falls back to ~/.config/dcx
+// (via os.UserHomeDir), ensuring the location is consistent across platforms
+// including macOS where os.UserConfigDir would return ~/Library/Application
+// Support. Returns the directory (not the file path), since viper's
+// SetConfigName + AddConfigPath expect a directory.
 func userConfigDir() (string, error) {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "dcx"), nil
+	}
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("determining user home directory: %w", err)

@@ -92,6 +92,32 @@ compose_integration:
 	}
 }
 
+func TestLoadUserConfigWithXDGConfigHome(t *testing.T) {
+	xdgDir := t.TempDir()
+	configDir := filepath.Join(xdgDir, "dcx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`
+ssh:
+  forward_agent: false
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+	t.Setenv("HOME", t.TempDir()) // ensure HOME fallback is not used
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false")
+	}
+}
+
 func TestLoadInvalidYAML(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, ":\n  :\n  invalid: [\n")
