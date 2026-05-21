@@ -26,8 +26,13 @@ import (
 	"time"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/git"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
 )
+
+// detectRepoFunc is the function used to detect the current repository.
+// It is a variable so tests can override it.
+var detectRepoFunc = git.DetectRepo
 
 func init() {
 	proxy.RegisterProvider(&githubProvider{})
@@ -87,6 +92,9 @@ func (g *githubProvider) CreateHandler(opts proxy.Options, cfg *config.Config) (
 // the container. These configure the gh CLI to route GitHub API requests
 // through the proxy:
 //   - GH_HOST: tells the gh CLI which host to target
+//   - GH_REPO: tells the gh CLI which repository to operate on, bypassing
+//     remote URL inference that fails when GH_HOST does not match the
+//     origin remote host
 //
 // On non-Linux hosts GH_HOST uses host.docker.internal (the standard way for
 // containers to reach the host on Docker Desktop / Colima). On Linux it falls
@@ -107,6 +115,14 @@ func (g *githubProvider) RemoteEnvVars(port int, opts proxy.Options, cfg *config
 		ghHost = fmt.Sprintf("%s:%d", proxy.ProxyHost, port)
 	}
 	envVars = append(envVars, fmt.Sprintf("--remote-env=GH_HOST=%s", ghHost))
+
+	// GH_REPO bypasses the gh CLI's remote URL inference. When GH_HOST is
+	// set to a custom host (our proxy), the gh CLI compares the inferred
+	// repo host with GH_HOST and refuses operations if they differ. Setting
+	// GH_REPO explicitly avoids this mismatch.
+	if repo, ok := detectRepoFunc(); ok {
+		envVars = append(envVars, fmt.Sprintf("--remote-env=GH_REPO=%s", repo))
+	}
 
 	return envVars
 }

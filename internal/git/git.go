@@ -3,8 +3,11 @@ package git
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
@@ -69,4 +72,57 @@ func DetectConfigs(cfg config.GitConfig) GitResult {
 	}
 
 	return result
+}
+
+// DetectRepo detects the current repository's owner/name from the git remote
+// URL of the origin remote. It runs `git remote get-url origin` in the
+// current directory and parses the output. Returns "owner/repo" and true if
+// successfully detected, or empty string and false if not in a git repository
+// or the remote URL cannot be parsed.
+func DetectRepo() (string, bool) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", false
+	}
+	return RepoFromURL(strings.TrimSpace(string(out)))
+}
+
+// RepoFromURL extracts the "owner/repo" identifier from a Git remote URL.
+// Supports HTTPS (https://github.com/owner/repo.git) and SSH
+// (git@github.com:owner/repo.git or ssh://git@github.com/owner/repo.git)
+// formats. Returns the owner/repo string and true on success, or empty
+// string and false if the URL cannot be parsed.
+func RepoFromURL(rawURL string) (string, bool) {
+	// Trim the .git suffix if present.
+	rawURL = strings.TrimSuffix(rawURL, ".git")
+
+	// Handle the scp-like SSH format: git@host:path
+	// This is not a valid URL per url.Parse (the colon before the path
+	// makes it fail), so we detect it explicitly.
+	if strings.Contains(rawURL, "@") && !strings.HasPrefix(rawURL, "ssh://") && !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		idx := strings.Index(rawURL, ":")
+		if idx == -1 {
+			return "", false
+		}
+		path := rawURL[idx+1:]
+		segments := strings.Split(strings.Trim(path, "/"), "/")
+		if len(segments) >= 2 {
+			return segments[len(segments)-2] + "/" + segments[len(segments)-1], true
+		}
+		return "", false
+	}
+
+	// Handle standard URL formats (https://, ssh://, etc.).
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+
+	path := strings.Trim(u.Path, "/")
+	segments := strings.Split(path, "/")
+	if len(segments) >= 2 {
+		return segments[len(segments)-2] + "/" + segments[len(segments)-1], true
+	}
+
+	return "", false
 }
