@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -110,13 +111,20 @@ func TestProviderRemoteEnvVars(t *testing.T) {
 
 	envVars := p.RemoteEnvVars(12345, opts, cfg)
 
-	// Should contain GH_HOST with gateway IP and port.
+	// GH_HOST is platform-dependent.
+	var expectedGHHost string
+	if runtime.GOOS == "linux" {
+		expectedGHHost = "--remote-env=GH_HOST=172.17.0.1:12345"
+	} else {
+		expectedGHHost = "--remote-env=GH_HOST=host.docker.internal:12345"
+	}
+
 	foundGHHost := false
 	for _, env := range envVars {
 		if strings.HasPrefix(env, "--remote-env=GH_HOST=") {
 			foundGHHost = true
-			if env != "--remote-env=GH_HOST=172.17.0.1:12345" {
-				t.Errorf("GH_HOST = %q, want %q", env, "--remote-env=GH_HOST=172.17.0.1:12345")
+			if env != expectedGHHost {
+				t.Errorf("GH_HOST = %q, want %q", env, expectedGHHost)
 			}
 		}
 	}
@@ -135,9 +143,16 @@ func TestProviderRemoteEnvVars(t *testing.T) {
 		}
 	}
 
-	// Should contain git config env vars.
-	if len(envVars) < 3 {
-		t.Errorf("RemoteEnvVars returned %d env vars, want at least 3", len(envVars))
+	// Should NOT contain git config env vars.
+	for _, env := range envVars {
+		if strings.Contains(env, "GIT_CONFIG_") {
+			t.Errorf("RemoteEnvVars should not contain GIT_CONFIG_*, got %q", env)
+		}
+	}
+
+	// Should contain exactly one env var (GH_HOST).
+	if len(envVars) != 1 {
+		t.Errorf("RemoteEnvVars returned %d env vars, want 1", len(envVars))
 	}
 }
 

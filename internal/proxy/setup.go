@@ -23,7 +23,7 @@ import (
 type ProxySetupResult struct {
 	// RemoteEnv contains the --remote-env flags for the devcontainer exec
 	// command. These configure the container to route traffic through the
-	// proxy services (e.g. GH_HOST, SSL_CERT_FILE, GIT_CONFIG_*).
+	// proxy services (e.g. GH_HOST, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS).
 	RemoteEnv []string
 
 	// Cleanup must be called when the devcontainer session ends to stop all
@@ -143,8 +143,8 @@ func setupProvider(
 		hostCleanupFiles = append(hostCleanupFiles, caCertPath)
 	}
 
-	// Build remote env vars: service-specific (e.g. GH_HOST, GIT_CONFIG_*)
-	// plus generic TLS env vars (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS).
+	// Build remote env vars: service-specific (e.g. GH_HOST for the GitHub
+	// proxy) plus generic TLS env vars (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS).
 	envVars := p.RemoteEnvVars(port, opts, cfg)
 	if opts.TLSEnabled {
 		envVars = append(envVars, tlsRemoteEnvVars(opts)...)
