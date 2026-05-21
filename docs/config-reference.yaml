@@ -16,6 +16,12 @@ log_level: warn
 # When enabled, dcx reads SSH_AUTH_SOCK from the host, bind-mounts the socket
 # into the container, and sets SSH_AUTH_SOCK inside the container.
 # If the socket is missing or SSH_AUTH_SOCK is unset, forwarding is silently skipped.
+#
+# On macOS with Colima, dcx automatically detects the Colima runtime, resolves
+# the SSH_AUTH_SOCK path from inside the Colima VM (where the Docker daemon
+# lives), and bind-mounts that VM-resident socket into the devcontainer. If
+# SSH agent forwarding is not enabled in the Colima VM, dcx prompts to restart
+# Colima with --ssh-agent (when stdin is a terminal).
 ssh:
   # Forward the SSH agent socket from the host.
   # Can also be set via the DCX_SSH_FORWARD_AGENT environment variable.

@@ -117,3 +117,25 @@ func TestDetectAgentPathIsNotSocket(t *testing.T) {
 		t.Error("expected Mount to be nil when path is not a socket")
 	}
 }
+
+func TestResolveAgentSkipsHostValidation(t *testing.T) {
+	// When validateHost is false, the socket path is assumed to be valid
+	// even though it does not exist on the host filesystem. This is used
+	// for VM-resident sockets (e.g. Colima) where the path is only
+	// resolvable inside the VM.
+	cfg := config.SSHConfig{
+		ForwardAgent:      true,
+		AgentSocketTarget: "/opt/dcx/sockets/ssh-agent.sock",
+	}
+	result := resolveAgent(cfg, "/tmp/vm-ssh/agent.sock", false)
+
+	if result.Mount == nil {
+		t.Fatal("expected Mount to be non-nil when host validation is skipped")
+	}
+	if result.Mount.Source != "/tmp/vm-ssh/agent.sock" {
+		t.Errorf("Mount.Source = %q, want /tmp/vm-ssh/agent.sock", result.Mount.Source)
+	}
+	if result.Mount.Target != "/opt/dcx/sockets/ssh-agent.sock" {
+		t.Errorf("Mount.Target = %q, want /opt/dcx/sockets/ssh-agent.sock", result.Mount.Target)
+	}
+}

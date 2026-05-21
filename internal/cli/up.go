@@ -65,13 +65,21 @@ func runUp(rebuild bool, args []string) error {
 
 	slog.Info("override dir", "path", overrideDir.Dir)
 
+	// Detect the SSH agent once so both env and mount collection use the
+	// same result. ResolveAgent handles VM-based runtimes (e.g. Colima) by
+	// resolving the socket path inside the VM rather than on the host.
+	var agentResult ssh.AgentResult
+	if activeCfg.SSH.ForwardAgent {
+		agentResult = ssh.ResolveAgent(activeCfg.SSH)
+	}
+
 	// Collect all container env vars (user-configured, SSH agent, git config)
 	// and inject them into the override config's containerEnv property. This
 	// makes the env vars persistent Docker-level environment variables in the
 	// running container (visible via env, docker exec, etc.), unlike remoteEnv
 	// which only applies to VS Code server processes or --remote-env flags
 	// which only apply during lifecycle commands.
-	containerEnvVars := collectContainerEnv(activeCfg)
+	containerEnvVars := collectContainerEnv(activeCfg, agentResult)
 	overrideDir.InjectContainerEnv(containerEnvVars)
 
 	// Collect all mount strings (user-configured, SSH agent, git config) and
@@ -81,7 +89,7 @@ func runUp(rebuild bool, args []string) error {
 	// type, source, target and external — it does not support readonly or
 	// other Docker mount options. The devcontainer.json mounts property
 	// accepts the full Docker --mount format.
-	mountStrings := collectMountStrings(activeCfg)
+	mountStrings := collectMountStrings(activeCfg, agentResult)
 	overrideDir.InjectMounts(mountStrings)
 
 	// Persist all injected modifications to disk before delegating to the
@@ -108,7 +116,7 @@ func runUp(rebuild bool, args []string) error {
 // map when no env vars are produced. The returned map is injected into the
 // override config's containerEnv property so the vars become Docker-level
 // environment variables visible in the running container.
-func collectContainerEnv(cfg *config.Config) map[string]string {
+func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult) map[string]string {
 	result := make(map[string]string)
 
 	// 1. Auto-forwarded environment variables (e.g. TERM for TUI support).
@@ -123,11 +131,8 @@ func collectContainerEnv(cfg *config.Config) map[string]string {
 	}
 
 	// 3. SSH agent forwarding env var.
-	if cfg.SSH.ForwardAgent {
-		agentResult := ssh.DetectAgent(cfg.SSH)
-		if agentResult.Mount != nil {
-			result[agentResult.EnvName] = agentResult.EnvValue
-		}
+	if cfg.SSH.ForwardAgent && agentResult.Mount != nil {
+		result[agentResult.EnvName] = agentResult.EnvValue
 	}
 
 	// 4. Git config forwarding env var.
@@ -147,18 +152,15 @@ func collectContainerEnv(cfg *config.Config) map[string]string {
 // file mounts. Each source is resolved independently; mounts with missing
 // source paths on the host are silently skipped. Returns nil when no mounts
 // are produced.
-func collectMountStrings(cfg *config.Config) []string {
+func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult) []string {
 	var result []string
 
 	// 1. User-configured bind mounts.
 	result = append(result, mounts.BuildStrings(cfg.Mounts)...)
 
 	// 2. SSH agent forwarding mount.
-	if cfg.SSH.ForwardAgent {
-		agentResult := ssh.DetectAgent(cfg.SSH)
-		if agentResult.Mount != nil {
-			result = append(result, mounts.Format(*agentResult.Mount))
-		}
+	if cfg.SSH.ForwardAgent && agentResult.Mount != nil {
+		result = append(result, mounts.Format(*agentResult.Mount))
 	}
 
 	// 3. Git config forwarding mounts.
