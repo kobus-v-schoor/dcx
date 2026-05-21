@@ -86,7 +86,7 @@ func TestServiceForwardsRequests(t *testing.T) {
 	// Start a fake upstream server.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("upstream response"))
+		_, _ = w.Write([]byte("upstream response"))
 	}))
 	defer upstream.Close()
 
