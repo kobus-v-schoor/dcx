@@ -33,12 +33,13 @@ func (e *ExitCodeError) Error() string {
 	return fmt.Sprintf("devcontainer exited with code %d", e.ExitCode)
 }
 
-// Run executes the devcontainer CLI at execPath with the given arguments. Stdout
-// and stderr are forwarded directly to the user's terminal. If the process exits
-// with a non-zero code, Run returns an ExitCodeError. Called after flag assembly
-// to invoke devcontainer up.
+// Run executes the devcontainer CLI at execPath with the given arguments. Stdin,
+// stdout, and stderr are forwarded directly to the user's terminal. If the process
+// exits with a non-zero code, Run returns an ExitCodeError. Called after flag
+// assembly to invoke devcontainer up.
 func Run(execPath string, args []string) error {
 	cmd := exec.Command(execPath, args...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
