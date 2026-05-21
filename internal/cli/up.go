@@ -100,22 +100,29 @@ func runUp(rebuild bool, args []string) error {
 }
 
 // collectContainerEnv gathers all environment variables that should be set in the
-// devcontainer from three sources: (1) user-configured environment passthrough
-// declarations, (2) SSH agent forwarding env vars, and (3) git config env vars.
-// Each source is resolved independently; later sources overwrite earlier ones
-// on name conflict (user < SSH < git precedence for same env var name). Returns
-// an empty map when no env vars are produced. The returned map is injected into
-// the override config's containerEnv property so the vars become Docker-level
+// devcontainer from four sources: (1) auto-forwarded variables (e.g. TERM),
+// (2) user-configured environment passthrough declarations, (3) SSH agent
+// forwarding env vars, and (4) git config env vars. Each source is resolved
+// independently; later sources overwrite earlier ones on name conflict
+// (auto < user < SSH < git precedence for same env var name). Returns an empty
+// map when no env vars are produced. The returned map is injected into the
+// override config's containerEnv property so the vars become Docker-level
 // environment variables visible in the running container.
 func collectContainerEnv(cfg *config.Config) map[string]string {
 	result := make(map[string]string)
 
-	// 1. User-configured environment variable passthrough.
+	// 1. Auto-forwarded environment variables (e.g. TERM for TUI support).
+	// These have the lowest precedence — user config can override them.
+	for _, resolved := range env.AutoForward() {
+		result[resolved.Name] = resolved.Value
+	}
+
+	// 2. User-configured environment variable passthrough.
 	for _, resolved := range env.ResolveAll(cfg.Environment) {
 		result[resolved.Name] = resolved.Value
 	}
 
-	// 2. SSH agent forwarding env var.
+	// 3. SSH agent forwarding env var.
 	if cfg.SSH.ForwardAgent {
 		agentResult := ssh.DetectAgent(cfg.SSH)
 		if agentResult.Mount != nil {
@@ -123,7 +130,7 @@ func collectContainerEnv(cfg *config.Config) map[string]string {
 		}
 	}
 
-	// 3. Git config forwarding env var.
+	// 4. Git config forwarding env var.
 	if cfg.Git.InjectConfigs {
 		gitResult := git.DetectConfigs(cfg.Git)
 		if gitResult.EnvName != "" {

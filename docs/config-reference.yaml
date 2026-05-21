@@ -173,6 +173,12 @@ mounts:
 # container (visible via env, docker exec, etc.). This is different from remoteEnv
 # which only applies to VS Code server processes, or --remote-env flags which only
 # apply during lifecycle command execution.
+#
+# Note: Some environment variables are automatically forwarded without requiring
+# configuration. Currently, TERM is auto-forwarded to ensure TUI applications
+# making use of advanced terminal features (like true-colour support) work correctly
+# inside the container. Auto-forwarded variables have the lowest precedence — they
+# can be overridden by entries in this list.
 environment:
   - AWS_ACCESS_KEY_ID
   - AWS_SECRET_ACCESS_KEY
