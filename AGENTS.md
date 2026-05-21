@@ -35,7 +35,8 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
-- `internal/ssh/` — SSH agent auto-detection
+- `internal/ssh/` — SSH agent auto-detection (with VM runtime awareness for Colima)
+- `internal/colima/` — Colima runtime detection and SSH agent socket resolution inside the Colima VM
 - `internal/git/` — git config auto-detection
 - `internal/shell/` — shell integration (mount configs, inject postCreateCommand)
 - `internal/compose/` — Docker Compose strategies (network join, overlay)
