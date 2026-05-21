@@ -101,6 +101,12 @@ func TestProviderServiceOptionsDefaults(t *testing.T) {
 // TestProviderRemoteEnvVars tests that RemoteEnvVars produces the correct
 // GitHub-specific environment variable flags.
 func TestProviderRemoteEnvVars(t *testing.T) {
+	// Override repo detection so the test is deterministic regardless of
+	// whether it runs inside a git repository.
+	oldDetectRepo := detectRepoFunc
+	detectRepoFunc = func() (string, bool) { return "", false }
+	defer func() { detectRepoFunc = oldDetectRepo }()
+
 	p := &githubProvider{}
 	opts := proxy.Options{
 		TLSEnabled: true,
@@ -150,9 +156,48 @@ func TestProviderRemoteEnvVars(t *testing.T) {
 		}
 	}
 
-	// Should contain exactly one env var (GH_HOST).
+	// Should contain exactly one env var (GH_HOST) when no repo is detected.
 	if len(envVars) != 1 {
 		t.Errorf("RemoteEnvVars returned %d env vars, want 1", len(envVars))
+	}
+}
+
+// TestProviderRemoteEnvVarsWithRepo tests that RemoteEnvVars includes
+// GH_REPO when a repository is detected.
+func TestProviderRemoteEnvVarsWithRepo(t *testing.T) {
+	oldDetectRepo := detectRepoFunc
+	detectRepoFunc = func() (string, bool) { return "owner/repo", true }
+	defer func() { detectRepoFunc = oldDetectRepo }()
+
+	p := &githubProvider{}
+	opts := proxy.Options{
+		TLSEnabled: true,
+		GatewayIP:  "172.17.0.1",
+		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
+	}
+	cfg := &config.Config{}
+
+	envVars := p.RemoteEnvVars(12345, opts, cfg)
+
+	var foundGHHost, foundGHRepo bool
+	for _, env := range envVars {
+		if strings.HasPrefix(env, "--remote-env=GH_HOST=") {
+			foundGHHost = true
+		}
+		if env == "--remote-env=GH_REPO=owner/repo" {
+			foundGHRepo = true
+		}
+	}
+	if !foundGHHost {
+		t.Error("RemoteEnvVars missing GH_HOST")
+	}
+	if !foundGHRepo {
+		t.Error("RemoteEnvVars missing GH_REPO=owner/repo")
+	}
+
+	// Should contain exactly two env vars (GH_HOST and GH_REPO).
+	if len(envVars) != 2 {
+		t.Errorf("RemoteEnvVars returned %d env vars, want 2", len(envVars))
 	}
 }
 

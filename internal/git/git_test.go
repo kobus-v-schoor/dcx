@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -42,6 +43,141 @@ func TestDetectConfigsSingleFile(t *testing.T) {
 	}
 	if result.EnvValue != "/opt/dcx/git/0-.gitconfig" {
 		t.Errorf("EnvValue = %q, want /opt/dcx/git/0-.gitconfig", result.EnvValue)
+	}
+}
+
+// TestRepoFromURL_HTTP tests parsing of HTTPS remote URLs.
+func TestRepoFromURL_HTTP(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+		ok   bool
+	}{
+		{"https with .git", "https://github.com/owner/repo.git", "owner/repo", true},
+		{"https without .git", "https://github.com/owner/repo", "owner/repo", true},
+		{"https with path prefix", "https://github.com/org/team/owner/repo.git", "owner/repo", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := RepoFromURL(tt.url)
+			if ok != tt.ok {
+				t.Fatalf("RepoFromURL(%q) ok = %v, want %v", tt.url, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("RepoFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRepoFromURL_SSH tests parsing of SSH remote URLs.
+func TestRepoFromURL_SSH(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+		ok   bool
+	}{
+		{"scp-like with .git", "git@github.com:owner/repo.git", "owner/repo", true},
+		{"scp-like without .git", "git@github.com:owner/repo", "owner/repo", true},
+		{"scp-like with path prefix", "git@github.com:org/owner/repo.git", "owner/repo", true},
+		{"ssh scheme with .git", "ssh://git@github.com/owner/repo.git", "owner/repo", true},
+		{"ssh scheme without .git", "ssh://git@github.com/owner/repo", "owner/repo", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := RepoFromURL(tt.url)
+			if ok != tt.ok {
+				t.Fatalf("RepoFromURL(%q) ok = %v, want %v", tt.url, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("RepoFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRepoFromURL_Invalid tests that invalid or unparseable URLs return false.
+func TestRepoFromURL_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"empty", ""},
+		{"just a host", "github.com"},
+		{"only owner", "https://github.com/owner"},
+		{"no path segments", "https://github.com/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := RepoFromURL(tt.url)
+			if ok {
+				t.Errorf("RepoFromURL(%q) ok = true, want false (got %q)", tt.url, got)
+			}
+		})
+	}
+}
+
+// TestDetectRepo tests detecting the repository from a real git repository.
+func TestDetectRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Initialise a git repository and add an origin remote.
+	if err := exec.Command("git", "init", tmpDir).Run(); err != nil {
+		t.Fatalf("git init failed: %v", err)
+	}
+	if err := exec.Command("git", "-C", tmpDir, "remote", "add", "origin", "https://github.com/test-owner/test-repo.git").Run(); err != nil {
+		t.Fatalf("git remote add failed: %v", err)
+	}
+
+	// Change into the temp directory so DetectRepo finds the remote.
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatalf("chdir back failed: %v", err)
+		}
+	}()
+
+	repo, ok := DetectRepo()
+	if !ok {
+		t.Fatal("DetectRepo() = false, want true")
+	}
+	if repo != "test-owner/test-repo" {
+		t.Errorf("DetectRepo() = %q, want %q", repo, "test-owner/test-repo")
+	}
+}
+
+// TestDetectRepo_NotARepo tests that DetectRepo returns false when not in a
+// git repository.
+func TestDetectRepo_NotARepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatalf("chdir back failed: %v", err)
+		}
+	}()
+
+	_, ok := DetectRepo()
+	if ok {
+		t.Error("DetectRepo() = true, want false when not in a git repo")
 	}
 }
 
