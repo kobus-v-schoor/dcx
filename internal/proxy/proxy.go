@@ -82,9 +82,20 @@ type Service struct {
 // Options holds the configuration for creating and starting a proxy service.
 // All fields have sensible defaults — zero values fall back to those defaults.
 type Options struct {
+	// TLSEnabled controls whether the proxy uses TLS (HTTPS). When true, the
+	// proxy generates self-signed CA and server certificates on startup, and
+	// the CA cert is injected into the container so clients trust the proxy.
+	// When false, the proxy listens on plain HTTP and no certificate
+	// generation or injection occurs. Not all proxies require TLS — for
+	// example, a proxy that only routes non-sensitive traffic can run without
+	// it. Defaults to false; each provider sets this as appropriate for its
+	// service.
+	TLSEnabled bool
+
 	// GatewayIP is the host's IP address on the Docker bridge network. The
 	// container uses this IP to reach the proxy. It is included in the TLS
-	// certificate's IP SANs so clients can verify the connection.
+	// certificate's IP SANs so clients can verify the connection. Only
+	// relevant when TLSEnabled is true.
 	GatewayIP string
 
 	// BindAddr is the address the proxy listens on. Defaults to GatewayIP
@@ -99,30 +110,38 @@ type Options struct {
 	APIURL string
 
 	// CACertPath is the container path where the CA certificate is copied.
-	// Must be set by the service-specific constructor.
+	// Must be set by the service-specific constructor. Only relevant when
+	// TLSEnabled is true.
 	CACertPath string
 
 	// CertExpiry is the duration for which the generated TLS certificates
 	// (both CA and server) are valid. Defaults to 24 hours if zero. The
 	// certificates are ephemeral — they only need to last for the duration
-	// of a dcx exec session.
+	// of a dcx exec session. Only relevant when TLSEnabled is true.
 	CertExpiry time.Duration
 }
 
-// CACertPathResolved returns the CA cert container path. Called by callers
-// that need the resolved CA cert path for building remote env vars or
-// Docker copy operations.
+// CACertPathResolved returns the CA cert container path. Returns empty
+// string when TLS is disabled. Called by callers that need the resolved CA
+// cert path for building remote env vars or Docker copy operations.
 func (o Options) CACertPathResolved() string {
+	if !o.TLSEnabled {
+		return ""
+	}
 	return o.CACertPath
 }
 
 // CABundlePathResolved returns the container path for the combined CA bundle
-// (system certs + proxy CA cert). The combined bundle is used for
-// SSL_CERT_FILE so that Go programs trust both the system CAs and the proxy's
-// self-signed CA. The path is derived from the CA cert path by replacing
-// the extension with "-bundle.crt". NODE_EXTRA_CA_CERTS does not need this
-// — Node.js appends to the system trust store rather than replacing it.
+// (system certs + proxy CA cert). Returns empty string when TLS is disabled.
+// The combined bundle is used for SSL_CERT_FILE so that Go programs trust
+// both the system CAs and the proxy's self-signed CA. The path is derived
+// from the CA cert path by replacing the extension with "-bundle.crt".
+// NODE_EXTRA_CA_CERTS does not need this — Node.js appends to the system
+// trust store rather than replacing it.
 func (o Options) CABundlePathResolved() string {
+	if !o.TLSEnabled {
+		return ""
+	}
 	base := o.CACertPath
 	if strings.HasSuffix(base, ".crt") {
 		return base[:len(base)-4] + "-bundle.crt"
@@ -170,72 +189,86 @@ func NewService(name string, opts Options) *Service {
 	}
 }
 
-// Start generates a self-signed TLS certificate, binds to a random available
-// port on the configured bind address, and starts the HTTPS proxy server. It
-// returns the port number the proxy is listening on. The caller should call
-// Shutdown to stop the proxy when the devcontainer session ends. The CA
-// certificate PEM bytes are available via CACertPEM after Start returns.
+// Start binds to a random available port on the configured bind address and
+// starts the proxy server. When TLSEnabled is true in the options, it
+// generates a self-signed TLS certificate and starts an HTTPS server; when
+// false, it starts a plain HTTP server. It returns the port number the proxy
+// is listening on. The caller should call Shutdown to stop the proxy when the
+// devcontainer session ends. When TLS is enabled, the CA certificate PEM
+// bytes are available via CACertPEM after Start returns.
 //
 // The handler parameter is the http.Handler that processes incoming requests.
 // Typically this is a httputil.ReverseProxy configured by the service-specific
 // sub-package with the appropriate Director and Transport.
 func (s *Service) Start(handler http.Handler) (int, error) {
-	// Generate a self-signed CA certificate and server certificate in-memory.
-	// The CA cert is made available inside the container so clients trust
-	// the proxy's TLS certificate.
-	expiry := s.opts.CertExpiryResolved()
-	caCert, caKey, err := generateCA(expiry)
-	if err != nil {
-		return 0, fmt.Errorf("generating CA certificate: %w", err)
-	}
-
-	serverCert, serverKey, err := generateServerCert(caCert, caKey, ProxyHost, s.opts.GatewayIP, expiry)
-	if err != nil {
-		return 0, fmt.Errorf("generating server certificate: %w", err)
-	}
-
-	// Store the CA certificate PEM for mounting into the container.
-	s.caCertPEM = pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: caCert.Raw,
-	})
-
-	tlsCert := tls.Certificate{
-		Certificate: [][]byte{serverCert.Raw},
-		PrivateKey:  serverKey,
-		Leaf:        serverCert,
-	}
-
 	// Bind to a random available port on the configured address. By default
 	// this is the gateway IP (more secure — only reachable from the container's
 	// network). Users can override via Options.BindAddr to e.g. "0.0.0.0" if
 	// needed for their Docker network setup.
 	bindAddr := s.opts.BindAddrResolved()
-	s.listener, err = net.Listen("tcp", bindAddr+":0")
+	listener, err := net.Listen("tcp", bindAddr+":0")
 	if err != nil {
 		return 0, fmt.Errorf("binding proxy listener on %s: %w", bindAddr, err)
 	}
+	s.listener = listener
 
 	port := s.listener.Addr().(*net.TCPAddr).Port
 
-	s.server = &http.Server{
-		Handler: handler,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{tlsCert},
-			MinVersion:   tls.VersionTLS12,
-		},
+	s.server = &http.Server{Handler: handler}
+
+	// When TLS is enabled, generate self-signed CA and server certificates
+	// in-memory, and configure the server's TLSConfig. The CA cert is made
+	// available inside the container so clients trust the proxy's TLS
+	// certificate.
+	if s.opts.TLSEnabled {
+		expiry := s.opts.CertExpiryResolved()
+		caCert, caKey, err := generateCA(expiry)
+		if err != nil {
+			return 0, fmt.Errorf("generating CA certificate: %w", err)
+		}
+
+		serverCert, serverKey, err := generateServerCert(caCert, caKey, ProxyHost, s.opts.GatewayIP, expiry)
+		if err != nil {
+			return 0, fmt.Errorf("generating server certificate: %w", err)
+		}
+
+		// Store the CA certificate PEM for mounting into the container.
+		s.caCertPEM = pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: caCert.Raw,
+		})
+
+		s.server.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{
+				{
+					Certificate: [][]byte{serverCert.Raw},
+					PrivateKey:  serverKey,
+					Leaf:        serverCert,
+				},
+			},
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 
 	// Start serving in a goroutine so Start can return immediately.
 	go func() {
 		defer close(s.done)
-		// ServeTLS is used instead of Serve because the proxy must speak
-		// HTTPS — clients require HTTPS when connecting to custom hosts.
-		// The TLS certificate and key are already loaded into the server's
-		// TLSConfig, so the certFile and keyFile parameters are empty strings.
-		if err := s.server.ServeTLS(s.listener, "", ""); err != nil {
-			if err != http.ErrServerClosed {
-				slog.Error("proxy server error", "service", s.name, "error", err)
+		if s.opts.TLSEnabled {
+			// ServeTLS is used because the proxy must speak HTTPS when
+			// TLS is enabled. The TLS certificate and key are already
+			// loaded into the server's TLSConfig, so the certFile and
+			// keyFile parameters are empty strings.
+			if err := s.server.ServeTLS(s.listener, "", ""); err != nil {
+				if err != http.ErrServerClosed {
+					slog.Error("proxy server error", "service", s.name, "error", err)
+				}
+			}
+		} else {
+			// Serve plain HTTP when TLS is not required.
+			if err := s.server.Serve(s.listener); err != nil {
+				if err != http.ErrServerClosed {
+					slog.Error("proxy server error", "service", s.name, "error", err)
+				}
 			}
 		}
 	}()
@@ -244,6 +277,7 @@ func (s *Service) Start(handler http.Handler) (int, error) {
 		"service", s.name,
 		"port", port,
 		"bind_addr", bindAddr,
+		"tls", s.opts.TLSEnabled,
 		"api_url", s.opts.APIURL)
 
 	return port, nil

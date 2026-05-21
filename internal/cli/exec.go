@@ -1,32 +1,28 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
-	proxygithub "github.com/kobus-v-schoor/dcx/internal/proxy/github"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/spf13/cobra"
 )
 
 // newExecCmd creates the "exec" subcommand. It opens an interactive shell or
-// executes a command inside the running devcontainer, with the GitHub API
-// proxy active if enabled in the config. The proxy injects the host's GitHub
-// token into gh CLI requests without exposing the token inside the container.
+// executes a command inside the running devcontainer, with proxy services
+// active if enabled in the config. The proxies inject the host's credentials
+// into API requests without exposing them inside the container.
 // Added to the root command tree in Execute().
 func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [flags] [-- command [args...]]",
-		Short: "Execute a shell or command inside the devcontainer with optional GitHub API proxy",
+		Short: "Execute a shell or command inside the devcontainer with optional API proxies",
 		Long: `Open an interactive shell or execute a command inside the running devcontainer.
-When proxy.github is enabled in the config, starts a GitHub API proxy that injects
-the host's GitHub token into all gh CLI requests for the duration of the session.
-The token is never exposed inside the container.
+When proxy services are enabled in the config, starts local reverse proxies that inject
+the host's credentials into API requests for the duration of the session.
+Credentials are never exposed inside the container.
 If the devcontainer is not running, it is started first.`,
 		RunE: runExec,
 	}
@@ -55,31 +51,20 @@ func runExec(cmd *cobra.Command, args []string) error {
 
 	slog.Info("found devcontainer", "id", shortContainerID(containerID))
 
-	// Set up the GitHub API proxy if enabled in the config. The proxy
-	// intercepts all gh CLI requests from the container and injects
-	// the host's GitHub token. If no token is available on the host,
-	// a warning is logged and the container runs without proxy.
-	var ghProxy *proxygithub.Proxy
-	var caCertPath string
+	// Set up all enabled proxy services (GitHub, OpenAI, etc.). This starts
+	// each proxy, handles TLS certificate injection into the container, and
+	// returns the combined remote env vars and a cleanup function. The exec
+	// command only needs the env vars to construct the devcontainer flags
+	// and the cleanup function to shut down proxies when the session ends.
 	var remoteEnv []string
-
-	if activeCfg.Proxy.GitHub.Enabled {
-		var err error
-		ghProxy, caCertPath, remoteEnv, err = setupProxy(cmd, containerID)
-		if err != nil {
-			// If proxy setup fails, log a warning and proceed without it —
-			// the user gets a shell but without GitHub API access via proxy.
-			slog.Warn("GitHub API proxy setup failed, proceeding without proxy", "error", err)
-			ghProxy = nil
-		} else {
-			defer func() {
-				ghProxy.Shutdown()
-				// Clean up the temporary CA cert file.
-				if caCertPath != "" {
-					_ = os.Remove(caCertPath)
-				}
-			}()
-		}
+	proxyResult, err := proxy.SetupAllProxies(cmd.Context(), activeCfg, containerID)
+	if err != nil {
+		// If proxy setup fails entirely, log a warning and proceed without
+		// any proxies — the user gets a shell but without API proxy access.
+		slog.Warn("proxy setup failed, proceeding without proxies", "error", err)
+	} else {
+		remoteEnv = proxyResult.RemoteEnv
+		defer proxyResult.Cleanup()
 	}
 
 	// Build and execute the devcontainer exec command. This opens an
@@ -151,157 +136,8 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 	return containers.Items[0].ID, nil
 }
 
-// setupProxy initializes and starts the GitHub API reverse proxy. It detects
-// the host's GitHub token, creates the proxy with options from the config,
-// writes the CA cert to a temp file, copies it into the container via the
-// Docker API, creates a combined CA bundle, and returns the proxy instance,
-// CA cert file path, and the remote env vars to inject into the container.
-// Returns an error if no token is available or the proxy fails to start.
-// The caller is responsible for calling proxy.Shutdown() and cleaning up
-// the CA cert file.
-func setupProxy(cmd *cobra.Command, containerID string) (*proxygithub.Proxy, string, []string, error) {
-	// Detect the host's GitHub token.
-	token, ok := proxygithub.DetectToken()
-	if !ok {
-		return nil, "", nil, fmt.Errorf("no GitHub token available on host")
-	}
-
-	// Get the Docker client early — we need it to detect the gateway IP
-	// before starting the proxy, since the gateway IP is included in the
-	// TLS certificate's IP SANs.
-	dockerCLI, err := docker.NewClient(cmd.Context())
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("creating Docker client: %w", err)
-	}
-	defer func() { _ = dockerCLI.Close() }()
-
-	// Determine the host IP that the container can reach. The proxy listens
-	// on the gateway IP by default (more secure) so it is reachable from
-	// the container. We inspect the container's network to find the gateway
-	// IP, which is the host's IP on the Docker bridge network. This is more
-	// reliable than host.docker.internal, which may not be routable in all
-	// environments (e.g. codespaces).
-	gatewayIP, err := docker.GatewayIP(cmd.Context(), dockerCLI, containerID)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("detecting host gateway IP: %w", err)
-	}
-
-	// Build proxy options from the config. The gateway IP is included in the
-	// TLS certificate's IP SANs so the container can verify the connection.
-	// By default the proxy binds to the gateway IP only (not 0.0.0.0), which
-	// is more secure as it limits the attack surface to the Docker bridge
-	// network.
-	opts := proxygithub.Options{
-		Token:      token,
-		GatewayIP:  gatewayIP,
-		BindAddr:   activeCfg.Proxy.GitHub.BindAddr,
-		APIURL:     activeCfg.Proxy.GitHub.APIURL,
-		CACertPath: activeCfg.Proxy.GitHub.CACertPath,
-		CertExpiry: activeCfg.Proxy.GitHub.CertExpiry,
-	}
-
-	ghProxy := proxygithub.New(opts)
-	port, err := ghProxy.Start()
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("starting GitHub API proxy: %w", err)
-	}
-
-	// Write the CA certificate to a temp file on the host, then copy it into
-	// the container via the Docker API. The devcontainer exec command does not
-	// support --mount flags, so we use the Docker API's CopyToContainer to
-	// place the CA cert file directly into the container filesystem.
-	caCertPath, err := proxygithub.WriteCACertToFile(ghProxy.CACertPEM())
-	if err != nil {
-		ghProxy.Shutdown()
-		return nil, "", nil, fmt.Errorf("writing CA certificate: %w", err)
-	}
-
-	// Create the target directory inside the container and copy the CA cert.
-	// The directory must exist before CopyToContainer can place files into it.
-	resolvedOpts := ghProxy.ServiceOpts()
-	caDir := filepath.Dir(resolvedOpts.CACertPathResolved())
-	if err := docker.MkdirInContainer(cmd.Context(), dockerCLI, containerID, caDir); err != nil {
-		ghProxy.Shutdown()
-		_ = os.Remove(caCertPath)
-		return nil, "", nil, fmt.Errorf("creating CA cert directory in container: %w", err)
-	}
-
-	if err := docker.CopyBytesToContainer(
-		cmd.Context(),
-		dockerCLI,
-		containerID,
-		"ca.crt",
-		ghProxy.CACertPEM(),
-		caDir,
-	); err != nil {
-		// Log the error and proceed — the gh CLI may still work without
-		// the CA cert if the proxy is not used for HTTPS verification.
-		slog.Warn("could not copy CA cert into container, gh CLI may not trust the proxy", "error", err)
-	}
-
-	// Create a combined CA bundle inside the container that merges the
-	// system CA certificates with the proxy's self-signed CA certificate.
-	// This is required because Go's SSL_CERT_FILE replaces the system CA
-	// pool entirely (rather than appending to it), so a bundle containing
-	// only the proxy CA would break HTTPS for all other Go programs in the
-	// container. NODE_EXTRA_CA_CERTS does not need this — Node.js appends
-	// to the system trust store.
-	if err := createCABundleInContainer(cmd.Context(), dockerCLI, containerID, resolvedOpts); err != nil {
-		slog.Warn("could not create combined CA bundle in container, Go programs may have HTTPS issues", "error", err)
-	}
-
-	// Build the remote env vars that configure the gh CLI and git inside
-	// the container to route through the proxy.
-	remoteEnv := ghProxy.BuildRemoteEnv(port)
-
-	return ghProxy, caCertPath, remoteEnv, nil
-}
-
-// createCABundleInContainer creates a combined CA bundle file inside the
-// container that includes both the system CA certificates and the proxy's
-// self-signed CA certificate. This is necessary because Go's SSL_CERT_FILE
-// environment variable replaces the system CA pool entirely (it does not
-// append), so setting it to only the proxy CA would break all HTTPS
-// connectivity for Go programs in the container. The combined bundle is
-// referenced by SSL_CERT_FILE, while NODE_EXTRA_CA_CERTS points to the
-// proxy CA alone (Node.js appends rather than replaces).
-func createCABundleInContainer(ctx context.Context, dockerCLI docker.DockerClient, containerID string, opts proxy.Options) error {
-	// Build a multi-line script that concatenates the system CA bundle with the
-	// proxy's CA cert. The system CA bundle location varies by distro; we
-	// check the most common paths in order.
-	//
-	// Debian/Ubuntu: /etc/ssl/certs/ca-certificates.crt
-	// Alpine:        /etc/ssl/certs/ca-certificates.crt (same)
-	// RHEL/Fedora:   /etc/pki/tls/certs/ca-bundle.crt
-	// OpenSUSE:      /etc/ssl/ca-bundle.pem
-	script := fmt.Sprintf(`
-		sys_ca=""
-		for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem; do
-			if [ -f "$f" ]; then
-				sys_ca="$f"
-				break
-			fi
-		done
-		if [ -n "$sys_ca" ]; then
-			cat "$sys_ca" %s > %s
-		else
-			cp %s %s
-		fi`,
-		opts.CACertPathResolved(),
-		opts.CABundlePathResolved(),
-		opts.CACertPathResolved(),
-		opts.CABundlePathResolved(),
-	)
-
-	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "sh", "-c", script); err != nil {
-		return fmt.Errorf("creating combined CA bundle in container: %w", err)
-	}
-
-	return nil
-}
-
 // buildExecArgs assembles the arguments for devcontainer exec. It includes
-// the container ID, workspace folder, and remote env vars for the proxy.
+// the container ID, workspace folder, and remote env vars for the proxies.
 // If no command is specified, it defaults to bash for an interactive shell.
 func buildExecArgs(containerID string, remoteEnv []string, userArgs []string) []string {
 	args := []string{"exec"}
@@ -312,9 +148,9 @@ func buildExecArgs(containerID string, remoteEnv []string, userArgs []string) []
 	// target. The devcontainer CLI uses this to find the running container.
 	args = append(args, "--container-id", containerID)
 
-	// Add remote env vars for the GitHub API proxy (GH_HOST,
-	// NODE_EXTRA_CA_CERTS, GIT_CONFIG_*). These are only present when the
-	// proxy is enabled.
+	// Add remote env vars for the proxy services (GH_HOST,
+	// NODE_EXTRA_CA_CERTS, GIT_CONFIG_*, etc.). These are only present when
+	// at least one proxy is enabled and set up successfully.
 	args = append(args, remoteEnv...)
 
 	// If the user provided a command after --, append it. Otherwise default

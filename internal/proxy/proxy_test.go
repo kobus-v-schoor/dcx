@@ -12,16 +12,16 @@ import (
 	"time"
 )
 
-// TestServiceStartAndShutdown tests that the proxy service can start on a
-// dynamic port and shut down cleanly without errors.
-func TestServiceStartAndShutdown(t *testing.T) {
+// TestServiceStartAndShutdownTLS tests that a TLS-enabled proxy service can
+// start on a dynamic port and shut down cleanly, with CA cert available.
+func TestServiceStartAndShutdownTLS(t *testing.T) {
 	svc := NewService("test", Options{
+		TLSEnabled: true,
 		GatewayIP:  "127.0.0.1",
 		APIURL:     "https://api.example.com",
 		CACertPath: "/opt/dcx/test-proxy/ca.crt",
 	})
 
-	// Use a simple handler that returns 200 OK.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -35,10 +35,41 @@ func TestServiceStartAndShutdown(t *testing.T) {
 		t.Errorf("port = %d, want > 0", port)
 	}
 
-	// Verify CA cert is available.
+	// Verify CA cert is available when TLS is enabled.
 	caPEM := svc.CACertPEM()
 	if len(caPEM) == 0 {
 		t.Error("CACertPEM() returned empty bytes")
+	}
+
+	svc.Shutdown()
+}
+
+// TestServiceStartAndShutdownNoTLS tests that a non-TLS proxy service can
+// start on a dynamic port and shut down cleanly, with no CA cert generated.
+func TestServiceStartAndShutdownNoTLS(t *testing.T) {
+	svc := NewService("test", Options{
+		TLSEnabled: false,
+		GatewayIP:  "127.0.0.1",
+		APIURL:     "https://api.example.com",
+	})
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	port, err := svc.Start(handler)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	if port <= 0 {
+		t.Errorf("port = %d, want > 0", port)
+	}
+
+	// Verify no CA cert when TLS is disabled.
+	caPEM := svc.CACertPEM()
+	if len(caPEM) != 0 {
+		t.Error("CACertPEM() should return empty bytes when TLS is disabled")
 	}
 
 	svc.Shutdown()
@@ -50,6 +81,7 @@ func TestServicePortIsDynamic(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	svc1 := NewService("test1", Options{
+		TLSEnabled: true,
 		GatewayIP:  "127.0.0.1",
 		BindAddr:   "127.0.0.1",
 		APIURL:     "https://api.example.com",
@@ -61,6 +93,7 @@ func TestServicePortIsDynamic(t *testing.T) {
 	}
 
 	svc2 := NewService("test2", Options{
+		TLSEnabled: true,
 		GatewayIP:  "127.0.0.1",
 		BindAddr:   "127.0.0.1",
 		APIURL:     "https://api.example.com",
@@ -80,9 +113,9 @@ func TestServicePortIsDynamic(t *testing.T) {
 	}
 }
 
-// TestServiceForwardsRequests tests that the proxy service forwards requests
-// to the upstream server via the configured handler.
-func TestServiceForwardsRequests(t *testing.T) {
+// TestServiceForwardsRequestsHTTPS tests that a TLS-enabled proxy service
+// forwards requests to the upstream server via HTTPS.
+func TestServiceForwardsRequestsHTTPS(t *testing.T) {
 	// Start a fake upstream server.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -93,6 +126,7 @@ func TestServiceForwardsRequests(t *testing.T) {
 	upstreamURL, _ := url.Parse(upstream.URL)
 
 	svc := NewService("test", Options{
+		TLSEnabled: true,
 		GatewayIP:  "127.0.0.1",
 		APIURL:     upstream.URL,
 		CACertPath: "/opt/dcx/test-proxy/ca.crt",
@@ -124,8 +158,52 @@ func TestServiceForwardsRequests(t *testing.T) {
 	}
 }
 
+// TestServiceForwardsRequestsHTTP tests that a non-TLS proxy service
+// forwards requests to the upstream server via plain HTTP.
+func TestServiceForwardsRequestsHTTP(t *testing.T) {
+	// Start a fake upstream server.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("upstream response"))
+	}))
+	defer upstream.Close()
+
+	upstreamURL, _ := url.Parse(upstream.URL)
+
+	svc := NewService("test", Options{
+		TLSEnabled: false,
+		GatewayIP:  "127.0.0.1",
+		APIURL:     upstream.URL,
+	})
+
+	reverseProxy := NewReverseProxy(upstreamURL, func(req *http.Request) {
+		req.URL.Scheme = upstreamURL.Scheme
+		req.URL.Host = upstreamURL.Host
+		req.Host = upstreamURL.Host
+	}, http.DefaultTransport, "test")
+
+	port, err := svc.Start(reverseProxy)
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer svc.Shutdown()
+
+	// Connect to the proxy via plain HTTP (no TLS).
+	client := &http.Client{}
+
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/test", port))
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
 // TestOptionsCABundlePath tests the CA bundle path derivation from the CA
-// cert path.
+// cert path when TLS is enabled.
 func TestOptionsCABundlePath(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -151,7 +229,7 @@ func TestOptionsCABundlePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := Options{CACertPath: tt.caCertPath}
+			opts := Options{TLSEnabled: true, CACertPath: tt.caCertPath}
 			got := opts.CABundlePathResolved()
 			if got != tt.want {
 				t.Errorf("CABundlePathResolved() = %q, want %q", got, tt.want)
@@ -160,9 +238,23 @@ func TestOptionsCABundlePath(t *testing.T) {
 	}
 }
 
+// TestOptionsCABundlePathNoTLS tests that CA bundle and CA cert paths return
+// empty when TLS is disabled.
+func TestOptionsCABundlePathNoTLS(t *testing.T) {
+	opts := Options{TLSEnabled: false, CACertPath: "/opt/dcx/gh-proxy/ca.crt"}
+
+	if got := opts.CABundlePathResolved(); got != "" {
+		t.Errorf("CABundlePathResolved() = %q, want empty string when TLS disabled", got)
+	}
+	if got := opts.CACertPathResolved(); got != "" {
+		t.Errorf("CACertPathResolved() = %q, want empty string when TLS disabled", got)
+	}
+}
+
 // TestOptionsDefaults tests the resolved defaults for Options fields.
 func TestOptionsDefaults(t *testing.T) {
 	opts := Options{
+		TLSEnabled: true,
 		GatewayIP:  "172.17.0.1",
 		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
 		APIURL:     "https://api.github.com",
@@ -197,8 +289,9 @@ func TestOptionsDefaults(t *testing.T) {
 
 // TestWriteCACertToFile tests that the CA cert can be written to a temp file.
 func TestWriteCACertToFile(t *testing.T) {
-	// Generate a CA cert via the proxy service.
+	// Generate a CA cert via a TLS-enabled proxy service.
 	svc := NewService("test", Options{
+		TLSEnabled: true,
 		GatewayIP:  "127.0.0.1",
 		APIURL:     "https://api.example.com",
 		CACertPath: "/opt/dcx/test/ca.crt",
