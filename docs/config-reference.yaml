@@ -68,13 +68,7 @@ proxy:
   # all gh CLI requests from the container and injects the host's GitHub token
   # as the Authorization header. This keeps the token on the host side — it
   # is never exposed inside the container.
-  #
-  # IMPORTANT: The user's auth token is never exposed inside the container.
-  # The proxy injects it as an Authorization header on forwarded requests,
-  # replacing whatever token the container-side gh CLI provides. The token
-  # exists only in the host-side dcx process memory and is never written to
-  # disk or logged.
-  #
+
   # Note: The proxy does not enforce repository-level scoping. It forwards
   # all requests to the GitHub API with the host token. The purpose of the
   # proxy is to keep the token on the host side and inject it at the network

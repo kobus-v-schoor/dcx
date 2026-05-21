@@ -1,6 +1,6 @@
-// Package proxy provides a generic HTTPS reverse proxy infrastructure for
+// Package proxy provides a generic reverse proxy infrastructure for
 // injecting secrets into API requests from the devcontainer. The proxy runs
-// inside the dcx process, listens on HTTPS with a self-signed certificate,
+// inside the dcx process, optionally using TLS with a self-signed certificate,
 // and forwards requests to a configurable upstream URL after applying
 // service-specific request rewriting and header injection.
 //
@@ -45,10 +45,11 @@ import (
 // routable.
 const ProxyHost = "host.docker.internal"
 
-// Service implements a service-specific HTTPS reverse proxy. Each service
+// Service implements a service-specific reverse proxy. Each service
 // (e.g. GitHub, OpenAI) creates its own Service instance with a distinct
-// port, TLS certificate, and request handling logic. The service runs as an
-// HTTPS server with a self-signed certificate generated on startup.
+// port, optional TLS certificate, and request handling logic. When TLS is
+// enabled, the service runs as an HTTPS server with a self-signed certificate
+// generated on startup; otherwise it runs as a plain HTTP server.
 type Service struct {
 	// name is the human-readable name of the service (e.g. "github", "openai"),
 	// used in log messages to identify which proxy instance is acting.
@@ -62,8 +63,9 @@ type Service struct {
 	// from the Docker container.
 	listener net.Listener
 
-	// server is the HTTPS server that serves the proxy. It uses a self-signed
-	// TLS certificate generated in-memory on startup.
+	// server is the HTTP server that serves the proxy. When TLS is enabled,
+	// it serves HTTPS with a self-signed TLS certificate generated in-memory
+	// on startup; otherwise it serves plain HTTP.
 	server *http.Server
 
 	// caCertPEM is the PEM-encoded CA certificate, made available inside the
@@ -86,10 +88,10 @@ type Options struct {
 	// proxy generates self-signed CA and server certificates on startup, and
 	// the CA cert is injected into the container so clients trust the proxy.
 	// When false, the proxy listens on plain HTTP and no certificate
-	// generation or injection occurs. Not all proxies require TLS — for
-	// example, a proxy that only routes non-sensitive traffic can run without
-	// it. Defaults to false; each provider sets this as appropriate for its
-	// service.
+	// generation or injection occurs. Not all proxies require TLS — it depends
+	// on whether the client inside the container enforces TLS connections (e.g. the
+	// gh CLI requires HTTPS). Defaults to false; each provider sets this as
+	// appropriate for its service.
 	TLSEnabled bool
 
 	// GatewayIP is the host's IP address on the Docker bridge network. The

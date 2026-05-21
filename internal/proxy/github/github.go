@@ -10,8 +10,8 @@
 // proxy.SetupAllProxies() can discover and set it up without the caller needing
 // to import this package directly.
 //
-// The user's token is never exposed inside the container — it exists only in
-// the host-side dcx process memory and is never written to disk or logged.
+// The request rewriting logic (director) was inspired by the gh-aw-mcpg proxy
+// mode: https://github.com/github/gh-aw-mcpg/blob/main/docs/PROXY_MODE.md
 package github
 
 import (
@@ -46,8 +46,8 @@ func (g *githubProvider) Enabled(cfg *config.Config) bool {
 }
 
 // ServiceOptions returns the proxy.Options for the GitHub service based on the
-// config and gateway IP. The GitHub proxy always uses TLS since it injects
-// auth tokens that must not be transmitted in cleartext.
+// config and gateway IP. The GitHub proxy always uses TLS since the github cli
+// enforces connections over TLS (won't connect to an HTTP proxy).
 func (g *githubProvider) ServiceOptions(cfg *config.Config, gatewayIP string) proxy.Options {
 	return proxy.Options{
 		TLSEnabled: true,
@@ -163,9 +163,6 @@ func DetectToken() (string, bool) {
 // to a custom GH_HOST (not github.com), it prefixes all API paths with
 // "/api/v3/" (GitHub Enterprise convention). Since we forward to the
 // configured API URL which does not use this prefix, we strip it here.
-//
-// The implementation was inspired by the gh-aw-mcpg proxy mode:
-// https://github.com/github/gh-aw-mcpg/blob/main/docs/PROXY_MODE.md
 func newDirector(target *url.URL) func(*http.Request) {
 	return func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
