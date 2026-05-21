@@ -108,12 +108,14 @@ func expandValue(expr string) string {
 // container-side name.
 var autoForwardNames = []string{
 	"TERM",
+	"COLORTERM",
 }
 
 // AutoForward returns resolved environment variables that are automatically
-// forwarded from the host to the devcontainer. Currently this includes TERM,
-// which ensures that TUI applications making use of advanced terminal features
-// (like true-colour support) work as expected inside the container.
+// forwarded from the host to the devcontainer. Currently this includes TERM
+// and COLORTERM, which ensures that TUI applications making use of advanced
+// terminal features (like true-colour support) work as expected inside the
+// container.
 // Variables that are not set on the host are silently skipped. Called by the
 // cli package during dcx up before user-configured env vars are resolved, so
 // that user config takes precedence on name conflict.
