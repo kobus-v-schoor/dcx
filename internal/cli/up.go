@@ -57,7 +57,7 @@ func runUp(rebuild bool, args []string) error {
 	slog.Debug("ssh.forward_agent", "enabled", activeCfg.SSH.ForwardAgent)
 	slog.Debug("git.inject_configs", "enabled", activeCfg.Git.InjectConfigs)
 
-	overrideDir, err := override.Create(workspaceFolder)
+	overrideDir, err := override.Create(workspaceFolder, activeCfg.DefaultImage)
 	if err != nil {
 		return fmt.Errorf("creating override config: %w", err)
 	}

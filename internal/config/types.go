@@ -145,4 +145,9 @@ type Config struct {
 	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
 	Environment        []EnvVar            `yaml:"environment" mapstructure:"environment"`
 	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
+	// DefaultImage is the image to use when the workspace has no
+	// devcontainer.json. When set, dcx up generates a minimal temporary
+	// devcontainer.json containing only the image field. When empty and no
+	// devcontainer.json exists, dcx up returns an error.
+	DefaultImage string `yaml:"default_image" mapstructure:"default_image"`
 }

@@ -22,17 +22,26 @@ type OverrideDir struct {
 }
 
 // Create reads the project's devcontainer.json, writes it into a temporary
-// directory, and returns an OverrideDir with the config pre-parsed. A fresh
-// random directory is created on each invocation so that stale files from
-// previous runs cannot affect the current one. Callers should defer Close()
-// to clean up the temporary directory, and call Save() after all Inject
-// calls to persist modifications to disk. Called by dcx up to prepare the
-// override config before delegating to the devcontainer CLI.
-func Create(workspaceFolder string) (*OverrideDir, error) {
+// directory, and returns an OverrideDir with the config pre-parsed. If the
+// workspace has no devcontainer.json and defaultImage is non-empty, a minimal
+// spec containing only the image is generated instead. A fresh random
+// directory is created on each invocation so that stale files from previous
+// runs cannot affect the current one. Callers should defer Close() to clean
+// up the temporary directory, and call Save() after all Inject calls to
+// persist modifications to disk. Called by dcx up to prepare the override
+// config before delegating to the devcontainer CLI.
+func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 	srcPath := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer.json")
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading devcontainer.json: %w", err)
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading devcontainer.json: %w", err)
+		}
+		if defaultImage == "" {
+			return nil, fmt.Errorf("no devcontainer.json found in %s and default_image is not configured", filepath.Join(workspaceFolder, ".devcontainer"))
+		}
+		// Generate a minimal spec so dcx up can run without a project devcontainer.json.
+		data = []byte(fmt.Sprintf(`{"image": %q}`, defaultImage))
 	}
 
 	dir, err := os.MkdirTemp("", "dcx-")

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestCreateWritesOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -35,12 +36,49 @@ func TestCreateWritesOverride(t *testing.T) {
 	}
 }
 
-func TestCreateMissingDevcontainerJSON(t *testing.T) {
+func TestCreateMissingDevcontainerJSONNoDefaultImage(t *testing.T) {
 	workspace := t.TempDir()
 
-	_, err := Create(workspace)
+	_, err := Create(workspace, "")
 	if err == nil {
-		t.Fatal("expected error when devcontainer.json is missing")
+		t.Fatal("expected error when devcontainer.json is missing and no default_image is set")
+	}
+	if !strings.Contains(err.Error(), "default_image is not configured") {
+		t.Errorf("error message should mention default_image, got: %v", err)
+	}
+}
+
+func TestCreateGeneratesSpecWithDefaultImage(t *testing.T) {
+	workspace := t.TempDir()
+
+	od, err := Create(workspace, "mcr.microsoft.com/devcontainers/base:debian")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.config == nil {
+		t.Fatal("expected config map to be non-nil")
+	}
+	if string(od.config["image"]) != `"mcr.microsoft.com/devcontainers/base:debian"` {
+		t.Errorf("image = %s, want %q", od.config["image"], "mcr.microsoft.com/devcontainers/base:debian")
+	}
+
+	if err := od.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(od.Dir, "devcontainer.json"))
+	if err != nil {
+		t.Fatalf("reading generated file: %v", err)
+	}
+
+	var saved map[string]interface{}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("unmarshalling saved file: %v", err)
+	}
+	if saved["image"] != "mcr.microsoft.com/devcontainers/base:debian" {
+		t.Errorf("saved image = %v, want mcr.microsoft.com/devcontainers/base:debian", saved["image"])
 	}
 }
 
@@ -54,7 +92,7 @@ func TestCreateCloseRemovesDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -81,7 +119,7 @@ func TestSavePersistsToDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -116,7 +154,7 @@ func TestInjectContainerEnvAddsNewContainerEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -168,7 +206,7 @@ func TestInjectContainerEnvMergesWithExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -213,7 +251,7 @@ func TestInjectContainerEnvOverridesDuplicateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -256,7 +294,7 @@ func TestInjectContainerEnvEmptyMapNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -280,7 +318,7 @@ func TestInjectMountsAddsNewMounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -331,7 +369,7 @@ func TestInjectMountsAppendsToExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -379,7 +417,7 @@ func TestInjectMountsEmptySliceNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -403,7 +441,7 @@ func TestMultipleInjectCallsBeforeSave(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	od, err := Create(workspace)
+	od, err := Create(workspace, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
