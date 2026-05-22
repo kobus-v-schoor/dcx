@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/env"
 )
 
 func TestDetectConfigsSingleFile(t *testing.T) {
@@ -268,6 +269,41 @@ func TestDetectConfigsMultipleFiles(t *testing.T) {
 	}
 	if result.EnvName != "GIT_CONFIG_GLOBAL" {
 		t.Errorf("EnvName = %q, want GIT_CONFIG_GLOBAL", result.EnvName)
+	}
+}
+
+func TestSafeDirConfig(t *testing.T) {
+	result := SafeDirConfig("/workspace")
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 config entry, got %d", len(result))
+	}
+	if result[0].Key != "safe.directory" {
+		t.Errorf("Key = %q, want %q", result[0].Key, "safe.directory")
+	}
+	if result[0].Value != "/workspace" {
+		t.Errorf("Value = %q, want %q", result[0].Value, "/workspace")
+	}
+
+	// Verify the entries are correctly expanded by env.BuildGitConfigEnv.
+	envResult := env.BuildGitConfigEnv(result)
+	if len(envResult) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(envResult))
+	}
+
+	found := make(map[string]string, len(envResult))
+	for _, r := range envResult {
+		found[r.Name] = r.Value
+	}
+
+	if found["GIT_CONFIG_COUNT"] != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want %q", found["GIT_CONFIG_COUNT"], "1")
+	}
+	if found["GIT_CONFIG_KEY_0"] != "safe.directory" {
+		t.Errorf("GIT_CONFIG_KEY_0 = %q, want %q", found["GIT_CONFIG_KEY_0"], "safe.directory")
+	}
+	if found["GIT_CONFIG_VALUE_0"] != "/workspace" {
+		t.Errorf("GIT_CONFIG_VALUE_0 = %q, want %q", found["GIT_CONFIG_VALUE_0"], "/workspace")
 	}
 }
 

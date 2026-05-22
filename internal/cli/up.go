@@ -79,7 +79,7 @@ func runUp(rebuild bool, args []string) error {
 	// running container (visible via env, docker exec, etc.), unlike remoteEnv
 	// which only applies to VS Code server processes or --remote-env flags
 	// which only apply during lifecycle commands.
-	containerEnvVars := collectContainerEnv(activeCfg, agentResult)
+	containerEnvVars := collectContainerEnv(activeCfg, agentResult, overrideDir.ContainerWorkspaceFolder)
 	overrideDir.InjectContainerEnv(containerEnvVars)
 
 	// Collect all mount strings (user-configured, SSH agent, git config) and
@@ -116,7 +116,7 @@ func runUp(rebuild bool, args []string) error {
 // map when no env vars are produced. The returned map is injected into the
 // override config's containerEnv property so the vars become Docker-level
 // environment variables visible in the running container.
-func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult) map[string]string {
+func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult, containerWorkspaceFolder string) map[string]string {
 	result := make(map[string]string)
 
 	// 1. Auto-forwarded environment variables (e.g. TERM for TUI support).
@@ -135,11 +135,14 @@ func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult) map[st
 		result[agentResult.EnvName] = agentResult.EnvValue
 	}
 
-	// 4. Git config forwarding env var.
+	// 4. Git config forwarding env var and safe.directory trust.
 	if cfg.Git.InjectConfigs {
 		gitResult := git.DetectConfigs(cfg.Git)
 		if gitResult.EnvName != "" {
 			result[gitResult.EnvName] = gitResult.EnvValue
+		}
+		for _, resolved := range env.BuildGitConfigEnv(git.SafeDirConfig(containerWorkspaceFolder)) {
+			result[resolved.Name] = resolved.Value
 		}
 	}
 

@@ -207,6 +207,79 @@ func TestAutoForwardWithColortermOnly(t *testing.T) {
 	}
 }
 
+func TestBuildGitConfigEnvSingleEntry(t *testing.T) {
+	entries := []GitConfigEntry{
+		{Key: "safe.directory", Value: "/workspace"},
+	}
+
+	result := BuildGitConfigEnv(entries)
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(result))
+	}
+
+	found := make(map[string]string, len(result))
+	for _, r := range result {
+		found[r.Name] = r.Value
+	}
+
+	if found["GIT_CONFIG_COUNT"] != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want %q", found["GIT_CONFIG_COUNT"], "1")
+	}
+	if found["GIT_CONFIG_KEY_0"] != "safe.directory" {
+		t.Errorf("GIT_CONFIG_KEY_0 = %q, want %q", found["GIT_CONFIG_KEY_0"], "safe.directory")
+	}
+	if found["GIT_CONFIG_VALUE_0"] != "/workspace" {
+		t.Errorf("GIT_CONFIG_VALUE_0 = %q, want %q", found["GIT_CONFIG_VALUE_0"], "/workspace")
+	}
+}
+
+func TestBuildGitConfigEnvMultipleEntries(t *testing.T) {
+	entries := []GitConfigEntry{
+		{Key: "safe.directory", Value: "/workspace"},
+		{Key: "init.defaultBranch", Value: "main"},
+	}
+
+	result := BuildGitConfigEnv(entries)
+
+	if len(result) != 5 {
+		t.Fatalf("expected 5 env vars, got %d", len(result))
+	}
+
+	found := make(map[string]string, len(result))
+	for _, r := range result {
+		found[r.Name] = r.Value
+	}
+
+	if found["GIT_CONFIG_COUNT"] != "2" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want %q", found["GIT_CONFIG_COUNT"], "2")
+	}
+	if found["GIT_CONFIG_KEY_0"] != "safe.directory" {
+		t.Errorf("GIT_CONFIG_KEY_0 = %q, want %q", found["GIT_CONFIG_KEY_0"], "safe.directory")
+	}
+	if found["GIT_CONFIG_VALUE_0"] != "/workspace" {
+		t.Errorf("GIT_CONFIG_VALUE_0 = %q, want %q", found["GIT_CONFIG_VALUE_0"], "/workspace")
+	}
+	if found["GIT_CONFIG_KEY_1"] != "init.defaultBranch" {
+		t.Errorf("GIT_CONFIG_KEY_1 = %q, want %q", found["GIT_CONFIG_KEY_1"], "init.defaultBranch")
+	}
+	if found["GIT_CONFIG_VALUE_1"] != "main" {
+		t.Errorf("GIT_CONFIG_VALUE_1 = %q, want %q", found["GIT_CONFIG_VALUE_1"], "main")
+	}
+}
+
+func TestBuildGitConfigEnvEmpty(t *testing.T) {
+	result := BuildGitConfigEnv(nil)
+	if result != nil {
+		t.Errorf("BuildGitConfigEnv(nil) = %v, want nil", result)
+	}
+
+	result = BuildGitConfigEnv([]GitConfigEntry{})
+	if result != nil {
+		t.Errorf("BuildGitConfigEnv([]) = %v, want nil", result)
+	}
+}
+
 func TestResolveAllDelegatesToResolve(t *testing.T) {
 	t.Setenv("MY_VAR", "hello")
 	t.Setenv("OTHER_VAR", "world")
