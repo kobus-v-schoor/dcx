@@ -64,6 +64,15 @@ func (g *githubProvider) PrepareRequest(req *http.Request, cfg *config.Config) e
 	return nil
 }
 
+// FilterRequest inspects the intercepted GitHub API request and optionally
+// returns a synthetic response to block it. When the GitHub proxy
+// permissions list is non-empty, the request is matched to a semantic
+// action name and repository, then blocked unless a matching permission
+// entry grants access. Returns nil, nil when the request should proceed.
+func (g *githubProvider) FilterRequest(req *http.Request, cfg *config.Config) (*http.Response, error) {
+	return filterRequest(req, cfg)
+}
+
 // EnvVars returns GH_TOKEN=dummy so that the gh CLI inside the container
 // makes API requests. The proxy replaces the dummy token with the real host
 // token at the network layer.

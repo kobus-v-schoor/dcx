@@ -102,13 +102,19 @@ func NewServer(certExpiry time.Duration) (*Server, error) {
 
 // Start binds to a random available port on the configured bind address and
 // starts the MITM proxy. The domains list determines which hosts the proxy
-// will intercept (MITM). Requests to matching domains have the injector
-// function applied so providers can inject credentials. Non-matching domains
-// are tunneled transparently without decryption.
+// will intercept (MITM). Requests to matching domains have the onRequest
+// callback applied so providers can filter and inject credentials.
+// Non-matching domains are tunneled transparently without decryption.
+//
+// The onRequest callback receives the intercepted request and returns the
+// (possibly modified) request and an optional response. If the response is
+// non-nil, the proxy short-circuits and returns that response to the client
+// without forwarding the request — this is how providers block disallowed
+// requests.
 //
 // It returns the port number the proxy is listening on. The caller should
 // call Shutdown when the devcontainer session ends.
-func (s *Server) Start(gatewayIP, bindAddr string, domains []string, injector func(*http.Request) error) (int, error) {
+func (s *Server) Start(gatewayIP, bindAddr string, domains []string, onRequest func(*http.Request) (*http.Request, *http.Response)) (int, error) {
 	domainSet := make(map[string]struct{}, len(domains))
 	for _, d := range domains {
 		domainSet[strings.ToLower(d)] = struct{}{}
@@ -116,6 +122,13 @@ func (s *Server) Start(gatewayIP, bindAddr string, domains []string, injector fu
 
 	gpxy := goproxy.NewProxyHttpServer()
 	gpxy.Verbose = false
+	// Disable proxy chaining so the proxy always connects directly to
+	// upstreams. goproxy's constructor sets ConnectDial from the
+	// HTTPS_PROXY environment variable by default; clearing it prevents
+	// chained proxy failures in environments where those vars are set.
+	gpxy.ConnectDial = nil
+	gpxy.ConnectDialWithReq = nil
+	gpxy.Tr.Proxy = nil
 
 	// Configure MITM for matching domains. For non-matching domains the
 	// handler returns nil so goproxy falls through to the default
@@ -131,16 +144,14 @@ func (s *Server) Start(gatewayIP, bindAddr string, domains []string, injector fu
 		return nil, ""
 	}))
 
-	// Intercept requests to matching domains and inject credentials.
+	// Intercept requests to matching domains and run the onRequest callback.
 	gpxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		host := strings.ToLower(stripPort(req.Host))
 		if host == "" {
 			host = strings.ToLower(stripPort(req.URL.Host))
 		}
 		if _, ok := domainSet[host]; ok {
-			if err := injector(req); err != nil {
-				slog.Error("credential injection failed", "host", host, "error", err)
-			}
+			return onRequest(req)
 		}
 		return req, nil
 	})

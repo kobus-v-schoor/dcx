@@ -42,6 +42,14 @@ type Provider interface {
 	// still forwarded.
 	PrepareRequest(req *http.Request, cfg *config.Config) error
 
+	// FilterRequest inspects the intercepted request and optionally returns
+	// a synthetic *http.Response to block it. Called before PrepareRequest.
+	// If a non-nil response is returned, the proxy short-circuits and
+	// returns that response to the client without forwarding the request.
+	// Both return values nil means the request proceeds normally. Errors
+	// without a response are logged and the request continues (fail open).
+	FilterRequest(req *http.Request, cfg *config.Config) (*http.Response, error)
+
 	// EnvVars returns additional container environment variables that this
 	// provider needs to function correctly. These are injected alongside
 	// HTTP_PROXY/HTTPS_PROXY. For example, the GitHub provider returns

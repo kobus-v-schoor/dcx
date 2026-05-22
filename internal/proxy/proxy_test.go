@@ -42,8 +42,8 @@ func TestServerStartAndShutdown(t *testing.T) {
 		t.Fatalf("NewServer() error: %v", err)
 	}
 
-	injector := func(req *http.Request) error { return nil }
-	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
+	onRequest := func(req *http.Request) (*http.Request, *http.Response) { return req, nil }
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, onRequest)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
@@ -57,17 +57,17 @@ func TestServerStartAndShutdown(t *testing.T) {
 // TestServerPortIsDynamic tests that starting two servers allocates different
 // ports.
 func TestServerPortIsDynamic(t *testing.T) {
-	injector := func(req *http.Request) error { return nil }
+	onRequest := func(req *http.Request) (*http.Request, *http.Response) { return req, nil }
 
 	srv1, _ := NewServer(1 * time.Hour)
-	port1, err := srv1.Start("127.0.0.1", "127.0.0.1", []string{"a.com"}, injector)
+	port1, err := srv1.Start("127.0.0.1", "127.0.0.1", []string{"a.com"}, onRequest)
 	if err != nil {
 		t.Fatalf("Start() srv1 error: %v", err)
 	}
 	defer srv1.Shutdown()
 
 	srv2, _ := NewServer(1 * time.Hour)
-	port2, err := srv2.Start("127.0.0.1", "127.0.0.1", []string{"b.com"}, injector)
+	port2, err := srv2.Start("127.0.0.1", "127.0.0.1", []string{"b.com"}, onRequest)
 	if err != nil {
 		t.Fatalf("Start() srv2 error: %v", err)
 	}
@@ -82,13 +82,13 @@ func TestServerPortIsDynamic(t *testing.T) {
 // matching domain is MITM-intercepted and the injector is called.
 func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
 	injected := false
-	injector := func(req *http.Request) error {
+	onRequest := func(req *http.Request) (*http.Request, *http.Response) {
 		injected = true
-		return nil
+		return req, nil
 	}
 
 	srv, _ := NewServer(1 * time.Hour)
-	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, onRequest)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
@@ -155,13 +155,13 @@ func TestServerTunnelsNonMatchingDomain(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	injector := func(req *http.Request) error {
-		t.Error("injector should not be called for non-matching domain")
-		return nil
+	onRequest := func(req *http.Request) (*http.Request, *http.Response) {
+		t.Error("onRequest should not be called for non-matching domain")
+		return req, nil
 	}
 
 	srv, _ := NewServer(1 * time.Hour)
-	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, onRequest)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}

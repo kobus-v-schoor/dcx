@@ -62,8 +62,9 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		return nil, fmt.Errorf("detecting host gateway IP: %w", err)
 	}
 
-	// Collect enabled providers and their domains.
+	// Collect enabled providers and their domains, filters, and injectors.
 	var domains []string
+	var filters []func(*http.Request) (*http.Response, error)
 	var injectors []func(*http.Request) error
 
 	for _, p := range providers {
@@ -76,6 +77,9 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		}
 		domains = append(domains, pDomains...)
 		provider := p // capture for closure
+		filters = append(filters, func(req *http.Request) (*http.Response, error) {
+			return provider.FilterRequest(req, cfg)
+		})
 		injectors = append(injectors, func(req *http.Request) error {
 			return provider.PrepareRequest(req, cfg)
 		})
@@ -88,16 +92,24 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		}, nil
 	}
 
-	// Combine all injectors into a single function. Errors from individual
-	// injectors are logged; the combined injector always returns nil so
-	// requests are never blocked at the proxy layer.
-	combinedInjector := func(req *http.Request) error {
+	// Build the onRequest callback that runs filters first, then injectors.
+	// If any filter returns a non-nil response, the request is blocked.
+	onRequest := func(req *http.Request) (*http.Request, *http.Response) {
+		for _, filter := range filters {
+			resp, err := filter(req)
+			if resp != nil {
+				return req, resp
+			}
+			if err != nil {
+				slog.Debug("filter failed", "error", err)
+			}
+		}
 		for _, inj := range injectors {
 			if err := inj(req); err != nil {
 				slog.Debug("credential injection failed", "error", err)
 			}
 		}
-		return nil
+		return req, nil
 	}
 
 	// Determine cert expiry and bind address from config.
@@ -113,7 +125,7 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		return nil, fmt.Errorf("creating proxy server: %w", err)
 	}
 
-	port, err := srv.Start(gatewayIP, bindAddr, domains, combinedInjector)
+	port, err := srv.Start(gatewayIP, bindAddr, domains, onRequest)
 	if err != nil {
 		return nil, fmt.Errorf("starting proxy: %w", err)
 	}

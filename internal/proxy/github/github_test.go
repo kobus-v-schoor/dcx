@@ -135,6 +135,55 @@ func TestProviderPrepareRequestNoToken(t *testing.T) {
 	}
 }
 
+// TestProviderFilterRequest tests that FilterRequest delegates to the
+// permission filter logic.
+func TestProviderFilterRequest(t *testing.T) {
+	p := &githubProvider{}
+
+	// No permissions → allow all.
+	cfg := &config.Config{}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/foo/bar/issues", nil)
+	resp, err := p.FilterRequest(req, cfg)
+	if err != nil {
+		t.Fatalf("FilterRequest() error: %v", err)
+	}
+	if resp != nil {
+		t.Error("FilterRequest() blocked request with no permissions configured")
+	}
+
+	// Permissions configured but request matches → allow.
+	cfg = &config.Config{
+		Proxy: config.ProxyConfig{
+			GitHub: config.GitHubProxyConfig{
+				Permissions: []config.GitHubPermission{
+					{Repo: "foo/bar", Actions: []string{"list_issues"}},
+				},
+			},
+		},
+	}
+	req, _ = http.NewRequest("GET", "https://api.github.com/repos/foo/bar/issues", nil)
+	resp, err = p.FilterRequest(req, cfg)
+	if err != nil {
+		t.Fatalf("FilterRequest() error: %v", err)
+	}
+	if resp != nil {
+		t.Error("FilterRequest() blocked allowed request")
+	}
+
+	// Permissions configured but request does not match → block.
+	req, _ = http.NewRequest("GET", "https://api.github.com/repos/foo/bar/pulls", nil)
+	resp, err = p.FilterRequest(req, cfg)
+	if err != nil {
+		t.Fatalf("FilterRequest() error: %v", err)
+	}
+	if resp == nil {
+		t.Error("FilterRequest() allowed blocked request")
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("FilterRequest() status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
 // TestProviderEnvVars tests that EnvVars returns GH_TOKEN=dummy.
 func TestProviderEnvVars(t *testing.T) {
 	p := &githubProvider{}

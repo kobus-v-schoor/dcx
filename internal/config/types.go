@@ -71,6 +71,20 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
+// GitHubPermission defines allowed actions for a specific repository. The
+// Repo field uses the format "owner/repo"; a value of "*" matches all
+// repositories. When Actions is empty, all actions are permitted for the
+// matched repository.
+type GitHubPermission struct {
+	// Repo is the repository in "owner/repo" format, or "*" for all repos.
+	Repo string `yaml:"repo" mapstructure:"repo"`
+
+	// Actions is the list of allowed action names (e.g. "issue_read",
+	// "pull_request_read", "get_file_contents"). When empty, all actions
+	// are allowed for the matched repository.
+	Actions []string `yaml:"actions" mapstructure:"actions"`
+}
+
 // GitHubProxyConfig controls the GitHub API proxy that injects the host's
 // GitHub token into API requests from the devcontainer. When Enabled is true,
 // dcx exec starts a local MITM proxy that intercepts HTTPS traffic to GitHub
@@ -81,6 +95,11 @@ type GitConfig struct {
 // The user's auth token is never exposed inside the container — the proxy
 // injects it at the network layer. The token exists only in the host-side dcx
 // process memory and is never written to disk or logged.
+//
+// Permissions, when non-empty, enable repo-scoped action filtering. The
+// proxy matches each GitHub API request to a semantic action name and
+// repository, then blocks the request unless a matching permission entry
+// allows it.
 type GitHubProxyConfig struct {
 	// Enabled controls whether the GitHub API proxy is active for dcx exec
 	// sessions.
@@ -90,6 +109,12 @@ type GitHubProxyConfig struct {
 	// default set of public GitHub domains is used. Override for GitHub
 	// Enterprise Server deployments.
 	Domains []string `yaml:"domains" mapstructure:"domains"`
+
+	// Permissions is the list of allowed repo/action pairs. When empty,
+	// all requests are permitted (backward-compatible default). Each entry
+	// is checked independently; a request is allowed if ANY matching entry
+	// grants access.
+	Permissions []GitHubPermission `yaml:"permissions" mapstructure:"permissions"`
 }
 
 // ProxyConfig holds the configuration for all proxy services. Each service

@@ -101,9 +101,11 @@ proxy:
   # the Authorization header. The container's tools use the real GitHub URLs
   # and are only routed through the proxy via HTTP_PROXY/HTTPS_PROXY.
   #
-  # The proxy does not enforce repository-level scoping. It forwards all
-  # requests with the host token. The purpose is to keep the token on the
-  # host side and inject it at the network layer.
+  # The proxy optionally enforces repository-level and action-level
+  # permissions (see "permissions" below). When permissions are empty,
+  # all requests are forwarded with the host token. The purpose of the
+  # proxy is to keep the token on the host side and inject it at the
+  # network layer.
   github:
     # Enable the GitHub API proxy for dcx exec sessions.
     # Can also be set via the DCX_PROXY_GITHUB_ENABLED environment variable.
@@ -118,6 +120,34 @@ proxy:
     # domains:
     #   - github.example.com
     #   - api.github.example.com
+
+    # Permissions enable repo-scoped action filtering. When non-empty, the
+    # proxy matches each GitHub API request to a semantic action name and
+    # repository (e.g. "issue_read" on "owner/repo"), then blocks the
+    # request unless a matching permission entry grants access.
+    #
+    # Each permission entry is checked independently; a request is allowed
+    # if ANY matching entry grants access. Use "*" as the repo to match
+    # all repositories. An empty Actions list means all actions are allowed
+    # for the matched repository.
+    #
+    # The action names are the semantic tool names mapped from GitHub API
+    # routes, matching the gh-aw-mcpg gateway's naming (e.g. issue_read,
+    # pull_request_read, get_file_contents, list_issues, list_commits,
+    # get_me, search_repositories, etc.).
+    #
+    # When permissions is empty (the default), all requests are permitted.
+    # Default: []
+    # permissions:
+    #   - repo: "my-org/my-repo"
+    #     actions:
+    #       - issue_read
+    #       - pull_request_read
+    #       - get_file_contents
+    #   - repo: "*"
+    #     actions:
+    #       - get_me
+    #       - search_repositories
 
 # --- Docker Compose Integration ---
 
