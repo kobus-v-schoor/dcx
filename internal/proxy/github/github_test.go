@@ -178,8 +178,7 @@ func TestProviderFilterRequest(t *testing.T) {
 	}
 	if resp == nil {
 		t.Error("FilterRequest() allowed blocked request")
-	}
-	if resp.StatusCode != http.StatusForbidden {
+	} else if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("FilterRequest() status = %d, want %d", resp.StatusCode, http.StatusForbidden)
 	}
 }
