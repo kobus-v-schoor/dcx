@@ -141,7 +141,7 @@ func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult, contai
 		if gitResult.EnvName != "" {
 			result[gitResult.EnvName] = gitResult.EnvValue
 		}
-		for _, resolved := range git.SafeDirEnvVars(containerWorkspaceFolder) {
+		for _, resolved := range env.BuildGitConfigEnv(git.SafeDirConfig(containerWorkspaceFolder)) {
 			result[resolved.Name] = resolved.Value
 		}
 	}

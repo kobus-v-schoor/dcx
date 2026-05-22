@@ -7,9 +7,11 @@
 package env
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -26,6 +28,44 @@ type ResolvedEnv struct {
 // varRefRegex matches ${VAR} substitution references in environment variable
 // value expressions. Used by expandValue to find and replace all ${VAR}
 // occurrences with their host environment values.
+// GitConfigEntry represents a single git configuration key-value pair to be
+// injected into the container via the GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n /
+// GIT_CONFIG_VALUE_n environment variable mechanism supported by git 2.31+.
+type GitConfigEntry struct {
+	Key   string
+	Value string
+}
+
+// BuildGitConfigEnv converts a slice of GitConfigEntry values into the
+// GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, and GIT_CONFIG_VALUE_n environment
+// variables that git recognises. Returns nil when entries is empty. This
+// centralises index generation so that callers can merge multiple
+// GitConfigEntry slices without manually tracking indices.
+func BuildGitConfigEnv(entries []GitConfigEntry) []ResolvedEnv {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	result := make([]ResolvedEnv, 0, 1+len(entries)*2)
+	result = append(result, ResolvedEnv{
+		Name:  "GIT_CONFIG_COUNT",
+		Value: strconv.Itoa(len(entries)),
+	})
+
+	for i, entry := range entries {
+		result = append(result, ResolvedEnv{
+			Name:  fmt.Sprintf("GIT_CONFIG_KEY_%d", i),
+			Value: entry.Key,
+		})
+		result = append(result, ResolvedEnv{
+			Name:  fmt.Sprintf("GIT_CONFIG_VALUE_%d", i),
+			Value: entry.Value,
+		})
+	}
+
+	return result
+}
+
 var varRefRegex = regexp.MustCompile(`\$\{([^}]+)}`)
 
 // Resolve parses an EnvVar declaration and resolves the host environment

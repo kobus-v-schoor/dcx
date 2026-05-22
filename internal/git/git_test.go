@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/env"
 )
 
 func TestDetectConfigsSingleFile(t *testing.T) {
@@ -271,15 +272,27 @@ func TestDetectConfigsMultipleFiles(t *testing.T) {
 	}
 }
 
-func TestSafeDirEnvVars(t *testing.T) {
-	result := SafeDirEnvVars("/workspace")
+func TestSafeDirConfig(t *testing.T) {
+	result := SafeDirConfig("/workspace")
 
-	if len(result) != 3 {
-		t.Fatalf("expected 3 env vars, got %d", len(result))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 config entry, got %d", len(result))
+	}
+	if result[0].Key != "safe.directory" {
+		t.Errorf("Key = %q, want %q", result[0].Key, "safe.directory")
+	}
+	if result[0].Value != "/workspace" {
+		t.Errorf("Value = %q, want %q", result[0].Value, "/workspace")
 	}
 
-	found := make(map[string]string, len(result))
-	for _, r := range result {
+	// Verify the entries are correctly expanded by env.BuildGitConfigEnv.
+	envResult := env.BuildGitConfigEnv(result)
+	if len(envResult) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(envResult))
+	}
+
+	found := make(map[string]string, len(envResult))
+	for _, r := range envResult {
 		found[r.Name] = r.Value
 	}
 

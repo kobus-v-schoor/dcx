@@ -75,16 +75,13 @@ func DetectConfigs(cfg config.GitConfig) GitResult {
 	return result
 }
 
-// SafeDirEnvVars returns environment variables that configure git to trust the
-// given directory, bypassing the "dubious ownership" check. When git config
-// injection is enabled, these variables are added to the container's
-// environment alongside GIT_CONFIG_GLOBAL. Uses GIT_CONFIG_COUNT / KEY / VALUE
-// environment variables supported by git 2.31+.
-func SafeDirEnvVars(containerWorkspaceFolder string) []env.ResolvedEnv {
-	return []env.ResolvedEnv{
-		{Name: "GIT_CONFIG_COUNT", Value: "1"},
-		{Name: "GIT_CONFIG_KEY_0", Value: "safe.directory"},
-		{Name: "GIT_CONFIG_VALUE_0", Value: containerWorkspaceFolder},
+// SafeDirConfig returns the git config entries that mark the workspace
+// directory as safe, bypassing the "dubious ownership" check. When git config
+// injection is enabled, pass the returned entries to env.BuildGitConfigEnv to
+// generate the GIT_CONFIG_COUNT / KEY_n / VALUE_n environment variables.
+func SafeDirConfig(containerWorkspaceFolder string) []env.GitConfigEntry {
+	return []env.GitConfigEntry{
+		{Key: "safe.directory", Value: containerWorkspaceFolder},
 	}
 }
 
