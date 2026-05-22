@@ -37,13 +37,13 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/env/` — env var passthrough
 - `internal/ssh/` — SSH agent auto-detection (with VM runtime awareness for Colima)
 - `internal/colima/` — Colima runtime detection and SSH agent socket resolution inside the Colima VM
-- `internal/git/` — git config auto-detection
+- `internal/git/` — git config auto-detection and remote URL inspection (for proxy integration)
 - `internal/shell/` — shell integration (mount configs, inject postCreateCommand)
 - `internal/compose/` — Docker Compose strategies (network join, overlay)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
 - `internal/override/` — temporary override `devcontainer.json` generation
-- `internal/proxy/` — API reverse proxies (GitHub, etc.) for credential injection
+- `internal/proxy/` — API reverse proxies (GitHub, etc.) for credential injection; the GitHub proxy also proxies git HTTPS operations
 - `internal/runner/` — devcontainer CLI execution wrapper
 
 Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--override-config`, `--additional-features`, `--mount`, `--remote-env`). Never modify the original `devcontainer.json` — write overrides to a temp dir and pass via `--override-config`.
