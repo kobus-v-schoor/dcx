@@ -1,11 +1,9 @@
-// Package proxy provides a generic reverse proxy infrastructure for injecting
+// Package proxy provides a transparent MITM proxy infrastructure for injecting
 // secrets into API requests from the devcontainer. This file defines the
 // Provider interface and registration mechanism. Each proxy service (e.g.
-// GitHub, OpenAI) implements Provider and registers it via RegisterProvider
-// in an init() function. The proxy package uses registered providers to
-// discover and set up all enabled proxy services when SetupAllProxies is
-// called, so that callers (e.g. dcx exec) do not need to interact with
-// service-specific sub-packages directly.
+// GitHub) implements Provider and registers it via RegisterProvider in an
+// init() function. The proxy package uses registered providers to discover
+// which domains to intercept and how to inject credentials for each domain.
 package proxy
 
 import (
@@ -14,16 +12,15 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/config"
 )
 
-// Provider describes a proxy service that can be registered and set up by the
-// proxy infrastructure. Each service (e.g. GitHub, OpenAI) implements this
+// Provider describes a proxy service that can be registered and used by the
+// MITM proxy infrastructure. Each service (e.g. GitHub) implements this
 // interface and registers via RegisterProvider in an init() function.
-// SetupAllProxies iterates over all registered providers and sets up each
-// enabled one, handling all generic infrastructure (TLS, CA certs, container
-// injection, remote env vars) so that the caller only needs to pass the
-// config and collect the results.
+// SetupAllProxies iterates over all registered providers, collects their
+// domains, and configures a single proxy server that intercepts traffic for
+// all registered domains and injects the appropriate credentials.
 type Provider interface {
-	// Name returns the human-readable name of the provider (e.g. "github"),
-	// used in log messages to identify which proxy instance is acting.
+	// Name returns the human-readable name of the provider (e.g. “github”),
+	// used in log messages.
 	Name() string
 
 	// Enabled returns true if this proxy service is enabled in the given
@@ -31,24 +28,27 @@ type Provider interface {
 	// enabled.
 	Enabled(cfg *config.Config) bool
 
-	// ServiceOptions returns the proxy.Options for this service based on the
-	// given config and gateway IP. The options include network settings, TLS
-	// configuration, and container paths. The proxy infrastructure uses these
-	// options to create and start the Service.
-	ServiceOptions(cfg *config.Config, gatewayIP string) Options
+	// Domains returns the list of domains this provider handles. The proxy
+	// will MITM intercept HTTPS traffic to these domains and call
+	// PrepareRequest for matching requests. The returned domains must not
+	// include ports (e.g. "github.com", not "github.com:443").
+	Domains(cfg *config.Config) []string
 
-	// CreateHandler creates the HTTP handler for the proxy service. The
-	// handler implements service-specific request rewriting and header
-	// injection (e.g. the GitHub provider creates a reverse proxy that
-	// rewrites requests to the GitHub API and injects the auth token).
-	CreateHandler(opts Options, cfg *config.Config) (http.Handler, error)
+	// PrepareRequest injects service-specific credentials or headers into
+	// the intercepted request. Called by the proxy for each request whose
+	// Host matches one of the provider's domains. The request object may be
+	// modified in place (e.g. setting Authorization header). Returns an
+	// error if injection fails; the error is logged and the request is
+	// still forwarded.
+	PrepareRequest(req *http.Request, cfg *config.Config) error
 
-	// RemoteEnvVars returns service-specific remote environment variables for
-	// the container (e.g. GH_HOST for the GitHub proxy). These are combined
-	// with generic TLS env vars (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) by the
-	// proxy infrastructure. The port parameter is the port the proxy is
-	// listening on.
-	RemoteEnvVars(port int, opts Options, cfg *config.Config) []string
+	// EnvVars returns additional container environment variables that this
+	// provider needs to function correctly. These are injected alongside
+	// HTTP_PROXY/HTTPS_PROXY. For example, the GitHub provider returns
+	// GH_TOKEN=dummy so that the gh CLI inside the container makes API
+	// requests (the proxy replaces the dummy token with the real host
+	// token at the network layer).
+	EnvVars(cfg *config.Config) []string
 }
 
 // providers holds all registered proxy providers. Populated by sub-packages
@@ -56,7 +56,7 @@ type Provider interface {
 var providers []Provider
 
 // RegisterProvider registers a proxy service provider. Called by sub-packages
-// (e.g. github, openai) in their init() functions so that SetupAllProxies can
+// (e.g. github) in their init() functions so that SetupAllProxies can
 // discover and set up all available proxy services without the caller needing
 // to import service-specific packages.
 func RegisterProvider(p Provider) {
