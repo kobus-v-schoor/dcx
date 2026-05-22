@@ -19,6 +19,12 @@ type OverrideDir struct {
 	// config holds the parsed devcontainer.json as a generic map. Inject
 	// functions modify this map directly; Save marshals it back to disk.
 	config map[string]json.RawMessage
+	// ContainerWorkspaceFolder is the path to the workspace folder inside the
+	// container, extracted from the devcontainer.json workspaceFolder property.
+	// When the property is absent, it defaults to the host workspace folder
+	// path because the devcontainer CLI mounts the workspace at the same host
+	// path inside the container by default.
+	ContainerWorkspaceFolder string
 }
 
 // Create reads the project's devcontainer.json, writes it into a temporary
@@ -58,9 +64,21 @@ func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 		return nil, fmt.Errorf("parsing devcontainer.json: %w", err)
 	}
 
+	// Extract the container-side workspace folder path. The devcontainer CLI
+	// mounts the workspace at the host path inside the container by default,
+	// so we fall back to the host workspaceFolder when the property is absent.
+	containerWorkspaceFolder := workspaceFolder
+	if raw, ok := config["workspaceFolder"]; ok {
+		var wf string
+		if err := json.Unmarshal(raw, &wf); err == nil && wf != "" {
+			containerWorkspaceFolder = wf
+		}
+	}
+
 	return &OverrideDir{
-		Dir:    dir,
-		config: config,
+		Dir:                      dir,
+		config:                   config,
+		ContainerWorkspaceFolder: containerWorkspaceFolder,
 	}, nil
 }
 

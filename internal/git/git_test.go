@@ -271,6 +271,29 @@ func TestDetectConfigsMultipleFiles(t *testing.T) {
 	}
 }
 
+func TestSafeDirEnvVars(t *testing.T) {
+	result := SafeDirEnvVars("/workspace")
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(result))
+	}
+
+	found := make(map[string]string, len(result))
+	for _, r := range result {
+		found[r.Name] = r.Value
+	}
+
+	if found["GIT_CONFIG_COUNT"] != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want %q", found["GIT_CONFIG_COUNT"], "1")
+	}
+	if found["GIT_CONFIG_KEY_0"] != "safe.directory" {
+		t.Errorf("GIT_CONFIG_KEY_0 = %q, want %q", found["GIT_CONFIG_KEY_0"], "safe.directory")
+	}
+	if found["GIT_CONFIG_VALUE_0"] != "/workspace" {
+		t.Errorf("GIT_CONFIG_VALUE_0 = %q, want %q", found["GIT_CONFIG_VALUE_0"], "/workspace")
+	}
+}
+
 func TestDetectConfigsSomeFilesMissing(t *testing.T) {
 	home := t.TempDir()
 

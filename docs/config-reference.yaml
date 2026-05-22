@@ -49,6 +49,9 @@ ssh:
 # Automatically forward git configuration files into the container.
 # When enabled, dcx bind-mounts each listed file into <mount_base>/<index>-<basename>
 # and sets GIT_CONFIG_GLOBAL to the first mounted file's container path.
+# Additionally, when enabled, dcx automatically configures git to trust the
+# workspace directory via GIT_CONFIG_COUNT / KEY / VALUE environment variables,
+# preventing "detected dubious ownership" errors inside the container.
 git:
   # Enable git config file injection.
   # Can also be set via the DCX_GIT_INJECT_CONFIGS environment variable.

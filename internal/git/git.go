@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/env"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
 )
 
@@ -72,6 +73,19 @@ func DetectConfigs(cfg config.GitConfig) GitResult {
 	}
 
 	return result
+}
+
+// SafeDirEnvVars returns environment variables that configure git to trust the
+// given directory, bypassing the "dubious ownership" check. When git config
+// injection is enabled, these variables are added to the container's
+// environment alongside GIT_CONFIG_GLOBAL. Uses GIT_CONFIG_COUNT / KEY / VALUE
+// environment variables supported by git 2.31+.
+func SafeDirEnvVars(containerWorkspaceFolder string) []env.ResolvedEnv {
+	return []env.ResolvedEnv{
+		{Name: "GIT_CONFIG_COUNT", Value: "1"},
+		{Name: "GIT_CONFIG_KEY_0", Value: "safe.directory"},
+		{Name: "GIT_CONFIG_VALUE_0", Value: containerWorkspaceFolder},
+	}
 }
 
 // DetectRepo detects the current repository's owner/name from the git remote

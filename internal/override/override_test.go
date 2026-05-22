@@ -64,6 +64,10 @@ func TestCreateGeneratesSpecWithDefaultImage(t *testing.T) {
 		t.Errorf("image = %s, want %q", od.config["image"], "mcr.microsoft.com/devcontainers/base:debian")
 	}
 
+	if od.ContainerWorkspaceFolder != workspace {
+		t.Errorf("ContainerWorkspaceFolder = %q, want %q (host path when absent)", od.ContainerWorkspaceFolder, workspace)
+	}
+
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
@@ -79,6 +83,50 @@ func TestCreateGeneratesSpecWithDefaultImage(t *testing.T) {
 	}
 	if saved["image"] != "mcr.microsoft.com/devcontainers/base:debian" {
 		t.Errorf("saved image = %v, want mcr.microsoft.com/devcontainers/base:debian", saved["image"])
+	}
+}
+
+func TestCreateExtractsWorkspaceFolder(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest", "workspaceFolder": "/workspace"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerWorkspaceFolder != "/workspace" {
+		t.Errorf("ContainerWorkspaceFolder = %q, want %q", od.ContainerWorkspaceFolder, "/workspace")
+	}
+}
+
+func TestCreateDefaultsWorkspaceFolderToHostPath(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerWorkspaceFolder != workspace {
+		t.Errorf("ContainerWorkspaceFolder = %q, want %q", od.ContainerWorkspaceFolder, workspace)
 	}
 }
 
