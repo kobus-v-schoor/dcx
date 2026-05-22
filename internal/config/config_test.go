@@ -521,11 +521,8 @@ func TestLoadProxyGitHubDefaults(t *testing.T) {
 	if cfg.Proxy.GitHub.Enabled {
 		t.Error("default Proxy.GitHub.Enabled should be false")
 	}
-	if cfg.Proxy.GitHub.APIURL != "https://api.github.com" {
-		t.Errorf("default Proxy.GitHub.APIURL = %q, want https://api.github.com", cfg.Proxy.GitHub.APIURL)
-	}
-	if cfg.Proxy.GitHub.CACertPath != "/opt/dcx/gh-proxy/ca.crt" {
-		t.Errorf("default Proxy.GitHub.CACertPath = %q, want /opt/dcx/gh-proxy/ca.crt", cfg.Proxy.GitHub.CACertPath)
+	if len(cfg.Proxy.GitHub.Domains) != 0 {
+		t.Errorf("default Proxy.GitHub.Domains = %v, want empty", cfg.Proxy.GitHub.Domains)
 	}
 }
 
@@ -533,10 +530,12 @@ func TestLoadProxyGitHubUserConfig(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
 proxy:
+  bind_addr: "0.0.0.0"
   github:
     enabled: true
-    bind_addr: "0.0.0.0"
-    api_url: "https://github.example.com/api/v3"
+    domains:
+      - github.example.com
+      - api.github.example.com
 `)
 
 	setupUserConfigEnv(t, home)
@@ -549,11 +548,17 @@ proxy:
 	if !cfg.Proxy.GitHub.Enabled {
 		t.Error("Proxy.GitHub.Enabled should be true")
 	}
-	if cfg.Proxy.GitHub.BindAddr != "0.0.0.0" {
-		t.Errorf("Proxy.GitHub.BindAddr = %q, want 0.0.0.0", cfg.Proxy.GitHub.BindAddr)
+	if cfg.Proxy.BindAddr != "0.0.0.0" {
+		t.Errorf("Proxy.BindAddr = %q, want 0.0.0.0", cfg.Proxy.BindAddr)
 	}
-	if cfg.Proxy.GitHub.APIURL != "https://github.example.com/api/v3" {
-		t.Errorf("Proxy.GitHub.APIURL = %q, want https://github.example.com/api/v3", cfg.Proxy.GitHub.APIURL)
+	wantDomains := []string{"github.example.com", "api.github.example.com"}
+	if len(cfg.Proxy.GitHub.Domains) != len(wantDomains) {
+		t.Errorf("Proxy.GitHub.Domains = %v, want %v", cfg.Proxy.GitHub.Domains, wantDomains)
+	}
+	for i, d := range wantDomains {
+		if cfg.Proxy.GitHub.Domains[i] != d {
+			t.Errorf("Proxy.GitHub.Domains[%d] = %q, want %q", i, cfg.Proxy.GitHub.Domains[i], d)
+		}
 	}
 }
 

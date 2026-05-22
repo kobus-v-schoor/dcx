@@ -71,43 +71,25 @@ type GitConfig struct {
 	MountBase     string   `yaml:"mount_base" mapstructure:"mount_base"`
 }
 
-// GitHubProxyConfig controls the GitHub API reverse proxy that injects the
-// host's GitHub token into gh CLI requests from the devcontainer. When
-// Enabled is true, dcx exec starts a local HTTPS reverse proxy inside the
-// dcx process. The gh CLI inside the container is configured (via GH_HOST
-// and related env vars) to route all requests through this proxy.
+// GitHubProxyConfig controls the GitHub API proxy that injects the host's
+// GitHub token into API requests from the devcontainer. When Enabled is true,
+// dcx exec starts a local MITM proxy that intercepts HTTPS traffic to GitHub
+// domains and injects the host's token as the Authorization header. The proxy
+// is fully transparent: container tools use the real GitHub URLs and only
+// route through the proxy via HTTP_PROXY/HTTPS_PROXY.
 //
 // The user's auth token is never exposed inside the container — the proxy
-// injects it as an Authorization header on forwarded requests, replacing
-// whatever token the container-side gh CLI provides. The token exists only
-// in the host-side dcx process memory and is never written to disk or logged.
-//
-// Note: The proxy does not enforce repository-level scoping. It forwards
-// all requests to the GitHub API with the host token. The purpose of the
-// proxy is to keep the token on the host side and inject it at the network
-// layer, not to restrict access to specific repositories.
+// injects it at the network layer. The token exists only in the host-side dcx
+// process memory and is never written to disk or logged.
 type GitHubProxyConfig struct {
 	// Enabled controls whether the GitHub API proxy is active for dcx exec
 	// sessions.
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 
-	// BindAddr is the address the proxy listens on. Defaults to the gateway IP
-	// (more secure — only reachable from the container's network). Set to
-	// "0.0.0.0" to listen on all interfaces.
-	BindAddr string `yaml:"bind_addr" mapstructure:"bind_addr"`
-
-	// APIURL is the GitHub API URL to forward requests to. Defaults to
-	// "https://api.github.com". Override for GitHub Enterprise Server.
-	APIURL string `yaml:"api_url" mapstructure:"api_url"`
-
-	// CACertPath is the container path where the CA certificate is copied.
-	// Defaults to "/opt/dcx/gh-proxy/ca.crt".
-	CACertPath string `yaml:"ca_cert_path" mapstructure:"ca_cert_path"`
-
-	// CertExpiry is the validity duration for the generated TLS certificates.
-	// Defaults to 24 hours. The certificates are ephemeral — they only need to
-	// last for the duration of a dcx exec session.
-	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
+	// Domains is the list of GitHub domains to intercept. When empty, a
+	// default set of public GitHub domains is used. Override for GitHub
+	// Enterprise Server deployments.
+	Domains []string `yaml:"domains" mapstructure:"domains"`
 }
 
 // ProxyConfig holds the configuration for all proxy services. Each service
@@ -115,6 +97,16 @@ type GitHubProxyConfig struct {
 // separate port. This structure maps to the "proxy:" block in the YAML
 // config file.
 type ProxyConfig struct {
+	// BindAddr is the address the proxy listens on. Defaults to the gateway IP
+	// (more secure — only reachable from the container's network). Set to
+	// "0.0.0.0" to listen on all interfaces.
+	BindAddr string `yaml:"bind_addr" mapstructure:"bind_addr"`
+
+	// CertExpiry is the validity duration for the generated CA certificate.
+	// Defaults to 24 hours. The certificate is ephemeral — it only needs to
+	// last for the duration of a dcx exec session.
+	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
+
 	// GitHub controls the GitHub API reverse proxy.
 	GitHub GitHubProxyConfig `yaml:"github" mapstructure:"github"`
 }

@@ -39,10 +39,8 @@ func Load(cwd string) (*Config, error) {
 	// explicit defaults are registered automatically when a config file
 	// provides a value.
 	v.SetDefault("proxy.github.enabled", false)
-	v.SetDefault("proxy.github.bind_addr", "")
-	v.SetDefault("proxy.github.api_url", "https://api.github.com")
-	v.SetDefault("proxy.github.ca_cert_path", "/opt/dcx/gh-proxy/ca.crt")
-	v.SetDefault("proxy.github.cert_expiry", 24*time.Hour)
+	v.SetDefault("proxy.bind_addr", "")
+	v.SetDefault("proxy.cert_expiry", 24*time.Hour)
 	v.SetDefault("ssh.forward_agent", true)
 	v.SetDefault("ssh.agent_socket_target", "/opt/dcx/sockets/ssh-agent.sock")
 	v.SetDefault("git.inject_configs", true)

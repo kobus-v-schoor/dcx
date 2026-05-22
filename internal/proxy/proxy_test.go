@@ -4,347 +4,219 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
 
-// TestServiceStartAndShutdownTLS tests that a TLS-enabled proxy service can
-// start on a dynamic port and shut down cleanly, with CA cert available.
-func TestServiceStartAndShutdownTLS(t *testing.T) {
-	svc := NewService("test", Options{
-		TLSEnabled: true,
-		GatewayIP:  "127.0.0.1",
-		APIURL:     "https://api.example.com",
-		CACertPath: "/opt/dcx/test-proxy/ca.crt",
-	})
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	port, err := svc.Start(handler)
+// TestNewServerGeneratesCA tests that creating a Server generates a CA
+// certificate.
+func TestNewServerGeneratesCA(t *testing.T) {
+	srv, err := NewServer(1 * time.Hour)
 	if err != nil {
-		t.Fatalf("Start() error: %v", err)
+		t.Fatalf("NewServer() error: %v", err)
 	}
 
-	if port <= 0 {
-		t.Errorf("port = %d, want > 0", port)
-	}
-
-	// Verify CA cert is available when TLS is enabled.
-	caPEM := svc.CACertPEM()
+	caPEM := srv.CACertPEM()
 	if len(caPEM) == 0 {
-		t.Error("CACertPEM() returned empty bytes")
+		t.Fatal("CACertPEM() returned empty bytes")
 	}
 
-	svc.Shutdown()
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("failed to parse generated CA cert")
+	}
 }
 
-// TestServiceStartAndShutdownNoTLS tests that a non-TLS proxy service can
-// start on a dynamic port and shut down cleanly, with no CA cert generated.
-func TestServiceStartAndShutdownNoTLS(t *testing.T) {
-	svc := NewService("test", Options{
-		TLSEnabled: false,
-		GatewayIP:  "127.0.0.1",
-		APIURL:     "https://api.example.com",
-	})
+// TestServerStartAndShutdown tests that the proxy can start on a dynamic port
+// and shut down cleanly.
+func TestServerStartAndShutdown(t *testing.T) {
+	srv, err := NewServer(1 * time.Hour)
+	if err != nil {
+		t.Fatalf("NewServer() error: %v", err)
+	}
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	port, err := svc.Start(handler)
+	injector := func(req *http.Request) error { return nil }
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
-
 	if port <= 0 {
 		t.Errorf("port = %d, want > 0", port)
 	}
 
-	// Verify no CA cert when TLS is disabled.
-	caPEM := svc.CACertPEM()
-	if len(caPEM) != 0 {
-		t.Error("CACertPEM() should return empty bytes when TLS is disabled")
-	}
-
-	svc.Shutdown()
+	srv.Shutdown()
 }
 
-// TestServicePortIsDynamic tests that starting two services allocates
-// different ports (verifying dynamic port allocation).
-func TestServicePortIsDynamic(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+// TestServerPortIsDynamic tests that starting two servers allocates different
+// ports.
+func TestServerPortIsDynamic(t *testing.T) {
+	injector := func(req *http.Request) error { return nil }
 
-	svc1 := NewService("test1", Options{
-		TLSEnabled: true,
-		GatewayIP:  "127.0.0.1",
-		BindAddr:   "127.0.0.1",
-		APIURL:     "https://api.example.com",
-		CACertPath: "/opt/dcx/test1/ca.crt",
-	})
-	port1, err := svc1.Start(handler)
+	srv1, _ := NewServer(1 * time.Hour)
+	port1, err := srv1.Start("127.0.0.1", "127.0.0.1", []string{"a.com"}, injector)
 	if err != nil {
-		t.Fatalf("Start() svc1 error: %v", err)
+		t.Fatalf("Start() srv1 error: %v", err)
 	}
+	defer srv1.Shutdown()
 
-	svc2 := NewService("test2", Options{
-		TLSEnabled: true,
-		GatewayIP:  "127.0.0.1",
-		BindAddr:   "127.0.0.1",
-		APIURL:     "https://api.example.com",
-		CACertPath: "/opt/dcx/test2/ca.crt",
-	})
-	port2, err := svc2.Start(handler)
+	srv2, _ := NewServer(1 * time.Hour)
+	port2, err := srv2.Start("127.0.0.1", "127.0.0.1", []string{"b.com"}, injector)
 	if err != nil {
-		svc1.Shutdown()
-		t.Fatalf("Start() svc2 error: %v", err)
+		t.Fatalf("Start() srv2 error: %v", err)
 	}
-
-	defer svc1.Shutdown()
-	defer svc2.Shutdown()
+	defer srv2.Shutdown()
 
 	if port1 == port2 {
-		t.Errorf("both services got the same port %d, expected different dynamic ports", port1)
+		t.Errorf("both servers got the same port %d, expected different dynamic ports", port1)
 	}
 }
 
-// TestServiceForwardsRequestsHTTPS tests that a TLS-enabled proxy service
-// forwards requests to the upstream server via HTTPS.
-func TestServiceForwardsRequestsHTTPS(t *testing.T) {
-	// Start a fake upstream server.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("upstream response"))
-	}))
-	defer upstream.Close()
+// TestServerMITMInterceptsMatchingDomain tests that HTTPS traffic to a
+// matching domain is MITM-intercepted and the injector is called.
+func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
+	injected := false
+	injector := func(req *http.Request) error {
+		injected = true
+		return nil
+	}
 
-	upstreamURL, _ := url.Parse(upstream.URL)
-
-	svc := NewService("test", Options{
-		TLSEnabled: true,
-		GatewayIP:  "127.0.0.1",
-		APIURL:     upstream.URL,
-		CACertPath: "/opt/dcx/test-proxy/ca.crt",
-	})
-
-	reverseProxy := NewReverseProxy(upstreamURL, func(req *http.Request) {
-		req.URL.Scheme = upstreamURL.Scheme
-		req.URL.Host = upstreamURL.Host
-		req.Host = upstreamURL.Host
-	}, http.DefaultTransport, "test")
-
-	port, err := svc.Start(reverseProxy)
+	srv, _ := NewServer(1 * time.Hour)
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
-	defer svc.Shutdown()
+	defer srv.Shutdown()
 
-	// Connect to the proxy with a client that trusts its CA cert.
-	client := makeTestClient(t, svc.CACertPEM())
-
-	resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/test", port))
+	// Simulate a CONNECT + TLS handshake through the proxy.
+	// 1. Plain TCP to proxy.
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		t.Fatalf("request error: %v", err)
+		t.Fatalf("dial proxy error: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = conn.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	// 2. Send CONNECT request.
+	_, err = fmt.Fprintf(conn, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+	if err != nil {
+		t.Fatalf("write CONNECT error: %v", err)
+	}
+
+	// 3. Read 200 response.
+	buf := make([]byte, 1024)
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline error: %v", err)
+	}
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read CONNECT response error: %v", err)
+	}
+	if !strings.Contains(string(buf[:n]), "200") {
+		t.Fatalf("expected 200 from CONNECT, got: %s", string(buf[:n]))
+	}
+
+	// 4. Upgrade to TLS with the proxy's CA cert and SNI for example.com.
+	tlsConn := tls.Client(conn, &tls.Config{
+		RootCAs:    makeTestPool(t, srv.CACertPEM()),
+		ServerName: "example.com",
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("TLS handshake error: %v", err)
+	}
+	defer func() { _ = tlsConn.Close() }()
+
+	// 5. Send an HTTP request over the TLS connection.
+	_, _ = fmt.Fprintf(tlsConn, "GET /test HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	if err := tlsConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline error: %v", err)
+	}
+	n, _ = tlsConn.Read(buf)
+	if n == 0 {
+		t.Fatal("no response from proxy after MITM TLS handshake")
+	}
+	if !injected {
+		t.Fatal("injector was not called for matching domain")
 	}
 }
 
-// TestServiceForwardsRequestsHTTP tests that a non-TLS proxy service
-// forwards requests to the upstream server via plain HTTP.
-func TestServiceForwardsRequestsHTTP(t *testing.T) {
-	// Start a fake upstream server.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// TestServerTunnelsNonMatchingDomain tests that HTTPS traffic to a
+// non-matching domain is tunneled without MITM.
+func TestServerTunnelsNonMatchingDomain(t *testing.T) {
+	// Start a real TLS upstream so the proxy can tunnel to it.
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("upstream response"))
+		_, _ = w.Write([]byte("upstream"))
 	}))
 	defer upstream.Close()
 
-	upstreamURL, _ := url.Parse(upstream.URL)
+	injector := func(req *http.Request) error {
+		t.Error("injector should not be called for non-matching domain")
+		return nil
+	}
 
-	svc := NewService("test", Options{
-		TLSEnabled: false,
-		GatewayIP:  "127.0.0.1",
-		APIURL:     upstream.URL,
-	})
-
-	reverseProxy := NewReverseProxy(upstreamURL, func(req *http.Request) {
-		req.URL.Scheme = upstreamURL.Scheme
-		req.URL.Host = upstreamURL.Host
-		req.Host = upstreamURL.Host
-	}, http.DefaultTransport, "test")
-
-	port, err := svc.Start(reverseProxy)
+	srv, _ := NewServer(1 * time.Hour)
+	port, err := srv.Start("127.0.0.1", "127.0.0.1", []string{"example.com"}, injector)
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
-	defer svc.Shutdown()
+	defer srv.Shutdown()
 
-	// Connect to the proxy via plain HTTP (no TLS).
-	client := &http.Client{}
+	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/test", port))
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(mustParseURL(proxyURL)),
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	resp, err := client.Get(upstream.URL + "/test")
 	if err != nil {
-		t.Fatalf("request error: %v", err)
+		t.Fatalf("request through proxy error: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-}
-
-// TestOptionsCABundlePath tests the CA bundle path derivation from the CA
-// cert path when TLS is enabled.
-func TestOptionsCABundlePath(t *testing.T) {
-	tests := []struct {
-		name       string
-		caCertPath string
-		want       string
-	}{
-		{
-			name:       "standard path",
-			caCertPath: "/opt/dcx/gh-proxy/ca.crt",
-			want:       "/opt/dcx/gh-proxy/ca-bundle.crt",
-		},
-		{
-			name:       "custom path",
-			caCertPath: "/custom/path/cert.crt",
-			want:       "/custom/path/cert-bundle.crt",
-		},
-		{
-			name:       "path without crt extension",
-			caCertPath: "/custom/path/cert.pem",
-			want:       "/custom/path/cert.pem-bundle",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := Options{TLSEnabled: true, CACertPath: tt.caCertPath}
-			got := opts.CABundlePathResolved()
-			if got != tt.want {
-				t.Errorf("CABundlePathResolved() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestOptionsCABundlePathNoTLS tests that CA bundle and CA cert paths return
-// empty when TLS is disabled.
-func TestOptionsCABundlePathNoTLS(t *testing.T) {
-	opts := Options{TLSEnabled: false, CACertPath: "/opt/dcx/gh-proxy/ca.crt"}
-
-	if got := opts.CABundlePathResolved(); got != "" {
-		t.Errorf("CABundlePathResolved() = %q, want empty string when TLS disabled", got)
-	}
-	if got := opts.CACertPathResolved(); got != "" {
-		t.Errorf("CACertPathResolved() = %q, want empty string when TLS disabled", got)
-	}
-}
-
-// TestOptionsDefaults tests the resolved defaults for Options fields.
-func TestOptionsDefaults(t *testing.T) {
-	opts := Options{
-		TLSEnabled: true,
-		GatewayIP:  "172.17.0.1",
-		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
-		APIURL:     "https://api.github.com",
-		CertExpiry: 24 * time.Hour,
-	}
-
-	if got := opts.CACertPathResolved(); got != "/opt/dcx/gh-proxy/ca.crt" {
-		t.Errorf("CACertPathResolved() = %q, want %q", got, "/opt/dcx/gh-proxy/ca.crt")
-	}
-	if got := opts.APIURLResolved(); got != "https://api.github.com" {
-		t.Errorf("APIURLResolved() = %q, want %q", got, "https://api.github.com")
-	}
-	if got := opts.CertExpiryResolved(); got != 24*time.Hour {
-		t.Errorf("CertExpiryResolved() = %v, want %v", got, 24*time.Hour)
-	}
-
-	// BindAddr default is platform-dependent.
-	var wantDefaultBindAddr string
-	if runtime.GOOS == "linux" {
-		wantDefaultBindAddr = "172.17.0.1"
-	} else {
-		wantDefaultBindAddr = "127.0.0.1"
-	}
-	if got := opts.BindAddrResolved(); got != wantDefaultBindAddr {
-		t.Errorf("BindAddrResolved() = %q, want %q", got, wantDefaultBindAddr)
-	}
-
-	// Override bind address.
-	opts.BindAddr = "0.0.0.0"
-	if got := opts.BindAddrResolved(); got != "0.0.0.0" {
-		t.Errorf("BindAddrResolved() = %q, want %q", got, "0.0.0.0")
-	}
-
-	// Default cert expiry when zero.
-	opts.CertExpiry = 0
-	if got := opts.CertExpiryResolved(); got != 24*time.Hour {
-		t.Errorf("CertExpiryResolved() = %v, want %v (default)", got, 24*time.Hour)
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "upstream" {
+		t.Errorf("response body = %q, want %q", string(body), "upstream")
 	}
 }
 
 // TestWriteCACertToFile tests that the CA cert can be written to a temp file.
 func TestWriteCACertToFile(t *testing.T) {
-	// Generate a CA cert via a TLS-enabled proxy service.
-	svc := NewService("test", Options{
-		TLSEnabled: true,
-		GatewayIP:  "127.0.0.1",
-		APIURL:     "https://api.example.com",
-		CACertPath: "/opt/dcx/test/ca.crt",
-	})
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	_, err := svc.Start(handler)
-	if err != nil {
-		t.Fatalf("Start() error: %v", err)
-	}
-	defer svc.Shutdown()
-
-	path, err := WriteCACertToFile(svc.CACertPEM())
+	srv, _ := NewServer(1 * time.Hour)
+	path, err := WriteCACertToFile(srv.CACertPEM())
 	if err != nil {
 		t.Fatalf("WriteCACertToFile() error: %v", err)
 	}
-	defer func() { _ = removeFile(path) }()
+	defer func() { _ = os.Remove(path) }()
 
 	if path == "" {
 		t.Error("WriteCACertToFile() returned empty path")
 	}
 }
 
-// makeTestClient creates an http.Client that trusts the given CA certificate
-// for TLS connections. Used in tests to connect to the proxy's self-signed
-// HTTPS server.
-func makeTestClient(t *testing.T, caCertPEM []byte) *http.Client {
+// makeTestPool creates an x509.CertPool containing the given CA cert.
+func makeTestPool(t *testing.T, caCertPEM []byte) *x509.CertPool {
 	t.Helper()
-
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caCertPEM) {
 		t.Fatal("failed to append CA cert to pool")
 	}
-
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:            caCertPool,
-				InsecureSkipVerify: true, // Skip name verification in tests.
-			},
-		},
-	}
+	return pool
 }
 
-// removeFile is a test helper that removes a file, used for cleaning up temp files.
-func removeFile(path string) error {
-	return os.Remove(path)
+// mustParseURL parses a URL string and panics on error.
+func mustParseURL(raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }
