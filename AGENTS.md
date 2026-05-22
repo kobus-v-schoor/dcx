@@ -43,7 +43,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
 - `internal/override/` — temporary override `devcontainer.json` generation
-- `internal/proxy/` — API reverse proxies (GitHub, etc.) for credential injection
+- `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
 - `internal/runner/` — devcontainer CLI execution wrapper
 
 Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--override-config`, `--additional-features`, `--mount`, `--remote-env`). Never modify the original `devcontainer.json` — write overrides to a temp dir and pass via `--override-config`.
@@ -72,7 +72,7 @@ config.
 
 - Never log secret values, even with `--verbose`. Log by name only.
 - Never cache secrets on disk.
-- GitHub token provider creates ephemeral fine-grained PATs (scoped to current repo, revoked on `dcx down`).
+- Host credentials (e.g. GitHub tokens) are injected at the network layer by the proxy and are never exposed inside the container.
 - All bind mounts under `/opt/dcx/` to avoid conflicts with container-installed software.
 
 ## Documentation
