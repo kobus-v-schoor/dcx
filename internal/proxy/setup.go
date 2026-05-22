@@ -197,7 +197,7 @@ func removeCACert(ctx context.Context, dockerCLI docker.DockerClient, containerI
 		slog.Debug("failed to remove CA cert from container", "error", err)
 	}
 
-	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "update-ca-certificates"); err != nil {
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "update-ca-certificates", "--fresh"); err != nil {
 		slog.Debug("failed to update CA certificates after removal", "error", err)
 	}
 }
