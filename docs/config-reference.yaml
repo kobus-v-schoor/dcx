@@ -10,6 +10,17 @@
 # Default: warn
 log_level: warn
 
+# --- Default Image ---
+
+# The image to use when the workspace has no devcontainer.json. When set,
+# dcx up generates a minimal temporary devcontainer.json containing only the
+# image field, allowing you to explore or work in a repo that does not yet
+# have a devcontainers spec. When empty and no devcontainer.json exists,
+# dcx up returns an error.
+# Can also be set via the DCX_DEFAULT_IMAGE environment variable.
+# Default: mcr.microsoft.com/devcontainers/base:debian
+# default_image: mcr.microsoft.com/devcontainers/base:debian
+
 # --- SSH Agent Forwarding ---
 
 # Automatically detect and forward SSH agent socket into the container.

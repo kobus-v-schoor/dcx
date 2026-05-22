@@ -57,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ComposeIntegration != nil {
 		t.Error("default ComposeIntegration should be nil")
 	}
+	if cfg.DefaultImage != "mcr.microsoft.com/devcontainers/base:debian" {
+		t.Errorf("default DefaultImage = %q, want mcr.microsoft.com/devcontainers/base:debian", cfg.DefaultImage)
+	}
 }
 
 func TestLoadUserConfig(t *testing.T) {
@@ -572,5 +575,36 @@ proxy:
 
 	if !cfg.Proxy.GitHub.Enabled {
 		t.Error("Proxy.GitHub.Enabled should be true after env override")
+	}
+}
+
+func TestLoadDefaultImage(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+default_image: mcr.microsoft.com/devcontainers/base:debian
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.DefaultImage != "mcr.microsoft.com/devcontainers/base:debian" {
+		t.Errorf("DefaultImage = %q, want mcr.microsoft.com/devcontainers/base:debian", cfg.DefaultImage)
+	}
+}
+
+func TestLoadDefaultImageEnvOverride(t *testing.T) {
+	t.Setenv("DCX_DEFAULT_IMAGE", "ubuntu:22.04")
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.DefaultImage != "ubuntu:22.04" {
+		t.Errorf("DefaultImage = %q, want ubuntu:22.04", cfg.DefaultImage)
 	}
 }
