@@ -9,6 +9,8 @@ package proxy
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"runtime"
@@ -117,7 +119,8 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 	}
 
 	// Inject the CA certificate into the container's system trust store.
-	if err := injectCACert(ctx, dockerCLI, containerID, srv.CACertPEM()); err != nil {
+	certPath, err := injectCACert(ctx, dockerCLI, containerID, srv.CACertPEM())
+	if err != nil {
 		srv.Shutdown()
 		return nil, fmt.Errorf("injecting CA certificate: %w", err)
 	}
@@ -160,40 +163,54 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 				return
 			}
 			defer func() { _ = dockerCLI.Close() }()
-			removeCACert(cleanupCtx, dockerCLI, containerID)
+			removeCACert(cleanupCtx, dockerCLI, containerID, certPath)
 		},
 	}, nil
+}
+
+// randomCertName generates a random filename for the proxy CA certificate.
+// Using a unique name per exec session allows multiple concurrent dcx exec
+// instances against the same container without colliding on the cert path.
+func randomCertName() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp if crypto/rand fails (extremely unlikely).
+		return fmt.Sprintf("dcx-proxy-ca-%d.crt", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("dcx-proxy-ca-%s.crt", hex.EncodeToString(b))
 }
 
 // injectCACert installs the CA certificate into the container's system trust
 // store by copying it to /usr/local/share/ca-certificates/ and running
 // update-ca-certificates. This is the standard approach on Debian-derived
-// and Alpine images.
-func injectCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string, caPEM []byte) error {
+// and Alpine images. It returns the full path to the installed certificate
+// so cleanup can remove the exact file.
+func injectCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string, caPEM []byte) (string, error) {
 	certDir := "/usr/local/share/ca-certificates"
 
 	if err := docker.MkdirInContainer(ctx, dockerCLI, containerID, certDir); err != nil {
-		return fmt.Errorf("creating CA certificates directory in container: %w", err)
+		return "", fmt.Errorf("creating CA certificates directory in container: %w", err)
 	}
 
-	if err := docker.CopyBytesToContainer(ctx, dockerCLI, containerID, "dcx-proxy-ca.crt", caPEM, certDir); err != nil {
-		return fmt.Errorf("copying CA cert into container: %w", err)
+	certName := randomCertName()
+	if err := docker.CopyBytesToContainer(ctx, dockerCLI, containerID, certName, caPEM, certDir); err != nil {
+		return "", fmt.Errorf("copying CA cert into container: %w", err)
 	}
 
 	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "update-ca-certificates"); err != nil {
-		return fmt.Errorf("running update-ca-certificates in container: %w", err)
+		return "", fmt.Errorf("running update-ca-certificates in container: %w", err)
 	}
 
-	return nil
+	return certDir + "/" + certName, nil
 }
 
 // removeCACert removes the CA certificate from the container's system trust
-// store. It deletes the cert file from /usr/local/share/ca-certificates/ and
-// runs update-ca-certificates to regenerate the CA bundle. Errors are logged
-// but not returned because cleanup is best-effort (the container may already
-// be stopped).
-func removeCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string) {
-	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "rm", "-f", "/usr/local/share/ca-certificates/dcx-proxy-ca.crt"); err != nil {
+// store. It deletes the cert file at the given path and runs
+// update-ca-certificates to regenerate the CA bundle. Errors are logged but
+// not returned because cleanup is best-effort (the container may already be
+// stopped).
+func removeCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID, certPath string) {
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "rm", "-f", certPath); err != nil {
 		slog.Debug("failed to remove CA cert from container", "error", err)
 	}
 
