@@ -21,8 +21,10 @@ func Execute(v string) error {
 	var showVersion bool
 
 	root := &cobra.Command{
-		Use:   "dcx",
-		Short: "DevContainer Extended — wraps devcontainer CLI with user-level persistence",
+		Use:           "dcx",
+		Short:         "DevContainer Extended — wraps devcontainer CLI with user-level persistence",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if showVersion {
 				fmt.Println("dcx " + v)
