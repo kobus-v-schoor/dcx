@@ -127,11 +127,8 @@ func TestDownNoContainer(t *testing.T) {
 		containers: client.ContainerListResult{Items: []container.Summary{}},
 	}
 	err := Down(context.Background(), cli, ".")
-	if err == nil {
-		t.Fatal("expected error when no container found")
-	}
-	if !strings.Contains(err.Error(), "no devcontainer found") {
-		t.Errorf("error should mention no devcontainer found, got: %s", err.Error())
+	if err != nil {
+		t.Fatalf("expected no error when no container found, got %v", err)
 	}
 }
 

@@ -193,7 +193,8 @@ func Stop(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 }
 
 // Down stops and removes the devcontainer for the given workspace folder, then
-// removes the associated image. Returns an error if no devcontainer is found.
+// removes the associated image. If no devcontainer is found, it logs an info
+// message and returns nil (the desired end-state is already achieved).
 // Image removal errors are logged but not treated as fatal, since other
 // containers may still reference the image.
 func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
@@ -204,7 +205,8 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 
 	if len(containers.Items) == 0 {
 		absPath, _ := filepath.Abs(workspaceFolder)
-		return fmt.Errorf("no devcontainer found for %s", absPath)
+		slog.Info("no devcontainer found for workspace, nothing to stop", "path", absPath)
+		return nil
 	}
 
 	for _, ctr := range containers.Items {
