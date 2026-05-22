@@ -49,7 +49,7 @@ func Load(cwd string) (*Config, error) {
 	v.SetDefault("git.configs", []string{"~/.gitconfig"})
 	v.SetDefault("git.mount_base", "/opt/dcx/git")
 	v.SetDefault("log_level", "")
-	v.SetDefault("default_image", "")
+	v.SetDefault("default_image", "mcr.microsoft.com/devcontainers/base:debian")
 
 	// Capture user-level features, mounts, and environment before project
 	// config is merged on top. Viper replaces slices on merge rather than

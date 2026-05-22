@@ -57,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ComposeIntegration != nil {
 		t.Error("default ComposeIntegration should be nil")
 	}
+	if cfg.DefaultImage != "mcr.microsoft.com/devcontainers/base:debian" {
+		t.Errorf("default DefaultImage = %q, want mcr.microsoft.com/devcontainers/base:debian", cfg.DefaultImage)
+	}
 }
 
 func TestLoadUserConfig(t *testing.T) {

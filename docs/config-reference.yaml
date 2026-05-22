@@ -18,7 +18,7 @@ log_level: warn
 # have a devcontainers spec. When empty and no devcontainer.json exists,
 # dcx up returns an error.
 # Can also be set via the DCX_DEFAULT_IMAGE environment variable.
-# Default: ""
+# Default: mcr.microsoft.com/devcontainers/base:debian
 # default_image: mcr.microsoft.com/devcontainers/base:debian
 
 # --- SSH Agent Forwarding ---
