@@ -86,16 +86,6 @@ type GitHubProxyConfig struct {
 	// sessions.
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 
-	// BindAddr is the address the proxy listens on. Defaults to the gateway IP
-	// (more secure — only reachable from the container's network). Set to
-	// "0.0.0.0" to listen on all interfaces.
-	BindAddr string `yaml:"bind_addr" mapstructure:"bind_addr"`
-
-	// CertExpiry is the validity duration for the generated CA certificate.
-	// Defaults to 24 hours. The certificate is ephemeral — it only needs to
-	// last for the duration of a dcx exec session.
-	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
-
 	// Domains is the list of GitHub domains to intercept. When empty, a
 	// default set of public GitHub domains is used. Override for GitHub
 	// Enterprise Server deployments.
@@ -107,6 +97,16 @@ type GitHubProxyConfig struct {
 // separate port. This structure maps to the "proxy:" block in the YAML
 // config file.
 type ProxyConfig struct {
+	// BindAddr is the address the proxy listens on. Defaults to the gateway IP
+	// (more secure — only reachable from the container's network). Set to
+	// "0.0.0.0" to listen on all interfaces.
+	BindAddr string `yaml:"bind_addr" mapstructure:"bind_addr"`
+
+	// CertExpiry is the validity duration for the generated CA certificate.
+	// Defaults to 24 hours. The certificate is ephemeral — it only needs to
+	// last for the duration of a dcx exec session.
+	CertExpiry time.Duration `yaml:"cert_expiry" mapstructure:"cert_expiry"`
+
 	// GitHub controls the GitHub API reverse proxy.
 	GitHub GitHubProxyConfig `yaml:"github" mapstructure:"github"`
 }

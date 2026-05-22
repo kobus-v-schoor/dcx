@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
-	"strings"
 	"time"
 
 	"net/http"
@@ -100,11 +99,11 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 	}
 
 	// Determine cert expiry and bind address from config.
-	certExpiry := cfg.Proxy.GitHub.CertExpiry
+	certExpiry := cfg.Proxy.CertExpiry
 	if certExpiry == 0 {
 		certExpiry = 24 * time.Hour
 	}
-	bindAddr := cfg.Proxy.GitHub.BindAddr
+	bindAddr := cfg.Proxy.BindAddr
 
 	// Create and start the proxy server.
 	srv, err := NewServer(certExpiry)
@@ -118,7 +117,7 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 	}
 
 	// Inject the CA certificate into the container's system trust store.
-	if err := injectCACert(ctx, dockerCLI, containerID, srv.CACertPEM(), port); err != nil {
+	if err := injectCACert(ctx, dockerCLI, containerID, srv.CACertPEM()); err != nil {
 		srv.Shutdown()
 		return nil, fmt.Errorf("injecting CA certificate: %w", err)
 	}
@@ -152,47 +151,53 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		RemoteEnv: remoteEnv,
 		Cleanup: func() {
 			srv.Shutdown()
+
+			// Best-effort cleanup of the injected CA certificate.
+			cleanupCtx := context.Background()
+			dockerCLI, err := docker.NewClient(cleanupCtx)
+			if err != nil {
+				slog.Error("failed to create docker client for CA cert cleanup", "error", err)
+				return
+			}
+			defer func() { _ = dockerCLI.Close() }()
+			removeCACert(cleanupCtx, dockerCLI, containerID)
 		},
 	}, nil
 }
 
-// injectCACert copies the CA certificate into the container and appends it to
-// the system CA bundles. This makes all TLS clients inside the container trust
-// the proxy's dynamically-generated per-host certificates. The CA cert is
-// copied to a session-unique path (based on the proxy port) and then appended
-// to every existing system CA bundle found in the container. Concurrent
-// appends are safe because each session appends from a distinct file and OS
-// append writes are atomic for small writes.
-func injectCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string, caPEM []byte, port int) error {
-	caDir := fmt.Sprintf("/opt/dcx/proxy/%d", port)
-	caPath := caDir + "/ca.crt"
+// injectCACert installs the CA certificate into the container's system trust
+// store by copying it to /usr/local/share/ca-certificates/ and running
+// update-ca-certificates. This is the standard approach on Debian-derived
+// and Alpine images.
+func injectCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string, caPEM []byte) error {
+	certDir := "/usr/local/share/ca-certificates"
 
-	if err := docker.MkdirInContainer(ctx, dockerCLI, containerID, caDir); err != nil {
-		return fmt.Errorf("creating CA cert directory in container: %w", err)
+	if err := docker.MkdirInContainer(ctx, dockerCLI, containerID, certDir); err != nil {
+		return fmt.Errorf("creating CA certificates directory in container: %w", err)
 	}
 
-	if err := docker.CopyBytesToContainer(ctx, dockerCLI, containerID, "ca.crt", caPEM, caDir); err != nil {
+	if err := docker.CopyBytesToContainer(ctx, dockerCLI, containerID, "dcx-proxy-ca.crt", caPEM, certDir); err != nil {
 		return fmt.Errorf("copying CA cert into container: %w", err)
 	}
 
-	// Append the CA cert to every known system CA bundle path. Not all paths
-	// exist in every distro; we try them all and ignore missing ones.
-	bundles := []string{
-		"/etc/ssl/certs/ca-certificates.crt",
-		"/etc/pki/tls/certs/ca-bundle.crt",
-		"/etc/ssl/ca-bundle.pem",
-	}
-
-	// Build a single shell command that appends the cert to every existing bundle.
-	var sb strings.Builder
-	_, _ = fmt.Fprint(&sb, "set -e\n")
-	for _, bundle := range bundles {
-		_, _ = fmt.Fprintf(&sb, "if [ -f %q ]; then cat %q >> %q; fi\n", bundle, caPath, bundle)
-	}
-
-	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "sh", "-c", sb.String()); err != nil {
-		return fmt.Errorf("appending CA cert to system bundles: %w", err)
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "update-ca-certificates"); err != nil {
+		return fmt.Errorf("running update-ca-certificates in container: %w", err)
 	}
 
 	return nil
+}
+
+// removeCACert removes the CA certificate from the container's system trust
+// store. It deletes the cert file from /usr/local/share/ca-certificates/ and
+// runs update-ca-certificates to regenerate the CA bundle. Errors are logged
+// but not returned because cleanup is best-effort (the container may already
+// be stopped).
+func removeCACert(ctx context.Context, dockerCLI docker.DockerClient, containerID string) {
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "rm", "-f", "/usr/local/share/ca-certificates/dcx-proxy-ca.crt"); err != nil {
+		slog.Debug("failed to remove CA cert from container", "error", err)
+	}
+
+	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "update-ca-certificates"); err != nil {
+		slog.Debug("failed to update CA certificates after removal", "error", err)
+	}
 }

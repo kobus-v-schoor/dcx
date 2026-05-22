@@ -530,9 +530,9 @@ func TestLoadProxyGitHubUserConfig(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `
 proxy:
+  bind_addr: "0.0.0.0"
   github:
     enabled: true
-    bind_addr: "0.0.0.0"
     domains:
       - github.example.com
       - api.github.example.com
@@ -548,8 +548,8 @@ proxy:
 	if !cfg.Proxy.GitHub.Enabled {
 		t.Error("Proxy.GitHub.Enabled should be true")
 	}
-	if cfg.Proxy.GitHub.BindAddr != "0.0.0.0" {
-		t.Errorf("Proxy.GitHub.BindAddr = %q, want 0.0.0.0", cfg.Proxy.GitHub.BindAddr)
+	if cfg.Proxy.BindAddr != "0.0.0.0" {
+		t.Errorf("Proxy.BindAddr = %q, want 0.0.0.0", cfg.Proxy.BindAddr)
 	}
 	wantDomains := []string{"github.example.com", "api.github.example.com"}
 	if len(cfg.Proxy.GitHub.Domains) != len(wantDomains) {

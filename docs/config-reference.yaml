@@ -78,6 +78,21 @@ git:
 # re-encrypts traffic before forwarding to the real destination. This keeps
 # credentials on the host side — they are never exposed inside the container.
 proxy:
+  # The address the proxy listens on. Defaults to the Docker gateway IP
+  # (more secure — only reachable from the container's network). Set to
+  # "0.0.0.0" to listen on all interfaces (needed in some Docker network
+  # setups where the gateway IP is not routable from the container).
+  # Can also be set via the DCX_PROXY_BIND_ADDR environment variable.
+  # Default: "" (use gateway IP)
+  # bind_addr: ""
+
+  # The validity duration for the generated CA certificate. The certificate
+  # is ephemeral — it only needs to last for the duration of a dcx exec
+  # session.
+  # Can also be set via the DCX_PROXY_CERT_EXPIRY environment variable.
+  # Default: 24h
+  # cert_expiry: 24h
+
   # --- GitHub API Proxy ---
 
   # Configure the GitHub API proxy for token injection.
@@ -94,21 +109,6 @@ proxy:
     # Can also be set via the DCX_PROXY_GITHUB_ENABLED environment variable.
     # Default: false
     enabled: false
-
-    # The address the proxy listens on. Defaults to the Docker gateway IP
-    # (more secure — only reachable from the container's network). Set to
-    # "0.0.0.0" to listen on all interfaces (needed in some Docker network
-    # setups where the gateway IP is not routable from the container).
-    # Can also be set via the DCX_PROXY_GITHUB_BIND_ADDR environment variable.
-    # Default: "" (use gateway IP)
-    # bind_addr: ""
-
-    # The validity duration for the generated CA certificate. The certificate
-    # is ephemeral — it only needs to last for the duration of a dcx exec
-    # session.
-    # Can also be set via the DCX_PROXY_GITHUB_CERT_EXPIRY environment variable.
-    # Default: 24h
-    # cert_expiry: 24h
 
     # Custom domains to intercept for GitHub Enterprise Server deployments.
     # When empty, a default set of public GitHub domains is used. Each domain

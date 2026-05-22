@@ -88,6 +88,8 @@ func DetectToken() (string, bool) {
 		return token, true
 	}
 
+	// Fall back to gh auth token, which reads the token from the gh CLI's
+	// own credential store.
 	path, err := exec.LookPath("gh")
 	if err != nil {
 		slog.Warn("gh CLI not found on PATH, cannot detect GitHub token")
