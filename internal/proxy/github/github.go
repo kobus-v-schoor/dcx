@@ -34,6 +34,10 @@ import (
 // It is a variable so tests can override it.
 var detectRepoFunc = git.DetectRepo
 
+// detectRemoteURLFunc is the function used to detect the current repository's
+// origin remote URL. It is a variable so tests can override it.
+var detectRemoteURLFunc = git.DetectRemoteURL
+
 func init() {
 	proxy.RegisterProvider(&githubProvider{})
 }
@@ -78,14 +82,20 @@ func (g *githubProvider) CreateHandler(opts proxy.Options, cfg *config.Config) (
 	}
 
 	// Build the reverse proxy that forwards requests to the GitHub API.
-	target, err := url.Parse(opts.APIURLResolved())
+	apiTarget, err := url.Parse(opts.APIURLResolved())
 	if err != nil {
 		return nil, fmt.Errorf("parsing GitHub API URL %q: %w", opts.APIURLResolved(), err)
 	}
 
-	director := newDirector(target)
+	// Git HTTPS operations target the main GitHub host, not the API endpoint.
+	gitTarget, err := url.Parse(resolvedGitURL(opts.APIURLResolved()))
+	if err != nil {
+		return nil, fmt.Errorf("parsing GitHub git URL: %w", err)
+	}
+
+	director := newDirector(apiTarget, gitTarget)
 	transport := &tokenTransport{token: token}
-	return proxy.NewReverseProxy(target, director, transport, "github"), nil
+	return proxy.NewReverseProxy(apiTarget, director, transport, "github"), nil
 }
 
 // RemoteEnvVars returns the GitHub-specific remote environment variables for
@@ -122,6 +132,27 @@ func (g *githubProvider) RemoteEnvVars(port int, opts proxy.Options, cfg *config
 	// GH_REPO explicitly avoids this mismatch.
 	if repo, ok := detectRepoFunc(); ok {
 		envVars = append(envVars, fmt.Sprintf("--remote-env=GH_REPO=%s", repo))
+	}
+
+	// Configure git to route HTTPS operations through the proxy.
+	// git's url.<base>.insteadOf directive rewrites URLs starting with
+	// the origin host to point at the proxy instead. http.sslCAInfo tells
+	// git to trust the proxy's self-signed TLS certificate.
+	if remoteURL, ok := detectRemoteURLFunc(); ok {
+		u, err := url.Parse(remoteURL)
+		if err == nil && u.Scheme == "https" {
+			proxyURL := fmt.Sprintf("https://%s/", ghHost)
+			originPrefix := fmt.Sprintf("https://%s/", u.Host)
+
+			envVars = append(envVars, "--remote-env=GIT_CONFIG_COUNT=2")
+			envVars = append(envVars, fmt.Sprintf("--remote-env=GIT_CONFIG_KEY_0=url.%s.insteadOf", proxyURL))
+			envVars = append(envVars, fmt.Sprintf("--remote-env=GIT_CONFIG_VALUE_0=%s", originPrefix))
+			envVars = append(envVars, "--remote-env=GIT_CONFIG_KEY_1=http.sslCAInfo")
+			envVars = append(envVars, fmt.Sprintf("--remote-env=GIT_CONFIG_VALUE_1=%s", opts.CACertPathResolved()))
+		} else {
+			slog.Warn("github proxy: git remote is not HTTPS, git operations will not be proxied",
+				"remote", remoteURL)
+		}
 	}
 
 	return envVars
@@ -171,40 +202,50 @@ func DetectToken() (string, bool) {
 }
 
 // newDirector returns a function that rewrites the incoming request so it
-// targets the configured GitHub API URL instead of the proxy host. It replaces
-// the request scheme, host, and URL path, and clears the Authorization header
-// so the scoping transport can inject the host token. When the gh CLI connects
-// to a custom GH_HOST (not github.com), it prefixes all API paths with
-// "/api/v3/" (GitHub Enterprise convention). Since we forward to the
-// configured API URL which does not use this prefix, we strip it here.
-func newDirector(target *url.URL) func(*http.Request) {
+// targets either the GitHub API or the GitHub git host, depending on whether
+// the request is a git HTTPS operation. For API requests it replaces the
+// scheme, host, and URL path (stripping /api/v3 and /api prefixes that the gh
+// CLI adds for custom GH_HOST). For git requests it forwards to the main
+// GitHub host without path rewriting. In both cases it clears the
+// Authorization and Proxy-Connection headers so the transport can inject the
+// correct credentials.
+func newDirector(apiTarget, gitTarget *url.URL) func(*http.Request) {
 	return func(req *http.Request) {
+		var target *url.URL
+		if isGitRequest(req) {
+			target = gitTarget
+		} else {
+			target = apiTarget
+		}
+
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.Host = target.Host
 
-		// Strip the "/api/v3/" prefix that the gh CLI adds when GH_HOST
-		// is a custom host (GHE convention). The api.github.com endpoint
-		// does not use this prefix — API paths are at the root (e.g.
-		// /repos/owner/repo, not /api/v3/repos/owner/repo).
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/v3")
+		if target == apiTarget {
+			// Strip the "/api/v3/" prefix that the gh CLI adds when GH_HOST
+			// is a custom host (GHE convention). The api.github.com endpoint
+			// does not use this prefix — API paths are at the root (e.g.
+			// /repos/owner/repo, not /api/v3/repos/owner/repo).
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/v3")
 
-		// Also strip the "/api" prefix used by the gh CLI for GraphQL
-		// requests. When GH_HOST is a custom host, the gh CLI sends
-		// GraphQL requests to https://GH_HOST/api/graphql, but
-		// api.github.com serves GraphQL at /graphql (without /api prefix).
-		// This must come after the /api/v3 strip so that REST paths are
-		// handled first.
-		if strings.HasPrefix(req.URL.Path, "/api/") {
-			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
-		}
+			// Also strip the "/api" prefix used by the gh CLI for GraphQL
+			// requests. When GH_HOST is a custom host, the gh CLI sends
+			// GraphQL requests to https://GH_HOST/api/graphql, but
+			// api.github.com serves GraphQL at /graphql (without /api prefix).
+			// This must come after the /api/v3 strip so that REST paths are
+			// handled first.
+			if strings.HasPrefix(req.URL.Path, "/api/") {
+				req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+			}
 
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
+			if req.URL.Path == "" {
+				req.URL.Path = "/"
+			}
 		}
 
 		// Clear the incoming Authorization header so the scoping transport
-		// can inject the host token. The container-side gh CLI may send its
+		// can inject the host token. The container-side client may send its
 		// own (invalid) token — we always replace it with the real one.
 		req.Header.Del("Authorization")
 
@@ -213,6 +254,22 @@ func newDirector(target *url.URL) func(*http.Request) {
 		// real GitHub API and could cause issues if forwarded.
 		req.Header.Del("Proxy-Connection")
 	}
+}
+
+// isGitRequest reports whether the request uses git's smart HTTP protocol.
+// Git HTTPS operations are identified by URL paths ending in
+// /git-upload-pack, /git-receive-pack, or /info/refs with a service=git-
+// query parameter. These requests are forwarded to the main GitHub host
+// rather than the API endpoint, and use basic auth instead of bearer tokens.
+func isGitRequest(req *http.Request) bool {
+	path := req.URL.Path
+	if strings.HasSuffix(path, "/git-upload-pack") || strings.HasSuffix(path, "/git-receive-pack") {
+		return true
+	}
+	if strings.HasSuffix(path, "/info/refs") && strings.Contains(req.URL.RawQuery, "service=git-") {
+		return true
+	}
+	return false
 }
 
 // tokenTransport is an http.RoundTripper that injects the host's GitHub
@@ -227,16 +284,23 @@ type tokenTransport struct {
 	token string
 }
 
-// RoundTrip implements http.RoundTripper. It injects the host's GitHub token
-// as the Authorization header and forwards the request to the GitHub API via
-// the default transport.
+// RoundTrip implements http.RoundTripper. It injects the host's GitHub
+// token into the request and forwards it to the upstream GitHub host via the
+// default transport. For git HTTPS requests it uses basic auth with the token
+// as the password (GitHub accepts oauth2/<token>). For API requests it uses a
+// bearer token. The director already cleared any incoming Authorization header,
+// so this is the only auth the forwarded request will carry.
 func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Inject the host's GitHub token as the Authorization header. The director
-	// already cleared any incoming Authorization header, so this is the only
-	// token the forwarded request will carry.
-	req.Header.Set("Authorization", "Bearer "+t.token)
+	if isGitRequest(req) {
+		// Git over HTTPS uses basic auth. GitHub accepts the token as the
+		// password with any username; using "oauth2" matches convention.
+		req.SetBasicAuth("oauth2", t.token)
+	} else {
+		// API requests use a bearer token.
+		req.Header.Set("Authorization", "Bearer "+t.token)
+	}
 
-	// Use the default transport to forward the request to the GitHub API.
+	// Use the default transport to forward the request to the upstream.
 	return http.DefaultTransport.RoundTrip(req)
 }
 
@@ -256,6 +320,21 @@ func resolvedCACertPath(caCertPath string) string {
 		return "/opt/dcx/gh-proxy/ca.crt"
 	}
 	return caCertPath
+}
+
+// resolvedGitURL returns the GitHub host URL for git HTTPS operations.
+// When the API URL is the public GitHub API, git operations target
+// github.com directly. For GitHub Enterprise or other custom API URLs,
+// the git host is derived from the API URL's scheme and host.
+func resolvedGitURL(apiURL string) string {
+	if apiURL == "" || apiURL == "https://api.github.com" {
+		return "https://github.com"
+	}
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return "https://github.com"
+	}
+	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 }
 
 // resolvedCertExpiry returns the certificate expiry duration. Defaults to

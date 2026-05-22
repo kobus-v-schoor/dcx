@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"testing"
@@ -101,11 +102,15 @@ func TestProviderServiceOptionsDefaults(t *testing.T) {
 // TestProviderRemoteEnvVars tests that RemoteEnvVars produces the correct
 // GitHub-specific environment variable flags.
 func TestProviderRemoteEnvVars(t *testing.T) {
-	// Override repo detection so the test is deterministic regardless of
-	// whether it runs inside a git repository.
+	// Override repo and remote URL detection so the test is deterministic
+	// regardless of whether it runs inside a git repository.
 	oldDetectRepo := detectRepoFunc
 	detectRepoFunc = func() (string, bool) { return "", false }
 	defer func() { detectRepoFunc = oldDetectRepo }()
+
+	oldDetectRemoteURL := detectRemoteURLFunc
+	detectRemoteURLFunc = func() (string, bool) { return "", false }
+	defer func() { detectRemoteURLFunc = oldDetectRemoteURL }()
 
 	p := &githubProvider{}
 	opts := proxy.Options{
@@ -169,6 +174,10 @@ func TestProviderRemoteEnvVarsWithRepo(t *testing.T) {
 	detectRepoFunc = func() (string, bool) { return "owner/repo", true }
 	defer func() { detectRepoFunc = oldDetectRepo }()
 
+	oldDetectRemoteURL := detectRemoteURLFunc
+	detectRemoteURLFunc = func() (string, bool) { return "", false }
+	defer func() { detectRemoteURLFunc = oldDetectRemoteURL }()
+
 	p := &githubProvider{}
 	opts := proxy.Options{
 		TLSEnabled: true,
@@ -198,6 +207,75 @@ func TestProviderRemoteEnvVarsWithRepo(t *testing.T) {
 	// Should contain exactly two env vars (GH_HOST and GH_REPO).
 	if len(envVars) != 2 {
 		t.Errorf("RemoteEnvVars returned %d env vars, want 2", len(envVars))
+	}
+}
+
+// TestProviderRemoteEnvVarsWithHTTPSRemote tests that RemoteEnvVars includes
+// git URL rewriting and SSL CA config when the origin remote is HTTPS.
+func TestProviderRemoteEnvVarsWithHTTPSRemote(t *testing.T) {
+	oldDetectRepo := detectRepoFunc
+	detectRepoFunc = func() (string, bool) { return "owner/repo", true }
+	defer func() { detectRepoFunc = oldDetectRepo }()
+
+	oldDetectRemoteURL := detectRemoteURLFunc
+	detectRemoteURLFunc = func() (string, bool) { return "https://github.com/owner/repo.git", true }
+	defer func() { detectRemoteURLFunc = oldDetectRemoteURL }()
+
+	p := &githubProvider{}
+	opts := proxy.Options{
+		TLSEnabled: true,
+		GatewayIP:  "172.17.0.1",
+		CACertPath: "/opt/dcx/gh-proxy/ca.crt",
+	}
+	cfg := &config.Config{}
+
+	envVars := p.RemoteEnvVars(12345, opts, cfg)
+
+	var foundGHHost, foundGHRepo bool
+	var foundGitCount, foundGitKey0, foundGitVal0, foundGitKey1, foundGitVal1 bool
+	for _, env := range envVars {
+		switch {
+		case strings.HasPrefix(env, "--remote-env=GH_HOST="):
+			foundGHHost = true
+		case env == "--remote-env=GH_REPO=owner/repo":
+			foundGHRepo = true
+		case env == "--remote-env=GIT_CONFIG_COUNT=2":
+			foundGitCount = true
+		case strings.HasPrefix(env, "--remote-env=GIT_CONFIG_KEY_0=url.") && strings.Contains(env, ".insteadOf"):
+			foundGitKey0 = true
+		case env == "--remote-env=GIT_CONFIG_VALUE_0=https://github.com/":
+			foundGitVal0 = true
+		case env == "--remote-env=GIT_CONFIG_KEY_1=http.sslCAInfo":
+			foundGitKey1 = true
+		case env == "--remote-env=GIT_CONFIG_VALUE_1=/opt/dcx/gh-proxy/ca.crt":
+			foundGitVal1 = true
+		}
+	}
+	if !foundGHHost {
+		t.Error("RemoteEnvVars missing GH_HOST")
+	}
+	if !foundGHRepo {
+		t.Error("RemoteEnvVars missing GH_REPO")
+	}
+	if !foundGitCount {
+		t.Error("RemoteEnvVars missing GIT_CONFIG_COUNT")
+	}
+	if !foundGitKey0 {
+		t.Error("RemoteEnvVars missing GIT_CONFIG_KEY_0")
+	}
+	if !foundGitVal0 {
+		t.Error("RemoteEnvVars missing GIT_CONFIG_VALUE_0")
+	}
+	if !foundGitKey1 {
+		t.Error("RemoteEnvVars missing GIT_CONFIG_KEY_1")
+	}
+	if !foundGitVal1 {
+		t.Error("RemoteEnvVars missing GIT_CONFIG_VALUE_1")
+	}
+
+	// Should contain exactly 7 env vars (GH_HOST, GH_REPO, and 5 GIT_CONFIG_*).
+	if len(envVars) != 7 {
+		t.Errorf("RemoteEnvVars returned %d env vars, want 7", len(envVars))
 	}
 }
 
@@ -324,48 +402,97 @@ func TestProxyPortIsDynamic(t *testing.T) {
 	}
 }
 
-// TestDirectorPathRewrite tests the path rewriting logic from the director.
+// TestDirectorPathRewrite tests the path rewriting logic from the director
+// for API requests. Git requests should not have their paths rewritten.
 func TestDirectorPathRewrite(t *testing.T) {
+	apiTarget, _ := url.Parse("https://api.github.com")
+	gitTarget, _ := url.Parse("https://github.com")
+	director := newDirector(apiTarget, gitTarget)
+
 	tests := []struct {
-		name string
-		path string
-		want string
+		name     string
+		path     string
+		query    string
+		wantPath string
+		wantHost string
 	}{
 		{
-			name: "REST API path strips /api/v3",
-			path: "/api/v3/repos/owner/repo/issues",
-			want: "/repos/owner/repo/issues",
+			name:     "REST API path strips /api/v3",
+			path:     "/api/v3/repos/owner/repo/issues",
+			wantPath: "/repos/owner/repo/issues",
+			wantHost: "api.github.com",
 		},
 		{
-			name: "GraphQL path strips /api",
-			path: "/api/graphql",
-			want: "/graphql",
+			name:     "GraphQL path strips /api",
+			path:     "/api/graphql",
+			wantPath: "/graphql",
+			wantHost: "api.github.com",
 		},
 		{
-			name: "Root /api/v3 becomes /",
-			path: "/api/v3",
-			want: "/",
+			name:     "Root /api/v3 becomes /",
+			path:     "/api/v3",
+			wantPath: "/",
+			wantHost: "api.github.com",
 		},
 		{
-			name: "Path without prefix unchanged",
-			path: "/repos/owner/repo",
-			want: "/repos/owner/repo",
+			name:     "Path without prefix unchanged",
+			path:     "/repos/owner/repo",
+			wantPath: "/repos/owner/repo",
+			wantHost: "api.github.com",
+		},
+		{
+			name:     "Git upload-pack forwarded to git host",
+			path:     "/owner/repo.git/git-upload-pack",
+			wantPath: "/owner/repo.git/git-upload-pack",
+			wantHost: "github.com",
+		},
+		{
+			name:     "Git info/refs forwarded to git host",
+			path:     "/owner/repo.git/info/refs",
+			query:    "service=git-upload-pack",
+			wantPath: "/owner/repo.git/info/refs",
+			wantHost: "github.com",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the path rewriting logic from the director.
-			path := tt.path
-			path = strings.TrimPrefix(path, "/api/v3")
-			if strings.HasPrefix(path, "/api/") {
-				path = strings.TrimPrefix(path, "/api")
+			req, _ := http.NewRequest("GET", "https://proxy"+tt.path, nil)
+			req.URL.RawQuery = tt.query
+			director(req)
+			if req.URL.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", req.URL.Path, tt.wantPath)
 			}
-			if path == "" {
-				path = "/"
+			if req.Host != tt.wantHost {
+				t.Errorf("Host = %q, want %q", req.Host, tt.wantHost)
 			}
-			if path != tt.want {
-				t.Errorf("rewrite(%q) = %q, want %q", tt.path, path, tt.want)
+		})
+	}
+}
+
+// TestIsGitRequest tests that isGitRequest correctly identifies git HTTP
+// protocol requests while leaving API requests alone.
+func TestIsGitRequest(t *testing.T) {
+	tests := []struct {
+		name  string
+		path  string
+		query string
+		want  bool
+	}{
+		{"git-upload-pack", "/owner/repo.git/git-upload-pack", "", true},
+		{"git-receive-pack", "/owner/repo.git/git-receive-pack", "", true},
+		{"info/refs with service", "/owner/repo.git/info/refs", "service=git-upload-pack", true},
+		{"info/refs without service", "/owner/repo.git/info/refs", "", false},
+		{"API repo path", "/repos/owner/repo", "", false},
+		{"API issues path", "/repos/owner/repo/issues", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "https://proxy"+tt.path, nil)
+			req.URL.RawQuery = tt.query
+			if got := isGitRequest(req); got != tt.want {
+				t.Errorf("isGitRequest() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -378,6 +505,16 @@ func TestResolvedDefaults(t *testing.T) {
 	}
 	if got := resolvedAPIURL("https://github.example.com/api/v3"); got != "https://github.example.com/api/v3" {
 		t.Errorf("resolvedAPIURL() = %q, want %q", got, "https://github.example.com/api/v3")
+	}
+
+	if got := resolvedGitURL(""); got != "https://github.com" {
+		t.Errorf("resolvedGitURL(\"\") = %q, want %q", got, "https://github.com")
+	}
+	if got := resolvedGitURL("https://api.github.com"); got != "https://github.com" {
+		t.Errorf("resolvedGitURL(\"https://api.github.com\") = %q, want %q", got, "https://github.com")
+	}
+	if got := resolvedGitURL("https://github.example.com/api/v3"); got != "https://github.example.com" {
+		t.Errorf("resolvedGitURL() = %q, want %q", got, "https://github.example.com")
 	}
 
 	if got := resolvedCACertPath(""); got != "/opt/dcx/gh-proxy/ca.crt" {

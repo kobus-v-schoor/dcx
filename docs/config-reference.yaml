@@ -85,6 +85,18 @@ proxy:
   # all gh CLI requests from the container and injects the host's GitHub token
   # as the Authorization header. This keeps the token on the host side — it
   # is never exposed inside the container.
+  #
+  # The proxy also intercepts git HTTPS operations (clone, fetch, push) so
+  # that git commands inside the container work seamlessly with the host's
+  # credentials. dcx does this by setting git environment variables that:
+  #   1. Rewrite the origin remote URL from https://github.com/... to the
+  #      proxy address (using git's url.<base>.insteadOf directive).
+  #   2. Tell git to trust the proxy's self-signed TLS certificate (using
+  #      the http.sslCAInfo config).
+  #
+  # For this to work, the origin remote must use HTTPS. If your remote uses
+  # SSH, dcx logs a warning and git operations will not be proxied (you can
+  # still use the gh CLI for API operations).
 
   # Note: The proxy does not enforce repository-level scoping. It forwards
   # all requests to the GitHub API with the host token. The purpose of the

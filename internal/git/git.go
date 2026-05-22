@@ -74,17 +74,29 @@ func DetectConfigs(cfg config.GitConfig) GitResult {
 	return result
 }
 
+// DetectRemoteURL returns the raw URL of the origin remote. It runs
+// `git remote get-url origin` in the current directory. Returns the URL
+// string and true if successfully detected, or empty string and false if
+// not in a git repository or the command fails.
+func DetectRemoteURL() (string, bool) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
+
 // DetectRepo detects the current repository's owner/name from the git remote
 // URL of the origin remote. It runs `git remote get-url origin` in the
 // current directory and parses the output. Returns "owner/repo" and true if
 // successfully detected, or empty string and false if not in a git repository
 // or the remote URL cannot be parsed.
 func DetectRepo() (string, bool) {
-	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
-	if err != nil {
+	remoteURL, ok := DetectRemoteURL()
+	if !ok {
 		return "", false
 	}
-	return RepoFromURL(strings.TrimSpace(string(out)))
+	return RepoFromURL(remoteURL)
 }
 
 // RepoFromURL extracts the "owner/repo" identifier from a Git remote URL.
