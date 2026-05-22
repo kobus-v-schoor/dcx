@@ -100,7 +100,7 @@ func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial proxy error: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 2. Send CONNECT request.
 	_, err = fmt.Fprintf(conn, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
@@ -110,7 +110,9 @@ func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
 
 	// 3. Read 200 response.
 	buf := make([]byte, 1024)
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline error: %v", err)
+	}
 	n, err := conn.Read(buf)
 	if err != nil {
 		t.Fatalf("read CONNECT response error: %v", err)
@@ -127,11 +129,13 @@ func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
 	if err := tlsConn.Handshake(); err != nil {
 		t.Fatalf("TLS handshake error: %v", err)
 	}
-	defer tlsConn.Close()
+	defer func() { _ = tlsConn.Close() }()
 
 	// 5. Send an HTTP request over the TLS connection.
 	_, _ = fmt.Fprintf(tlsConn, "GET /test HTTP/1.1\r\nHost: example.com\r\n\r\n")
-	tlsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := tlsConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline error: %v", err)
+	}
 	n, _ = tlsConn.Read(buf)
 	if n == 0 {
 		t.Fatal("no response from proxy after MITM TLS handshake")
@@ -176,7 +180,7 @@ func TestServerTunnelsNonMatchingDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request through proxy error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "upstream" {
@@ -195,18 +199,6 @@ func TestWriteCACertToFile(t *testing.T) {
 
 	if path == "" {
 		t.Error("WriteCACertToFile() returned empty path")
-	}
-}
-
-// makeTestClient creates an http.Client that trusts the given CA certificate.
-func makeTestClient(t *testing.T, caCertPEM []byte) *http.Client {
-	t.Helper()
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: makeTestPool(t, caCertPEM),
-			},
-		},
 	}
 }
 

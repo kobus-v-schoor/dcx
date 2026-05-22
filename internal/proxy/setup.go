@@ -185,9 +185,9 @@ func injectCACert(ctx context.Context, dockerCLI docker.DockerClient, containerI
 
 	// Build a single shell command that appends the cert to every existing bundle.
 	var sb strings.Builder
-	sb.WriteString("set -e\n")
+	_, _ = fmt.Fprint(&sb, "set -e\n")
 	for _, bundle := range bundles {
-		sb.WriteString(fmt.Sprintf("if [ -f %q ]; then cat %q >> %q; fi\n", bundle, caPath, bundle))
+		_, _ = fmt.Fprintf(&sb, "if [ -f %q ]; then cat %q >> %q; fi\n", bundle, caPath, bundle)
 	}
 
 	if err := docker.ExecInContainer(ctx, dockerCLI, containerID, "sh", "-c", sb.String()); err != nil {
