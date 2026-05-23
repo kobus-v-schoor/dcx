@@ -79,10 +79,10 @@ git:
 # configured domains. It decrypts traffic using a temporary CA certificate
 # (injected into the container's system trust store), injects credentials, and
 # re-encrypts traffic before forwarding to the real destination. This keeps
-# credentials on the host side — they are never exposed inside the container.
+# credentials on the host side - they are never exposed inside the container.
 proxy:
   # The address the proxy listens on. Defaults to the Docker gateway IP
-  # (more secure — only reachable from the container's network). Set to
+  # (more secure - only reachable from the container's network). Set to
   # "0.0.0.0" to listen on all interfaces (needed in some Docker network
   # setups where the gateway IP is not routable from the container).
   # Can also be set via the DCX_PROXY_BIND_ADDR environment variable.
@@ -90,7 +90,7 @@ proxy:
   # bind_addr: ""
 
   # The validity duration for the generated CA certificate. The certificate
-  # is ephemeral — it only needs to last for the duration of a dcx exec
+  # is ephemeral - it only needs to last for the duration of a dcx exec
   # session.
   # Can also be set via the DCX_PROXY_CERT_EXPIRY environment variable.
   # Default: 24h
@@ -168,8 +168,8 @@ mounts:
 
 # List of environment variables to pass from the host to the devcontainer.
 # Two formats are supported:
-#   - "NAME" — reads host env var NAME, sets NAME in the container (shorthand).
-#   - "CONTAINER_NAME=${HOST_VAR}" — reads HOST_VAR from the host, sets CONTAINER_NAME (explicit).
+#   - "NAME" - reads host env var NAME, sets NAME in the container (shorthand).
+#   - "CONTAINER_NAME=${HOST_VAR}" - reads HOST_VAR from the host, sets CONTAINER_NAME (explicit).
 #
 # The value part (after '=') supports composite expressions that mix variable
 # substitutions and literal text, e.g. "PATH=${PATH}:/opt/bin". Each ${VAR}
@@ -180,7 +180,7 @@ mounts:
 #
 # If a referenced host variable is not set, a warning is logged and the
 # reference is substituted with an empty string. This allows declaring a
-# superset of variables — only those existing on the current machine are
+# superset of variables - only those existing on the current machine are
 # forwarded with their values.
 # User and project environment lists are concatenated; project entries appear after user entries.
 #
@@ -194,7 +194,7 @@ mounts:
 # configuration. Currently, TERM and COLORTERM are auto-forwarded to ensure TUI
 # applications making use of advanced terminal features (like true-colour support)
 # work correctly inside the container. Auto-forwarded variables have the lowest
-# precedence — they can be overridden by entries in this list.
+# precedence - they can be overridden by entries in this list.
 environment:
   - AWS_ACCESS_KEY_ID
   - AWS_SECRET_ACCESS_KEY
