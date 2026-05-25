@@ -13,6 +13,9 @@
 
 ---
 
+> [!IMPORTANT]
+> This project is still in alpha. Expect bugs and changes to the config structure as it matures.
+
 Sandboxing your dev environment is a Good Idea™, but it's often too much of a
 hassle to apply quickly and consistently. dcx solves this by wrapping and
 integrating your most common development tools to give you a safe, comfortable
