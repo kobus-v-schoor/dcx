@@ -7,6 +7,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
+	"github.com/moby/moby/api/types/container"
 	"github.com/spf13/cobra"
 )
 
@@ -82,11 +83,11 @@ func runExec(cmd *cobra.Command, args []string) error {
 }
 
 // ensureDevcontainerRunning checks whether a devcontainer exists for the
-// current workspace. If one is found (running or stopped), it is a no-op —
-// the devcontainer exec command will handle starting a stopped container. If
-// no devcontainer is found, the function runs dcx up to create one. This
-// allows "dcx exec" to work as a single command that both starts and connects
-// to the devcontainer.
+// current workspace. If one is found and is already running, it is a no-op.
+// If one is found but is stopped, it is started (or recreated if a stale
+// bind mount is detected). If no devcontainer is found, the function runs
+// dcx up to create one. This allows "dcx exec" to work as a single command
+// that both starts and connects to the devcontainer.
 func ensureDevcontainerRunning(cmd *cobra.Command) error {
 	cli, err := docker.NewClient(cmd.Context())
 	if err != nil {
@@ -100,14 +101,22 @@ func ensureDevcontainerRunning(cmd *cobra.Command) error {
 	}
 
 	if len(containers.Items) > 0 {
-		slog.Info("devcontainer already exists")
+		if containers.Items[0].State == container.StateRunning {
+			slog.Info("devcontainer already running")
+			return nil
+		}
+
+		slog.Info("devcontainer exists but is not running, starting")
+		if err := runUp(cmd.Context(), false, nil); err != nil {
+			return fmt.Errorf("running dcx up: %w", err)
+		}
 		return nil
 	}
 
 	// No devcontainer found — start one.
 	slog.Info("no devcontainer found, starting one with dcx up")
 
-	if err := runUp(false, nil); err != nil {
+	if err := runUp(cmd.Context(), false, nil); err != nil {
 		return fmt.Errorf("running dcx up: %w", err)
 	}
 

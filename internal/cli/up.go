@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/env"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
 	"github.com/kobus-v-schoor/dcx/internal/git"
@@ -12,6 +14,7 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/kobus-v-schoor/dcx/internal/ssh"
+	"github.com/moby/moby/api/types/container"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +33,7 @@ func newUpCmd() *cobra.Command {
 		Long:  "Start a devcontainer by delegating to the devcontainer CLI with dcx-assembled flags.\nAny flags after -- are passed through to devcontainer up unchanged.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUp(rebuild, args)
+			return runUp(cmd.Context(), rebuild, args)
 		},
 	}
 
@@ -44,7 +47,7 @@ func newUpCmd() *cobra.Command {
 // CLI's --remove-existing-container flag is emitted, forcing container
 // recreation so config changes take effect. Config and log level are
 // already initialised by the root command's PersistentPreRunE.
-func runUp(rebuild bool, args []string) error {
+func runUp(ctx context.Context, rebuild bool, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	devcontainerPath, err := runner.Find()
@@ -96,6 +99,29 @@ func runUp(rebuild bool, args []string) error {
 	// devcontainer CLI.
 	if err := overrideDir.Save(); err != nil {
 		return fmt.Errorf("saving override config: %w", err)
+	}
+
+	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
+	// source no longer exists, Docker will refuse to start the container.
+	// Return a helpful error so the user can decide how to proceed instead of
+	// silently removing the container.
+	if !rebuild {
+		cli, err := docker.NewClient(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = cli.Close() }()
+
+		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
+		if err != nil {
+			return fmt.Errorf("checking for existing devcontainer: %w", err)
+		}
+
+		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
+			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
+				return err
+			}
+		}
 	}
 
 	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir.Dir, rebuild)

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
@@ -239,6 +240,39 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 				slog.Debug("could not remove image (may still be in use)", "id", shortID(imageID), "error", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// CheckStaleMounts inspects the given container and returns an error if any
+// bind mount source paths no longer exist on the host. The details are logged
+// so the user can see which paths are missing; the returned error is a short,
+// generic message. If no stale mounts are found, it returns nil.
+func CheckStaleMounts(ctx context.Context, cli DockerClient, containerID string) error {
+	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspecting container %s: %w", shortID(containerID), err)
+	}
+
+	var stale []string
+	for _, m := range inspect.Container.Mounts {
+		if m.Type == mount.TypeBind && m.Source != "" {
+			if _, err := os.Stat(m.Source); os.IsNotExist(err) {
+				stale = append(stale, m.Source)
+			}
+		}
+	}
+
+	if len(stale) > 0 {
+		slog.Error(
+			"stale bind mount(s) detected",
+			"container", shortID(containerID),
+			"missing_paths", stale,
+			"resolution", "restore the missing path(s), or remove the mount and run 'dcx up --rebuild'",
+			"note", "SSH agent sockets can change path when rebooting or restarting your SSH agent",
+		)
+		return fmt.Errorf("stale bind mounts detected on container %s", shortID(containerID))
 	}
 
 	return nil

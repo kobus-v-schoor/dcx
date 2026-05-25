@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
@@ -324,6 +325,56 @@ func TestGatewayIPInspectError(t *testing.T) {
 	}
 
 	_, err := GatewayIP(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when inspect fails")
+	}
+	if !strings.Contains(err.Error(), "inspecting container") {
+		t.Errorf("error should mention inspecting container, got: %s", err.Error())
+	}
+}
+
+func TestCheckStaleMountsNoStale(t *testing.T) {
+	tmpDir := t.TempDir()
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Mounts: []container.MountPoint{
+					{Type: mount.TypeBind, Source: tmpDir, Destination: "/dest"},
+					{Type: mount.TypeVolume, Source: "vol1", Destination: "/vol"},
+				},
+			},
+		},
+	}
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestCheckStaleMountsReturnsError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Mounts: []container.MountPoint{
+					{Type: mount.TypeBind, Source: "/nonexistent/path/that/does/not/exist", Destination: "/dest"},
+				},
+			},
+		},
+	}
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when stale mount found")
+	}
+	if !strings.Contains(err.Error(), "stale bind mounts detected") {
+		t.Errorf("error should mention stale bind mounts, got: %s", err.Error())
+	}
+}
+
+func TestCheckStaleMountsInspectError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectErr: fmt.Errorf("inspect failed"),
+	}
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
 	if err == nil {
 		t.Fatal("expected error when inspect fails")
 	}
