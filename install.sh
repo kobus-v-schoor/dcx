@@ -22,6 +22,18 @@ need tar
 need uname
 need mktemp
 
+# sha256 returns the SHA-256 hash of a file, portable across macOS and Linux.
+sha256() {
+    if command -v sha256sum &>/dev/null; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum &>/dev/null; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        err "sha256sum or shasum is required but not found in PATH"
+        exit 1
+    fi
+}
+
 github_api() {
     local url="$1"
     shift
@@ -115,7 +127,7 @@ if [ -z "$EXPECTED" ]; then
     exit 1
 fi
 
-ACTUAL=$(shasum -a 256 "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')
+ACTUAL=$(sha256 "${TMPDIR}/${ARCHIVE}")
 if [ "$ACTUAL" != "$EXPECTED" ]; then
     err "checksum mismatch for ${ARCHIVE}"
     err "  expected: ${EXPECTED}"

@@ -1,3 +1,11 @@
 proxy:
   github:
     enabled: true
+
+mounts:
+  - source: ${DCX_TEST_MARKER_PATH}
+    target: /opt/dcx/test/integration-test-marker.txt
+    read_only: true
+
+environment:
+  - DCX_TEST_ENV=integration-test-value
