@@ -5,8 +5,6 @@ REPO="kobus-v-schoor/dcx"
 BINARY="dcx"
 INSTALL_DIR="${DCX_INSTALL_DIR:-$HOME/.local/bin}"
 
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-
 msg() { printf ">>> %s\n" "$*" >&2; }
 err() { printf "!!! %s\n" "$*" >&2; }
 
@@ -34,26 +32,6 @@ sha256() {
     fi
 }
 
-github_api() {
-    local url="$1"
-    shift
-    if [ -n "$GITHUB_TOKEN" ]; then
-        curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$url" "$@"
-    else
-        curl -fsSL -H "Accept: application/vnd.github+json" "$url" "$@"
-    fi
-}
-
-github_download() {
-    local url="$1"
-    shift
-    if [ -n "$GITHUB_TOKEN" ]; then
-        curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/octet-stream" "$url" "$@"
-    else
-        curl -fsSL "$url" "$@"
-    fi
-}
-
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -68,11 +46,12 @@ case "$OS" in
     *) err "unsupported OS: $OS"; exit 1 ;;
 esac
 
-msg "detecting latest release for ${OS}/${ARCH}"
+msg "fetching latest release tag"
 
-RELEASE_JSON=$(github_api "https://api.github.com/repos/${REPO}/releases/latest")
-
-TAG=$(printf '%s' "$RELEASE_JSON" | grep '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+      | grep '"tag_name":' \
+      | head -1 \
+      | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$TAG" ]; then
     err "could not determine latest release tag"
     exit 1
@@ -81,45 +60,17 @@ fi
 VERSION="${TAG#v}"
 ARCHIVE="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
 
-ASSET_ID=$(printf '%s' "$RELEASE_JSON" | python3 -c "
-import sys, json
-release = json.load(sys.stdin)
-for asset in release.get('assets', []):
-    if asset['name'] == '${ARCHIVE}':
-        print(asset['id'])
-        break
-" 2>/dev/null || true)
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-if [ -n "$ASSET_ID" ]; then
-    ASSET_URL="https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"
-    CHECKSUM_ID=$(printf '%s' "$RELEASE_JSON" | python3 -c "
-import sys, json
-release = json.load(sys.stdin)
-for asset in release.get('assets', []):
-    if asset['name'] == 'checksums.txt':
-        print(asset['id'])
-        break
-" 2>/dev/null || true)
-    CHECKSUM_URL="https://api.github.com/repos/${REPO}/releases/assets/${CHECKSUM_ID}"
+msg "downloading ${ARCHIVE}"
+curl -fsSL -o "${TMPDIR}/${ARCHIVE}" "$DOWNLOAD_URL"
 
-    msg "downloading ${ARCHIVE} (via API)"
-    github_download -o "${TMPDIR}/${ARCHIVE}" "$ASSET_URL"
-
-    msg "downloading checksums (via API)"
-    github_download -o "${TMPDIR}/checksums.txt" "$CHECKSUM_URL"
-else
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
-    CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
-
-    msg "downloading ${ARCHIVE}"
-    github_download -o "${TMPDIR}/${ARCHIVE}" "$DOWNLOAD_URL"
-
-    msg "downloading checksums"
-    github_download -o "${TMPDIR}/checksums.txt" "$CHECKSUMS_URL"
-fi
+msg "downloading checksums"
+curl -fsSL -o "${TMPDIR}/checksums.txt" "$CHECKSUMS_URL"
 
 EXPECTED=$(grep " ${ARCHIVE}$" "${TMPDIR}/checksums.txt" | awk '{print $1}')
 if [ -z "$EXPECTED" ]; then
