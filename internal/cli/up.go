@@ -103,7 +103,8 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 
 	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
 	// source no longer exists, Docker will refuse to start the container.
-	// Remove it proactively so devcontainer up recreates it with the new mounts.
+	// Return a helpful error so the user can decide how to proceed instead of
+	// silently removing the container.
 	if !rebuild {
 		cli, err := docker.NewClient(ctx)
 		if err != nil {
@@ -117,7 +118,7 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		}
 
 		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
-			if err := docker.RemoveIfStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
+			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
 				return err
 			}
 		}

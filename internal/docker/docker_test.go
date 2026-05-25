@@ -333,7 +333,7 @@ func TestGatewayIPInspectError(t *testing.T) {
 	}
 }
 
-func TestRemoveIfStaleMountsNoStale(t *testing.T) {
+func TestCheckStaleMountsNoStale(t *testing.T) {
 	tmpDir := t.TempDir()
 	cli := &mockDockerClient{
 		inspectResult: client.ContainerInspectResult{
@@ -345,13 +345,13 @@ func TestRemoveIfStaleMountsNoStale(t *testing.T) {
 			},
 		},
 	}
-	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
-func TestRemoveIfStaleMountsRemoves(t *testing.T) {
+func TestCheckStaleMountsReturnsError(t *testing.T) {
 	cli := &mockDockerClient{
 		inspectResult: client.ContainerInspectResult{
 			Container: container.InspectResponse{
@@ -361,42 +361,25 @@ func TestRemoveIfStaleMountsRemoves(t *testing.T) {
 			},
 		},
 	}
-	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when stale mount found")
+	}
+	if !strings.Contains(err.Error(), "stale bind mounts detected") {
+		t.Errorf("error should mention stale bind mounts, got: %s", err.Error())
 	}
 }
 
-func TestRemoveIfStaleMountsInspectError(t *testing.T) {
+func TestCheckStaleMountsInspectError(t *testing.T) {
 	cli := &mockDockerClient{
 		inspectErr: fmt.Errorf("inspect failed"),
 	}
-	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	err := CheckStaleMounts(context.Background(), cli, "abc123")
 	if err == nil {
 		t.Fatal("expected error when inspect fails")
 	}
 	if !strings.Contains(err.Error(), "inspecting container") {
 		t.Errorf("error should mention inspecting container, got: %s", err.Error())
-	}
-}
-
-func TestRemoveIfStaleMountsRemoveError(t *testing.T) {
-	cli := &mockDockerClient{
-		inspectResult: client.ContainerInspectResult{
-			Container: container.InspectResponse{
-				Mounts: []container.MountPoint{
-					{Type: mount.TypeBind, Source: "/nonexistent/12345", Destination: "/dest"},
-				},
-			},
-		},
-		removeErr: fmt.Errorf("remove failed"),
-	}
-	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
-	if err == nil {
-		t.Fatal("expected error when remove fails")
-	}
-	if !strings.Contains(err.Error(), "removing container") {
-		t.Errorf("error should mention removing container, got: %s", err.Error())
 	}
 }
 
