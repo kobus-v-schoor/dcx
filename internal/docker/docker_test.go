@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
@@ -329,6 +330,73 @@ func TestGatewayIPInspectError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "inspecting container") {
 		t.Errorf("error should mention inspecting container, got: %s", err.Error())
+	}
+}
+
+func TestRemoveIfStaleMountsNoStale(t *testing.T) {
+	tmpDir := t.TempDir()
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Mounts: []container.MountPoint{
+					{Type: mount.TypeBind, Source: tmpDir, Destination: "/dest"},
+					{Type: mount.TypeVolume, Source: "vol1", Destination: "/vol"},
+				},
+			},
+		},
+	}
+	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestRemoveIfStaleMountsRemoves(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Mounts: []container.MountPoint{
+					{Type: mount.TypeBind, Source: "/nonexistent/path/that/does/not/exist", Destination: "/dest"},
+				},
+			},
+		},
+	}
+	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestRemoveIfStaleMountsInspectError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectErr: fmt.Errorf("inspect failed"),
+	}
+	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when inspect fails")
+	}
+	if !strings.Contains(err.Error(), "inspecting container") {
+		t.Errorf("error should mention inspecting container, got: %s", err.Error())
+	}
+}
+
+func TestRemoveIfStaleMountsRemoveError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Mounts: []container.MountPoint{
+					{Type: mount.TypeBind, Source: "/nonexistent/12345", Destination: "/dest"},
+				},
+			},
+		},
+		removeErr: fmt.Errorf("remove failed"),
+	}
+	err := RemoveIfStaleMounts(context.Background(), cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when remove fails")
+	}
+	if !strings.Contains(err.Error(), "removing container") {
+		t.Errorf("error should mention removing container, got: %s", err.Error())
 	}
 }
 

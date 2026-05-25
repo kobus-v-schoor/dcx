@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
@@ -237,6 +238,32 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 
 			if _, err := cli.ImageRemove(ctx, imageID, client.ImageRemoveOptions{}); err != nil {
 				slog.Debug("could not remove image (may still be in use)", "id", shortID(imageID), "error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// RemoveIfStaleMounts checks whether the given container has any bind mounts
+// whose source paths no longer exist on the host. If so, it removes the
+// container so that the next devcontainer up will recreate it with the
+// updated mounts. Returns an error if the inspection or removal fails.
+// If the container has no stale mounts, this is a no-op.
+func RemoveIfStaleMounts(ctx context.Context, cli DockerClient, containerID string) error {
+	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspecting container %s: %w", shortID(containerID), err)
+	}
+
+	for _, m := range inspect.Container.Mounts {
+		if m.Type == mount.TypeBind && m.Source != "" {
+			if _, err := os.Stat(m.Source); os.IsNotExist(err) {
+				slog.Info("stale bind mount detected, removing container", "source", m.Source, "container", shortID(containerID))
+				if _, err := cli.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
+					return fmt.Errorf("removing container %s with stale mount: %w", shortID(containerID), err)
+				}
+				return nil
 			}
 		}
 	}
