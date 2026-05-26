@@ -8,7 +8,7 @@ When you run `dcx exec`, dcx starts a proxy server on the host machine. The prox
 
 1. **Intercepts HTTPS traffic** to configured domains (e.g. `github.com`, `api.github.com`)
 2. **Decrypts the request** using a dynamically-generated, per-host TLS certificate signed by an ephemeral CA
-3. **Injects credentials** (e.g. your GitHub token as an `Authorization: Bearer <token>` header)
+3. **Injects credentials** (e.g. your GitHub token as an `Authorization: Basic <base64>` header)
 4. **Re-encrypts and forwards** the request to the real destination
 5. **Returns the response** to the container
 
@@ -74,7 +74,7 @@ Currently available providers:
 
 | Provider | Config key | Domains | Injects |
 |----------|-----------|---------|---------|
-| [GitHub](github.md) | `proxy.github.enabled` | `github.com`, `api.github.com`, etc. | `Authorization: Bearer <token>` header |
+| [GitHub](github.md) | `proxy.github.enabled` | `github.com`, `api.github.com`, etc. | `Authorization: Basic <base64>` header |
 
 ## Configuration
 

@@ -10,6 +10,7 @@
 package github
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -52,15 +53,21 @@ func (g *githubProvider) Domains(cfg *config.Config) []string {
 	}
 }
 
-// PrepareRequest injects the host's GitHub token as the Authorization header
-// on intercepted requests. Any existing Authorization header is replaced.
-// Returns an error if no token is available on the host.
+// PrepareRequest injects the host's GitHub token as an Authorization header
+// on intercepted requests. The token is sent as the password in an HTTP
+// Basic auth header so that it works for both the GitHub REST/GraphQL APIs
+// and git-over-HTTPS operations. Any existing Authorization header is
+// replaced. Returns an error if no token is available on the host.
 func (g *githubProvider) PrepareRequest(req *http.Request, cfg *config.Config) error {
 	token, ok := DetectToken()
 	if !ok {
 		return fmt.Errorf("no GitHub token available on host")
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	// Use basic auth for broader compatibility with both GitHub API and
+	// git-over-HTTPS. The username is arbitrary; GitHub accepts any
+	// username when a valid PAT is used as the password.
+	auth := base64.StdEncoding.EncodeToString([]byte("git:" + token))
+	req.Header.Set("Authorization", "Basic "+auth)
 	return nil
 }
 

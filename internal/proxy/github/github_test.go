@@ -1,6 +1,7 @@
 package github
 
 import (
+	"encoding/base64"
 	"net/http"
 	"testing"
 
@@ -85,7 +86,7 @@ func TestProviderDomainsCustom(t *testing.T) {
 }
 
 // TestProviderPrepareRequest tests that PrepareRequest injects the
-// Authorization header.
+// Authorization header using basic auth.
 func TestProviderPrepareRequest(t *testing.T) {
 	t.Setenv("GH_TOKEN", "test-token-123")
 	p := &githubProvider{}
@@ -96,9 +97,10 @@ func TestProviderPrepareRequest(t *testing.T) {
 		t.Fatalf("PrepareRequest() error: %v", err)
 	}
 
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("git:test-token-123"))
 	auth := req.Header.Get("Authorization")
-	if auth != "Bearer test-token-123" {
-		t.Errorf("Authorization header = %q, want %q", auth, "Bearer test-token-123")
+	if auth != expectedAuth {
+		t.Errorf("Authorization header = %q, want %q", auth, expectedAuth)
 	}
 }
 
@@ -115,9 +117,10 @@ func TestProviderPrepareRequestReplacesExistingAuth(t *testing.T) {
 		t.Fatalf("PrepareRequest() error: %v", err)
 	}
 
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("git:real-token"))
 	auth := req.Header.Get("Authorization")
-	if auth != "Bearer real-token" {
-		t.Errorf("Authorization header = %q, want %q", auth, "Bearer real-token")
+	if auth != expectedAuth {
+		t.Errorf("Authorization header = %q, want %q", auth, expectedAuth)
 	}
 }
 
