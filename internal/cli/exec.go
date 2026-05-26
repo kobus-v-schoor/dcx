@@ -87,12 +87,15 @@ func runExec(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(devcontainerJSON); os.IsNotExist(err) {
 		if activeCfg != nil && activeCfg.DefaultImage != "" {
 			od, err := override.Create(workspaceFolder, activeCfg.DefaultImage)
-			if err == nil {
-				if err := od.Save(); err == nil {
+			if err != nil {
+				slog.Warn("failed to create override config for exec", "error", err)
+			} else {
+				if err := od.Save(); err != nil {
+					slog.Warn("failed to save override config for exec", "error", err)
+					od.Close()
+				} else {
 					overrideConfigPath = filepath.Join(od.Dir, "devcontainer.json")
 					defer od.Close()
-				} else {
-					od.Close()
 				}
 			}
 		}
