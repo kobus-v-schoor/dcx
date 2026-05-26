@@ -3,8 +3,11 @@ package cli
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
+	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/moby/moby/api/types/container"
@@ -75,7 +78,30 @@ func runExec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	execArgs := buildExecArgs(containerID, remoteEnv, args)
+	// When the workspace has no devcontainer.json the devcontainer CLI still
+	// labels the container with the expected config path. Subsequent exec
+	// commands fail trying to read that non-existent file, so we generate a
+	// minimal config and pass --override-config to the exec CLI.
+	var overrideConfigPath string
+	devcontainerJSON := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer.json")
+	if _, err := os.Stat(devcontainerJSON); os.IsNotExist(err) {
+		if activeCfg != nil && activeCfg.DefaultImage != "" {
+			od, err := override.Create(workspaceFolder, activeCfg.DefaultImage)
+			if err != nil {
+				slog.Warn("failed to create override config for exec", "error", err)
+			} else {
+				if err := od.Save(); err != nil {
+					slog.Warn("failed to save override config for exec", "error", err)
+					od.Close()
+				} else {
+					overrideConfigPath = filepath.Join(od.Dir, "devcontainer.json")
+					defer od.Close()
+				}
+			}
+		}
+	}
+
+	execArgs := buildExecArgs(containerID, remoteEnv, args, overrideConfigPath)
 
 	slog.Debug("invoking devcontainer exec", "args", execArgs)
 
@@ -147,9 +173,16 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 
 // buildExecArgs assembles the arguments for devcontainer exec. It includes
 // the container ID, workspace folder, and remote env vars for the proxies.
-// If no command is specified, it defaults to bash for an interactive shell.
-func buildExecArgs(containerID string, remoteEnv []string, userArgs []string) []string {
+// If overrideConfigPath is non-empty, --override-config is injected so the
+// devcontainer CLI can locate the config file when the workspace does not
+// contain a devcontainer.json. If no command is specified, it defaults to bash
+// for an interactive shell.
+func buildExecArgs(containerID string, remoteEnv []string, userArgs []string, overrideConfigPath string) []string {
 	args := []string{"exec"}
+
+	if overrideConfigPath != "" {
+		args = append(args, "--override-config", overrideConfigPath)
+	}
 
 	args = append(args, "--workspace-folder", workspaceFolder)
 
