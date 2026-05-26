@@ -5,7 +5,7 @@ The GitHub proxy injects your host's GitHub token into API requests from the dev
 ## How It Works
 
 1. On `dcx exec`, the proxy intercepts all HTTPS traffic to GitHub domains
-2. It replaces the dummy `GH_TOKEN` with your **real** GitHub token as an `Authorization: Bearer <token>` header
+2. It replaces the dummy `GH_TOKEN` with your **real** GitHub token as an `Authorization: Basic <base64>` header
 3. Inside the container, `GH_TOKEN=dummy` is set - this tells the `gh` CLI to make API requests, but the real token is only injected at the network layer
 
 ## Enabling the GitHub Proxy
