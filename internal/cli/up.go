@@ -92,7 +92,7 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 	// type, source, target and external — it does not support readonly or
 	// other Docker mount options. The devcontainer.json mounts property
 	// accepts the full Docker --mount format.
-	mountStrings := collectMountStrings(activeCfg, agentResult)
+	mountStrings := collectMountStrings(activeCfg, agentResult, overrideDir.ContainerHomeDir)
 	overrideDir.InjectMounts(mountStrings)
 
 	// Persist all injected modifications to disk before delegating to the
@@ -179,13 +179,14 @@ func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult, contai
 // the override config's mounts property from three sources: (1) user-configured
 // bind mounts from the config, (2) SSH agent socket mount, and (3) git config
 // file mounts. Each source is resolved independently; mounts with missing
-// source paths on the host are silently skipped. Returns nil when no mounts
-// are produced.
-func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult) []string {
+// source paths on the host are silently skipped. The containerHomeDir is used
+// to expand ~/ in user-configured mount targets to the container user's home
+// directory. Returns nil when no mounts are produced.
+func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult, containerHomeDir string) []string {
 	var result []string
 
 	// 1. User-configured bind mounts.
-	result = append(result, mounts.BuildStrings(cfg.Mounts)...)
+	result = append(result, mounts.BuildStrings(cfg.Mounts, containerHomeDir)...)
 
 	// 2. SSH agent forwarding mount.
 	if cfg.SSH.ForwardAgent && agentResult.Mount != nil {

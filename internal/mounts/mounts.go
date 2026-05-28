@@ -66,9 +66,15 @@ func Format(m ResolvedMount) string {
 // strings suitable for the devcontainer.json mounts property. Mounts whose source
 // paths don't exist on the host are skipped with a warning. Duplicate targets
 // across the resolved mount list produce a warning but are still passed through
-// — Docker will handle the conflict. Returns nil when the mount list is empty or
-// all mounts are skipped.
-func BuildStrings(cfgMounts []config.Mount) []string {
+// — Docker will handle the conflict.
+//
+// When containerHomeDir is non-empty, target paths that start with ~/ are
+// expanded relative to that directory (e.g. ~/.ssh/config becomes
+// /home/vscode/.ssh/config). If containerHomeDir is empty and a target still
+// contains ~/, the mount is skipped with a warning because Docker requires
+// absolute target paths. Returns nil when the mount list is empty or all
+// mounts are skipped.
+func BuildStrings(cfgMounts []config.Mount, containerHomeDir string) []string {
 	if len(cfgMounts) == 0 {
 		return nil
 	}
@@ -79,6 +85,12 @@ func BuildStrings(cfgMounts []config.Mount) []string {
 	for _, m := range cfgMounts {
 		resolved := Resolve(m)
 		if resolved == nil {
+			continue
+		}
+
+		resolved.Target = ExpandContainerHome(resolved.Target, containerHomeDir)
+		if strings.HasPrefix(resolved.Target, "~/") {
+			slog.Warn("skipping mount: container home directory unknown, cannot expand ~ in target", "target", m.Target)
 			continue
 		}
 
@@ -109,6 +121,18 @@ func ExpandHome(path string) string {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
+		return path
+	}
+
+	return filepath.Join(homeDir, path[2:])
+}
+
+// ExpandContainerHome replaces a leading ~/ in the path with the given
+// container home directory. If homeDir is empty or the path does not start
+// with ~/, the path is returned unchanged. Used by BuildStrings to expand
+// mount targets that are specified relative to the container user's home.
+func ExpandContainerHome(path string, homeDir string) string {
+	if homeDir == "" || !strings.HasPrefix(path, "~/") {
 		return path
 	}
 
