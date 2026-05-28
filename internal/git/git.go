@@ -81,4 +81,3 @@ func SafeDirConfig(containerWorkspaceFolder string) []env.GitConfigEntry {
 		{Key: "safe.directory", Value: containerWorkspaceFolder},
 	}
 }
-
