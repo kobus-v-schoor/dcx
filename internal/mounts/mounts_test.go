@@ -89,12 +89,12 @@ func TestFormatReadOnlyFalse(t *testing.T) {
 }
 
 func TestBuildStringsEmpty(t *testing.T) {
-	got := BuildStrings(nil)
+	got := BuildStrings(nil, "")
 	if got != nil {
 		t.Errorf("BuildStrings(nil) = %v, want nil", got)
 	}
 
-	got = BuildStrings([]config.Mount{})
+	got = BuildStrings([]config.Mount{}, "")
 	if got != nil {
 		t.Errorf("BuildStrings([]) = %v, want nil", got)
 	}
@@ -107,7 +107,7 @@ func TestBuildStringsSingleMount(t *testing.T) {
 		{Source: dir, Target: "/container/data", ReadOnly: true},
 	}
 
-	result := BuildStrings(cfgMounts)
+	result := BuildStrings(cfgMounts, "")
 
 	if len(result) != 1 {
 		t.Fatalf("expected 1 mount string, got %d: %v", len(result), result)
@@ -127,7 +127,7 @@ func TestBuildStringsMultipleMounts(t *testing.T) {
 		{Source: dir2, Target: "/container/b", ReadOnly: true},
 	}
 
-	result := BuildStrings(cfgMounts)
+	result := BuildStrings(cfgMounts, "")
 
 	if len(result) != 2 {
 		t.Fatalf("expected 2 mount strings, got %d: %v", len(result), result)
@@ -142,7 +142,7 @@ func TestBuildStringsSkipsMissingSource(t *testing.T) {
 		{Source: "/nonexistent/path", Target: "/container/missing", ReadOnly: false},
 	}
 
-	result := BuildStrings(cfgMounts)
+	result := BuildStrings(cfgMounts, "")
 
 	// Only one mount should survive; missing source is skipped.
 	if len(result) != 1 {
@@ -156,9 +156,64 @@ func TestBuildStringsAllSkippedReturnsNil(t *testing.T) {
 		{Source: "/nonexistent/b", Target: "/container/b", ReadOnly: false},
 	}
 
-	result := BuildStrings(cfgMounts)
+	result := BuildStrings(cfgMounts, "")
 
 	if result != nil {
 		t.Errorf("expected nil when all mounts are skipped, got %v", result)
+	}
+}
+
+func TestExpandContainerHome(t *testing.T) {
+	tests := []struct {
+		path     string
+		homeDir  string
+		expected string
+	}{
+		{"~/.ssh/config", "/home/vscode", "/home/vscode/.ssh/config"},
+		{"~/data", "/root", "/root/data"},
+		{"/absolute/path", "/home/vscode", "/absolute/path"},
+		{"~/.ssh/config", "", "~/.ssh/config"},
+		{"no/tilde/here", "/home/vscode", "no/tilde/here"},
+		{"~", "/home/vscode", "~"}, // only ~/ prefix expands, not bare ~
+	}
+
+	for _, tt := range tests {
+		got := ExpandContainerHome(tt.path, tt.homeDir)
+		if got != tt.expected {
+			t.Errorf("ExpandContainerHome(%q, %q) = %q, want %q", tt.path, tt.homeDir, got, tt.expected)
+		}
+	}
+}
+
+func TestBuildStringsExpandsTargetTilde(t *testing.T) {
+	dir := t.TempDir()
+
+	cfgMounts := []config.Mount{
+		{Source: dir, Target: "~/.ssh/config", ReadOnly: true},
+	}
+
+	result := BuildStrings(cfgMounts, "/home/vscode")
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 mount string, got %d: %v", len(result), result)
+	}
+	expected := fmt.Sprintf(`type=bind,source=%s,target=/home/vscode/.ssh/config,readonly`, dir)
+	if result[0] != expected {
+		t.Errorf("mount string = %q, want %q", result[0], expected)
+	}
+}
+
+func TestBuildStringsSkipsTargetTildeWhenHomeUnknown(t *testing.T) {
+	dir := t.TempDir()
+
+	cfgMounts := []config.Mount{
+		{Source: dir, Target: "~/.ssh/config", ReadOnly: true},
+	}
+
+	result := BuildStrings(cfgMounts, "")
+
+	// Mount should be skipped because container home is unknown.
+	if result != nil {
+		t.Errorf("expected nil when ~ target cannot expand, got %v", result)
 	}
 }

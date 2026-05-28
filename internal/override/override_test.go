@@ -108,6 +108,152 @@ func TestCreateExtractsWorkspaceFolder(t *testing.T) {
 	}
 }
 
+func TestCreateExtractsRemoteUserHomeDir(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest", "remoteUser": "vscode"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/home/vscode" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/home/vscode")
+	}
+}
+
+func TestCreateExtractsRootUserHomeDir(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest", "remoteUser": "root"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/root" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/root")
+	}
+}
+
+func TestCreateDefaultsHomeDirWhenRemoteUserMissing(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "test:latest"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "" {
+		t.Errorf("ContainerHomeDir = %q, want empty", od.ContainerHomeDir)
+	}
+}
+
+func TestCreateDefaultsHomeDirForMicrosoftDevcontainerImage(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "mcr.microsoft.com/devcontainers/base:debian"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/home/vscode" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/home/vscode")
+	}
+}
+
+func TestCreateDefaultsHomeDirForMicrosoftDevcontainerImageWithTag(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "mcr.microsoft.com/devcontainers/go:1"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/home/vscode" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/home/vscode")
+	}
+}
+
+func TestCreateDoesNotOverrideExplicitRemoteUserForMicrosoftImage(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "mcr.microsoft.com/devcontainers/base:debian", "remoteUser": "root"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/root" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/root")
+	}
+}
+
+func TestCreateDefaultsHomeDirForDefaultImageWhenMicrosoft(t *testing.T) {
+	workspace := t.TempDir()
+
+	od, err := Create(workspace, "mcr.microsoft.com/devcontainers/base:debian")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if od.ContainerHomeDir != "/home/vscode" {
+		t.Errorf("ContainerHomeDir = %q, want %q", od.ContainerHomeDir, "/home/vscode")
+	}
+}
+
 func TestCreateDefaultsWorkspaceFolderToHostPath(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")

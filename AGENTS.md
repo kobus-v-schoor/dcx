@@ -51,7 +51,7 @@ Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--ov
 ## PR & Issue Workflow
 
 - GitHub issues are the single source of truth for task tracking.
-- Each PR references exactly one issue (e.g., `Fixes #3` in the PR body).
+- Each PR should adress at most one issue (e.g., add `Fixes #3` in the PR body).
 - Each PR implements only what its referenced issue specifies — no scope creep.
 - PRs are squash-merged into `main`.
 - PR title format: `[component] what the PR implements` (e.g., `[config] add env var support`).

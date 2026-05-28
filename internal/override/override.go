@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // OverrideDir represents a temporary directory containing an override
@@ -25,6 +26,14 @@ type OverrideDir struct {
 	// path because the devcontainer CLI mounts the workspace at the same host
 	// path inside the container by default.
 	ContainerWorkspaceFolder string
+	// ContainerHomeDir is the home directory of the container's primary user,
+	// derived from the remoteUser property in devcontainer.json. If remoteUser
+	// is "root" the value is "/root"; for any other user it is "/home/<user>".
+	// When remoteUser is absent from devcontainer.json, the field is empty unless
+	// the image is from the Microsoft devcontainers registry
+	// (mcr.microsoft.com/devcontainers/*), in which case it defaults to
+	// "/home/vscode" because those images use the vscode user by default.
+	ContainerHomeDir string
 }
 
 // Create reads the project's devcontainer.json, writes it into a temporary
@@ -75,10 +84,40 @@ func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 		}
 	}
 
+	// Extract remoteUser and derive the container home directory.
+	// remoteUser overrides the default user in the container image, and
+	// therefore its associated home directory. When absent, the effective
+	// user depends on image defaults which dcx cannot determine without
+	// pulling the image, so ContainerHomeDir is left empty — except for
+	// Microsoft devcontainer images (mcr.microsoft.com/devcontainers/*)
+	// which default to the 'vscode' user.
+	remoteUser := ""
+	if raw, ok := config["remoteUser"]; ok {
+		_ = json.Unmarshal(raw, &remoteUser)
+	}
+	if remoteUser == "" {
+		image := ""
+		if raw, ok := config["image"]; ok {
+			_ = json.Unmarshal(raw, &image)
+		}
+		if strings.HasPrefix(image, "mcr.microsoft.com/devcontainers/") {
+			remoteUser = "vscode"
+		}
+	}
+	containerHomeDir := ""
+	if remoteUser != "" {
+		if remoteUser == "root" {
+			containerHomeDir = "/root"
+		} else {
+			containerHomeDir = "/home/" + remoteUser
+		}
+	}
+
 	return &OverrideDir{
 		Dir:                      dir,
 		config:                   config,
 		ContainerWorkspaceFolder: containerWorkspaceFolder,
+		ContainerHomeDir:         containerHomeDir,
 	}, nil
 }
 

@@ -154,12 +154,22 @@ default_features:
 # --- Bind Mounts ---
 
 # List of bind mounts to pass to the devcontainer CLI via --mount flags.
-# Source paths support ~ (home directory) and ${VAR} (environment variable) expansion.
+# Source paths support ~ (host home directory) and ${VAR} (environment variable) expansion.
+# Target paths support ~ (container home directory) expansion when remoteUser is set in
+# devcontainer.json. If remoteUser is "root", ~ resolves to /root; otherwise it resolves
+# to /home/<remoteUser>.
+#
+# If remoteUser is absent from devcontainer.json but the image is from the Microsoft
+# devcontainers registry (mcr.microsoft.com/devcontainers/*), ~ is expanded to /home/vscode
+# because those images default to the vscode user.
+#
+# In all other cases where remoteUser is absent and a target contains ~, the mount is
+# skipped with a warning because Docker requires absolute paths.
 # If a resolved source path doesn't exist on the host, the mount is skipped with a warning.
 # User and project mounts are concatenated; duplicate targets produce a warning.
 mounts:
   - source: ~/.config/opencode
-    target: /home/vscode/.config/opencode
+    target: ~/.config/opencode
     read_only: true
   - source: /data/project
     target: /workspace
