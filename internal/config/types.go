@@ -142,4 +142,9 @@ type Config struct {
 	// devcontainer.json containing only the image field. When empty and no
 	// devcontainer.json exists, dcx up returns an error.
 	DefaultImage string `yaml:"default_image" mapstructure:"default_image"`
+
+	// DefaultShell is the shell to run when dcx exec is invoked without a
+	// command. Defaults to the basename of the host's $SHELL environment
+	// variable, falling back to "bash" when $SHELL is unset.
+	DefaultShell string `yaml:"default_shell" mapstructure:"default_shell"`
 }
