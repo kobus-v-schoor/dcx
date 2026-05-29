@@ -49,6 +49,15 @@ func Load(cwd string) (*Config, error) {
 	v.SetDefault("log_level", "")
 	v.SetDefault("default_image", "mcr.microsoft.com/devcontainers/base:debian")
 
+	// Default shell: use the basename of $SHELL so the container-side command
+	// works via PATH rather than requiring the exact host path (which may not
+	// exist inside the container). Falls back to "bash" when $SHELL is unset.
+	defaultShell := "bash"
+	if s := os.Getenv("SHELL"); s != "" {
+		defaultShell = filepath.Base(s)
+	}
+	v.SetDefault("default_shell", defaultShell)
+
 	// Capture user-level features, mounts, and environment before project
 	// config is merged on top. Viper replaces slices on merge rather than
 	// union-merging them, so we need these lists separately for our custom

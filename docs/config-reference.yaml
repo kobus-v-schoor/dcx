@@ -21,6 +21,14 @@ log_level: warn
 # Default: mcr.microsoft.com/devcontainers/base:debian
 # default_image: mcr.microsoft.com/devcontainers/base:debian
 
+# --- Default Shell ---
+
+# The shell to launch when running `dcx exec` without a command.
+# Defaults to the basename of the host's $SHELL environment variable,
+# falling back to "bash" when $SHELL is unset.
+# Can also be set via the DCX_DEFAULT_SHELL environment variable.
+# default_shell: zsh
+
 # --- SSH Agent Forwarding ---
 
 # Automatically detect and forward SSH agent socket into the container.

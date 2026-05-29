@@ -601,6 +601,34 @@ default_image: mcr.microsoft.com/devcontainers/base:debian
 	}
 }
 
+func TestLoadDefaultShellFromEnv(t *testing.T) {
+	t.Setenv("SHELL", "/usr/bin/fish")
+	dir := t.TempDir()
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.DefaultShell != "fish" {
+		t.Errorf("DefaultShell = %q, want fish", cfg.DefaultShell)
+	}
+}
+
+func TestLoadDefaultShellFallback(t *testing.T) {
+	t.Setenv("SHELL", "")
+	dir := t.TempDir()
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.DefaultShell != "bash" {
+		t.Errorf("DefaultShell = %q, want bash", cfg.DefaultShell)
+	}
+}
+
 func TestLoadDefaultImageEnvOverride(t *testing.T) {
 	t.Setenv("DCX_DEFAULT_IMAGE", "ubuntu:22.04")
 

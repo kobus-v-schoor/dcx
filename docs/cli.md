@@ -55,7 +55,7 @@ Use `--rebuild` when you've changed dcx configuration (env vars, mounts, feature
 Open an interactive shell or execute a command inside the running devcontainer. When proxy services are enabled in the config, dcx starts them before opening the shell.
 
 ```bash
-# Open an interactive bash shell
+# Open an interactive shell (uses your host $SHELL, or bash)
 dcx exec
 
 # Run a specific command

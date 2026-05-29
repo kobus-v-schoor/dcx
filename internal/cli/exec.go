@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
@@ -101,7 +102,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	execArgs := buildExecArgs(containerID, remoteEnv, args, overrideConfigPath)
+	execArgs := buildExecArgs(activeCfg, containerID, remoteEnv, args, overrideConfigPath)
 
 	slog.Debug("invoking devcontainer exec", "args", execArgs)
 
@@ -175,9 +176,9 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 // the container ID, workspace folder, and remote env vars for the proxies.
 // If overrideConfigPath is non-empty, --override-config is injected so the
 // devcontainer CLI can locate the config file when the workspace does not
-// contain a devcontainer.json. If no command is specified, it defaults to bash
-// for an interactive shell.
-func buildExecArgs(containerID string, remoteEnv []string, userArgs []string, overrideConfigPath string) []string {
+// contain a devcontainer.json. If no command is specified, it defaults to the
+// configured default shell (or bash as a fallback) for an interactive shell.
+func buildExecArgs(cfg *config.Config, containerID string, remoteEnv []string, userArgs []string, overrideConfigPath string) []string {
 	args := []string{"exec"}
 
 	if overrideConfigPath != "" {
@@ -196,11 +197,15 @@ func buildExecArgs(containerID string, remoteEnv []string, userArgs []string, ov
 	args = append(args, remoteEnv...)
 
 	// If the user provided a command after --, append it. Otherwise default
-	// to bash for an interactive shell.
+	// to the configured shell for an interactive shell.
 	if len(userArgs) > 0 {
 		args = append(args, userArgs...)
 	} else {
-		args = append(args, "bash")
+		shell := "bash"
+		if cfg != nil && cfg.DefaultShell != "" {
+			shell = cfg.DefaultShell
+		}
+		args = append(args, shell)
 	}
 
 	return args

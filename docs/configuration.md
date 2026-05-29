@@ -38,4 +38,7 @@ export DCX_SSH_FORWARD_AGENT=true
 
 # default_image → DCX_DEFAULT_IMAGE
 export DCX_DEFAULT_IMAGE=mcr.microsoft.com/devcontainers/base:debian
+
+# default_shell → DCX_DEFAULT_SHELL
+export DCX_DEFAULT_SHELL=zsh
 ```
