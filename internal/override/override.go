@@ -111,6 +111,12 @@ func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 		} else {
 			containerHomeDir = "/home/" + remoteUser
 		}
+		// If remoteUser was absent from the original devcontainer.json and
+		// defaulted based on the image, inject it into the override config so
+		// the devcontainer CLI applies the correct user.
+		if _, ok := config["remoteUser"]; !ok {
+			config["remoteUser"] = json.RawMessage(fmt.Sprintf("%q", remoteUser))
+		}
 	}
 
 	return &OverrideDir{

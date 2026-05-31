@@ -254,6 +254,41 @@ func TestCreateDefaultsHomeDirForDefaultImageWhenMicrosoft(t *testing.T) {
 	}
 }
 
+func TestCreateInjectsRemoteUserForMicrosoftImage(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"image": "mcr.microsoft.com/devcontainers/base:debian"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	if err := od.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(od.Dir, "devcontainer.json"))
+	if err != nil {
+		t.Fatalf("reading override file: %v", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshalling override config: %v", err)
+	}
+	if config["remoteUser"] != "vscode" {
+		t.Errorf("remoteUser = %v, want vscode", config["remoteUser"])
+	}
+}
+
 func TestCreateDefaultsWorkspaceFolderToHostPath(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
