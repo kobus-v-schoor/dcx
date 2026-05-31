@@ -120,7 +120,7 @@ type capturedConfig struct {
 // overwrites them, so the caller can apply custom merge logic. Returns empty
 // features/mounts/env when no user config file exists.
 func loadAndCaptureUserConfig(v *viper.Viper) (*capturedConfig, error) {
-	configPath, err := userConfigDir()
+	configPath, err := UserConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("finding user config directory: %w", err)
 	}
@@ -201,14 +201,14 @@ func captureSliceConfig(v *viper.Viper, source string, captured *capturedConfig)
 	return nil
 }
 
-// userConfigDir resolves the directory containing the user config file.
+// UserConfigDir resolves the directory containing the user config file.
 // If XDG_CONFIG_HOME is set, it returns $XDG_CONFIG_HOME/dcx to respect the
 // XDG Base Directory specification. Otherwise it falls back to ~/.config/dcx
 // (via os.UserHomeDir), ensuring the location is consistent across platforms
 // including macOS where os.UserConfigDir would return ~/Library/Application
 // Support. Returns the directory (not the file path), since viper's
 // SetConfigName + AddConfigPath expect a directory.
-func userConfigDir() (string, error) {
+func UserConfigDir() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "dcx"), nil
 	}

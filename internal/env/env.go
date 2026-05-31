@@ -230,20 +230,21 @@ func PrepareTerminfo(containerHomeDir string) TerminfoResult {
 		return TerminfoResult{}
 	}
 
-	// Write the infocmp output to a stable file under ~/.config/dcx so the
-	// bind mount source persists across dcx up invocations and container
-	// stop/start cycles.
-	homeDir, err := os.UserHomeDir()
+	// Write the infocmp output to a stable file under the dcx config directory
+	// so the bind mount source persists across dcx up invocations and container
+	// stop/start cycles. A dedicated terminfo subdirectory holds one file per
+	// TERM value so that switching terminals never causes clashes.
+	cacheDir, err := config.UserConfigDir()
 	if err != nil {
-		slog.Warn("could not determine home directory, skipping terminfo forwarding", "error", err)
+		slog.Warn("could not determine dcx config directory, skipping terminfo forwarding", "error", err)
 		return TerminfoResult{}
 	}
-	cacheDir := filepath.Join(homeDir, ".config", "dcx")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		slog.Warn("could not create dcx config directory, skipping terminfo forwarding", "path", cacheDir, "error", err)
+	terminfoDir := filepath.Join(cacheDir, "terminfo")
+	if err := os.MkdirAll(terminfoDir, 0o755); err != nil {
+		slog.Warn("could not create terminfo cache directory, skipping terminfo forwarding", "path", terminfoDir, "error", err)
 		return TerminfoResult{}
 	}
-	srcPath := filepath.Join(cacheDir, "terminfo.src")
+	srcPath := filepath.Join(terminfoDir, term+".src")
 	if err := os.WriteFile(srcPath, src, 0o644); err != nil {
 		slog.Warn("failed to write terminfo source, skipping terminfo forwarding", "path", srcPath, "error", err)
 		return TerminfoResult{}

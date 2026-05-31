@@ -105,7 +105,7 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 	// Inject the terminfo compilation postCreateCommand if terminfo forwarding
 	// is active. This runs alongside any project-defined postCreateCommand.
 	if terminfoResult.PostCreateCommand != "" {
-		overrideDir.InjectPostCreateCommand(terminfoResult.PostCreateCommand)
+		overrideDir.InjectPostCreateCommand([]string{terminfoResult.PostCreateCommand})
 	}
 
 	// Persist all injected modifications to disk before delegating to the

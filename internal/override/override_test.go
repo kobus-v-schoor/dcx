@@ -723,7 +723,7 @@ func TestInjectPostCreateCommandAddsNew(t *testing.T) {
 	}
 	defer od.Close()
 
-	od.InjectPostCreateCommand("echo hello")
+	od.InjectPostCreateCommand([]string{"echo hello"})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -765,7 +765,7 @@ func TestInjectPostCreateCommandAppendsToString(t *testing.T) {
 	}
 	defer od.Close()
 
-	od.InjectPostCreateCommand("echo hello")
+	od.InjectPostCreateCommand([]string{"echo hello"})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -807,7 +807,7 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 	}
 	defer od.Close()
 
-	od.InjectPostCreateCommand("echo hello")
+	od.InjectPostCreateCommand([]string{"echo hello"})
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -832,6 +832,47 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 	}
 }
 
+func TestInjectPostCreateCommandMultiple(t *testing.T) {
+	workspace := t.TempDir()
+	devcontainerDir := filepath.Join(workspace, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(`{"image": "test:latest"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	od, err := Create(workspace, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	defer od.Close()
+
+	od.InjectPostCreateCommand([]string{"echo hello", "echo world"})
+
+	if err := od.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(od.Dir, "devcontainer.json"))
+	if err != nil {
+		t.Fatalf("reading override file: %v", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshalling override config: %v", err)
+	}
+
+	cmd, ok := config["postCreateCommand"].(string)
+	if !ok {
+		t.Fatalf("expected postCreateCommand to be a string, got %T", config["postCreateCommand"])
+	}
+	if cmd != "echo hello && echo world" {
+		t.Errorf("postCreateCommand = %v, want \"echo hello && echo world\"", cmd)
+	}
+}
+
 func TestInjectPostCreateCommandEmptyNoop(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
@@ -849,7 +890,7 @@ func TestInjectPostCreateCommandEmptyNoop(t *testing.T) {
 	}
 	defer od.Close()
 
-	od.InjectPostCreateCommand("")
+	od.InjectPostCreateCommand([]string{})
 
 	if _, ok := od.config["postCreateCommand"]; ok {
 		t.Error("postCreateCommand should not be present for empty command")
