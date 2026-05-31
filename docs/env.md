@@ -59,8 +59,11 @@ Some environment variables are automatically forwarded without requiring configu
 |----------|-----|
 | `TERM` | Ensures TUI applications work correctly inside the container |
 | `COLORTERM` | Enables true-color support in terminal applications |
+| `TERMINFO` | Forwards the host's terminfo database for terminal emulators not present in the container |
 
 Auto-forwarded variables have the **lowest precedence** - they can be overridden by entries in your `environment` config.
+
+When `TERMINFO` is forwarded, dcx also creates a read-only bind mount of the host terminfo directory to `/opt/dcx/terminfo` inside the container, and sets `TERMINFO` to point at that path. This ensures terminal emulators not present in the container's default terminfo database (e.g. `xterm-kitty`) continue to work correctly.
 
 ## Merge Behavior
 
