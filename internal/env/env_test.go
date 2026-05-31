@@ -2,6 +2,7 @@ package env
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -294,5 +295,81 @@ func TestResolveAllDelegatesToResolve(t *testing.T) {
 	}
 	if result[1].Name != "OTHER_VAR" || result[1].Value != "world" {
 		t.Errorf("result[1] = {%q, %q}, want {OTHER_VAR, world}", result[1].Name, result[1].Value)
+	}
+}
+
+func TestForwardTerminfoUnset(t *testing.T) {
+	if err := os.Unsetenv("TERMINFO"); err != nil {
+		t.Fatalf("failed to unset TERMINFO: %v", err)
+	}
+
+	result := ForwardTerminfo()
+	if result.Mount != nil {
+		t.Errorf("expected nil mount when TERMINFO is unset, got %v", result.Mount)
+	}
+	if result.EnvName != "" {
+		t.Errorf("expected empty EnvName when TERMINFO is unset, got %q", result.EnvName)
+	}
+	if result.EnvValue != "" {
+		t.Errorf("expected empty EnvValue when TERMINFO is unset, got %q", result.EnvValue)
+	}
+}
+
+func TestForwardTerminfoMissingPath(t *testing.T) {
+	if err := os.Unsetenv("TERMINFO"); err != nil {
+		t.Fatalf("failed to unset TERMINFO: %v", err)
+	}
+	t.Setenv("TERMINFO", "/nonexistent/terminfo/path/12345")
+
+	result := ForwardTerminfo()
+	if result.Mount != nil {
+		t.Errorf("expected nil mount when TERMINFO path missing, got %v", result.Mount)
+	}
+	if result.EnvName != "" {
+		t.Errorf("expected empty EnvName when TERMINFO path missing, got %q", result.EnvName)
+	}
+}
+
+func TestForwardTerminfoFileNotDir(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "terminfo")
+	if err := os.WriteFile(tmpFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TERMINFO", tmpFile)
+
+	result := ForwardTerminfo()
+	if result.Mount != nil {
+		t.Errorf("expected nil mount when TERMINFO is a file, got %v", result.Mount)
+	}
+	if result.EnvName != "" {
+		t.Errorf("expected empty EnvName when TERMINFO is a file, got %q", result.EnvName)
+	}
+}
+
+func TestForwardTerminfoValidDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "terminfo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TERMINFO", dir)
+
+	result := ForwardTerminfo()
+	if result.Mount == nil {
+		t.Fatal("expected non-nil mount for valid TERMINFO directory")
+	}
+	if result.Mount.Source != dir {
+		t.Errorf("Mount.Source = %q, want %q", result.Mount.Source, dir)
+	}
+	if result.Mount.Target != "/opt/dcx/terminfo" {
+		t.Errorf("Mount.Target = %q, want /opt/dcx/terminfo", result.Mount.Target)
+	}
+	if !result.Mount.ReadOnly {
+		t.Error("Mount.ReadOnly should be true")
+	}
+	if result.EnvName != "TERMINFO" {
+		t.Errorf("EnvName = %q, want TERMINFO", result.EnvName)
+	}
+	if result.EnvValue != "/opt/dcx/terminfo" {
+		t.Errorf("EnvValue = %q, want /opt/dcx/terminfo", result.EnvValue)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/mounts"
 )
 
 // ResolvedEnv holds a fully-resolved environment variable ready to be passed as
@@ -175,6 +176,51 @@ func AutoForward() []ResolvedEnv {
 	}
 
 	return result
+}
+
+// TerminfoResult holds the mount and environment variable produced by
+// ForwardTerminfo. Either the Mount field is populated (terminfo forwarding
+// active) or all fields are zero-valued (terminfo not set or directory does
+// not exist).
+type TerminfoResult struct {
+	Mount    *mounts.ResolvedMount
+	EnvName  string
+	EnvValue string
+}
+
+// ForwardTerminfo checks the host environment for the TERMINFO variable. If
+// it is set and points to an existing directory, it returns a TerminfoResult
+// with a read-only bind mount to /opt/dcx/terminfo and the TERMINFO env var
+// set to that container path. This ensures that TUI applications using
+// terminal emulators not present in the container's default terminfo database
+// work correctly inside the container. If TERMINFO is unset or the path does
+// not exist, an empty result is returned and a warning is logged. Called by
+// the cli package during dcx up alongside AutoForward.
+func ForwardTerminfo() TerminfoResult {
+	path := os.Getenv("TERMINFO")
+	if path == "" {
+		return TerminfoResult{}
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		slog.Warn("TERMINFO is set but path does not exist, skipping terminfo forwarding", "path", path)
+		return TerminfoResult{}
+	}
+	if !info.IsDir() {
+		slog.Warn("TERMINFO is set but path is not a directory, skipping terminfo forwarding", "path", path)
+		return TerminfoResult{}
+	}
+
+	return TerminfoResult{
+		Mount: &mounts.ResolvedMount{
+			Source:   path,
+			Target:   "/opt/dcx/terminfo",
+			ReadOnly: true,
+		},
+		EnvName:  "TERMINFO",
+		EnvValue: "/opt/dcx/terminfo",
+	}
 }
 
 // ResolveAll resolves each environment variable declaration from the config
