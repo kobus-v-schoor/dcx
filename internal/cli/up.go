@@ -76,6 +76,13 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		agentResult = ssh.ResolveAgent(activeCfg.SSH)
 	}
 
+	// Prepare terminfo forwarding. This captures the local terminal's
+	// terminfo source using infocmp, writes it to a stable host file, and
+	// returns a mount and postCreateCommand to compile it inside the
+	// container with tic. The compiled entry is placed in the container user's
+	// ~/.terminfo directory, which ncurses searches automatically.
+	terminfoResult := env.PrepareTerminfo(overrideDir.ContainerHomeDir)
+
 	// Collect all container env vars (user-configured, SSH agent, git config)
 	// and inject them into the override config's containerEnv property. This
 	// makes the env vars persistent Docker-level environment variables in the
@@ -92,8 +99,14 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 	// type, source, target and external — it does not support readonly or
 	// other Docker mount options. The devcontainer.json mounts property
 	// accepts the full Docker --mount format.
-	mountStrings := collectMountStrings(activeCfg, agentResult, overrideDir.ContainerHomeDir)
+	mountStrings := collectMountStrings(activeCfg, agentResult, terminfoResult, overrideDir.ContainerHomeDir)
 	overrideDir.InjectMounts(mountStrings)
+
+	// Inject the terminfo compilation postCreateCommand if terminfo forwarding
+	// is active. This runs alongside any project-defined postCreateCommand.
+	if terminfoResult.PostCreateCommand != "" {
+		overrideDir.InjectPostCreateCommand(terminfoResult.PostCreateCommand)
+	}
 
 	// Persist all injected modifications to disk before delegating to the
 	// devcontainer CLI.
@@ -134,10 +147,9 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 }
 
 // collectContainerEnv gathers all environment variables that should be set in the
-// devcontainer from five sources: (1) auto-forwarded variables (e.g. TERM),
-// (2) TERMINFO forwarding, (3) user-configured environment passthrough
-// declarations, (4) SSH agent forwarding env vars, and (5) git config env vars.
-// Each source is resolved
+// devcontainer from four sources: (1) auto-forwarded variables (e.g. TERM),
+// (2) user-configured environment passthrough declarations, (3) SSH agent
+// forwarding env vars, and (4) git config env vars. Each source is resolved
 // independently; later sources overwrite earlier ones on name conflict
 // (auto < user < SSH < git precedence for same env var name). Returns an empty
 // map when no env vars are produced. The returned map is injected into the
@@ -150,13 +162,6 @@ func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult, contai
 	// These have the lowest precedence — user config can override them.
 	for _, resolved := range env.AutoForward() {
 		result[resolved.Name] = resolved.Value
-	}
-
-	// 1a. TERMINFO auto-forwarding. Bind-mounted to /opt/dcx/terminfo so
-	// the container-side path is different from the host path.
-	terminfoResult := env.ForwardTerminfo()
-	if terminfoResult.EnvName != "" {
-		result[terminfoResult.EnvName] = terminfoResult.EnvValue
 	}
 
 	// 2. User-configured environment variable passthrough.
@@ -185,21 +190,20 @@ func collectContainerEnv(cfg *config.Config, agentResult ssh.AgentResult, contai
 
 // collectMountStrings gathers all mount strings that should be injected into
 // the override config's mounts property from four sources: (1) user-configured
-// bind mounts from the config, (2) TERMINFO directory mount, (3) SSH agent
+// bind mounts from the config, (2) TERMINFO source file mount, (3) SSH agent
 // socket mount, and (4) git config file mounts. Each source is resolved
 // independently; mounts with missing
 // source paths on the host are silently skipped. The containerHomeDir is used
 // to expand ~/ in user-configured mount targets to the container user's home
 // directory. Returns nil when no mounts are produced.
-func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult, containerHomeDir string) []string {
+func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult, terminfoResult env.TerminfoResult, containerHomeDir string) []string {
 	var result []string
 
 	// 1. User-configured bind mounts.
 	result = append(result, mounts.BuildStrings(cfg.Mounts, containerHomeDir)...)
 
-	// 1a. TERMINFO directory bind mount. Only added when the host has set
-	// TERMINFO and the directory exists.
-	terminfoResult := env.ForwardTerminfo()
+	// 1a. TERMINFO source file bind mount. Captured from the host using
+	// infocmp and compiled inside the container with tic during postCreateCommand.
 	if terminfoResult.Mount != nil {
 		result = append(result, mounts.Format(*terminfoResult.Mount))
 	}

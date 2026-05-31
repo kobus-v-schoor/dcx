@@ -2,7 +2,7 @@ package env
 
 import (
 	"os"
-	"path/filepath"
+	"os/exec"
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
@@ -298,78 +298,71 @@ func TestResolveAllDelegatesToResolve(t *testing.T) {
 	}
 }
 
-func TestForwardTerminfoUnset(t *testing.T) {
-	if err := os.Unsetenv("TERMINFO"); err != nil {
-		t.Fatalf("failed to unset TERMINFO: %v", err)
-	}
-
-	result := ForwardTerminfo()
-	if result.Mount != nil {
-		t.Errorf("expected nil mount when TERMINFO is unset, got %v", result.Mount)
-	}
-	if result.EnvName != "" {
-		t.Errorf("expected empty EnvName when TERMINFO is unset, got %q", result.EnvName)
-	}
-	if result.EnvValue != "" {
-		t.Errorf("expected empty EnvValue when TERMINFO is unset, got %q", result.EnvValue)
+func TestPrepareTerminfoTermUnset(t *testing.T) {
+	t.Setenv("TERM", "")
+	result := PrepareTerminfo("/home/vscode")
+	if result.Mount != nil || result.PostCreateCommand != "" {
+		t.Errorf("expected empty result when TERM is unset, got %+v", result)
 	}
 }
 
-func TestForwardTerminfoMissingPath(t *testing.T) {
-	if err := os.Unsetenv("TERMINFO"); err != nil {
-		t.Fatalf("failed to unset TERMINFO: %v", err)
-	}
-	t.Setenv("TERMINFO", "/nonexistent/terminfo/path/12345")
+func TestPrepareTerminfoInfocmpNotFound(t *testing.T) {
+	// Reset PATH so infocmp cannot be found.
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("TERM", "xterm-ghostty")
 
-	result := ForwardTerminfo()
-	if result.Mount != nil {
-		t.Errorf("expected nil mount when TERMINFO path missing, got %v", result.Mount)
-	}
-	if result.EnvName != "" {
-		t.Errorf("expected empty EnvName when TERMINFO path missing, got %q", result.EnvName)
+	result := PrepareTerminfo("/home/vscode")
+	if result.Mount != nil || result.PostCreateCommand != "" {
+		t.Errorf("expected empty result when infocmp is missing, got %+v", result)
 	}
 }
 
-func TestForwardTerminfoFileNotDir(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "terminfo")
-	if err := os.WriteFile(tmpFile, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
+func TestPrepareTerminfoInfocmpFails(t *testing.T) {
+	if _, err := exec.LookPath("infocmp"); err != nil {
+		t.Skipf("infocmp not available, skipping: %v", err)
 	}
-	t.Setenv("TERMINFO", tmpFile)
 
-	result := ForwardTerminfo()
-	if result.Mount != nil {
-		t.Errorf("expected nil mount when TERMINFO is a file, got %v", result.Mount)
-	}
-	if result.EnvName != "" {
-		t.Errorf("expected empty EnvName when TERMINFO is a file, got %q", result.EnvName)
+	t.Setenv("TERM", "this_terminal_does_not_exist_12345")
+	result := PrepareTerminfo("/home/vscode")
+	if result.Mount != nil || result.PostCreateCommand != "" {
+		t.Errorf("expected empty result when infocmp fails, got %+v", result)
 	}
 }
 
-func TestForwardTerminfoValidDirectory(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "terminfo")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+func TestPrepareTerminfoEmptyHomeDir(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	result := PrepareTerminfo("")
+	if result.Mount != nil || result.PostCreateCommand != "" {
+		t.Errorf("expected empty result when containerHomeDir is empty, got %+v", result)
 	}
-	t.Setenv("TERMINFO", dir)
+}
 
-	result := ForwardTerminfo()
+func TestPrepareTerminfoSuccess(t *testing.T) {
+	term := os.Getenv("TERM")
+	if term == "" {
+		term = "dumb"
+		t.Setenv("TERM", term)
+	}
+
+	if _, err := exec.LookPath("infocmp"); err != nil {
+		t.Skipf("infocmp not available, skipping: %v", err)
+	}
+
+	result := PrepareTerminfo("/home/vscode")
 	if result.Mount == nil {
-		t.Fatal("expected non-nil mount for valid TERMINFO directory")
+		t.Fatal("expected non-nil mount for PrepareTerminfo")
 	}
-	if result.Mount.Source != dir {
-		t.Errorf("Mount.Source = %q, want %q", result.Mount.Source, dir)
-	}
-	if result.Mount.Target != "/opt/dcx/terminfo" {
-		t.Errorf("Mount.Target = %q, want /opt/dcx/terminfo", result.Mount.Target)
+	if result.Mount.Target != "/opt/dcx/terminfo.src" {
+		t.Errorf("Mount.Target = %q, want /opt/dcx/terminfo.src", result.Mount.Target)
 	}
 	if !result.Mount.ReadOnly {
 		t.Error("Mount.ReadOnly should be true")
 	}
-	if result.EnvName != "TERMINFO" {
-		t.Errorf("EnvName = %q, want TERMINFO", result.EnvName)
+	if result.PostCreateCommand == "" {
+		t.Error("expected non-empty PostCreateCommand")
 	}
-	if result.EnvValue != "/opt/dcx/terminfo" {
-		t.Errorf("EnvValue = %q, want /opt/dcx/terminfo", result.EnvValue)
+	// Verify the source file was written.
+	if _, err := os.Stat(result.Mount.Source); os.IsNotExist(err) {
+		t.Errorf("terminfo source file should exist at %q", result.Mount.Source)
 	}
 }

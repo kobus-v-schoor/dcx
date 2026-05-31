@@ -59,11 +59,19 @@ Some environment variables are automatically forwarded without requiring configu
 |----------|-----|
 | `TERM` | Ensures TUI applications work correctly inside the container |
 | `COLORTERM` | Enables true-color support in terminal applications |
-| `TERMINFO` | Forwards the host's terminfo database for terminal emulators not present in the container |
 
 Auto-forwarded variables have the **lowest precedence** - they can be overridden by entries in your `environment` config.
 
-When `TERMINFO` is forwarded, dcx also creates a read-only bind mount of the host terminfo directory to `/opt/dcx/terminfo` inside the container, and sets `TERMINFO` to point at that path. This ensures terminal emulators not present in the container's default terminfo database (e.g. `xterm-kitty`) continue to work correctly.
+## Terminfo Forwarding
+
+dcx automatically forwards your host terminal's terminfo entry into the devcontainer using `infocmp` and `tic`, similar to Ghostty's `ssh-terminfo` feature. This ensures terminal emulators not present in the container's default terminfo database (e.g. `xterm-ghostty`, `xterm-kitty`) continue to work correctly.
+
+At `dcx up` time:
+1. `infocmp -x $TERM` is run on the host to capture the current terminal's terminfo source description.
+2. The source is written to a stable host file (`~/.config/dcx/terminfo.src`) and mounted into the container at `/opt/dcx/terminfo.src`.
+3. A `postCreateCommand` compiles the source with `tic` inside the container and installs it into `~/.terminfo` (a standard search path for ncurses).
+
+If `infocmp` is not available on the host, or the container does not have `tic` installed, the forwarding is silently skipped and the container falls back to its built-in terminfo database.
 
 ## Merge Behavior
 

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -178,48 +180,91 @@ func AutoForward() []ResolvedEnv {
 	return result
 }
 
-// TerminfoResult holds the mount and environment variable produced by
-// ForwardTerminfo. Either the Mount field is populated (terminfo forwarding
-// active) or all fields are zero-valued (terminfo not set or directory does
-// not exist).
+// TerminfoResult holds the mount and postCreateCommand produced by
+// PrepareTerminfo. Either the Mount field is populated (terminfo forwarding
+// active) or all fields are zero-valued (terminfo not set or infocmp missing).
+// Unlike the previous TERMINFO directory bind-mount approach, this uses
+// infocmp to capture the host terminal's source description and tic inside the
+// container to compile it into the container user's ~/.terminfo directory.
 type TerminfoResult struct {
-	Mount    *mounts.ResolvedMount
-	EnvName  string
-	EnvValue string
+	Mount             *mounts.ResolvedMount
+	PostCreateCommand string
 }
 
-// ForwardTerminfo checks the host environment for the TERMINFO variable. If
-// it is set and points to an existing directory, it returns a TerminfoResult
-// with a read-only bind mount to /opt/dcx/terminfo and the TERMINFO env var
-// set to that container path. This ensures that TUI applications using
-// terminal emulators not present in the container's default terminfo database
-// work correctly inside the container. If TERMINFO is unset or the path does
-// not exist, an empty result is returned and a warning is logged. Called by
-// the cli package during dcx up alongside AutoForward.
-func ForwardTerminfo() TerminfoResult {
-	path := os.Getenv("TERMINFO")
-	if path == "" {
+// PrepareTerminfo checks the host environment for the TERM variable and
+// attempts to capture the local terminal's terminfo source using infocmp.
+// It writes the source into a stable file under the user's home directory
+// (~/.config/dcx/terminfo.src) so the bind mount survives container
+// stop/start cycles. Within the container, a postCreateCommand compiles the
+// source with tic and installs it into the container user's ~/.terminfo.
+//
+// If TERM is not set, infocmp is not on PATH, or infocmp fails (e.g. the
+// terminal entry is unknown), an empty result is returned and a warning is
+// logged. Called by the cli package during dcx up.
+func PrepareTerminfo(containerHomeDir string) TerminfoResult {
+	if containerHomeDir == "" {
 		return TerminfoResult{}
 	}
 
-	info, err := os.Stat(path)
+	term := os.Getenv("TERM")
+	if term == "" {
+		return TerminfoResult{}
+	}
+
+	infocmpPath, err := exec.LookPath("infocmp")
 	if err != nil {
-		slog.Warn("TERMINFO is set but path does not exist, skipping terminfo forwarding", "path", path)
+		slog.Warn("infocmp not found on host, skipping terminfo forwarding")
 		return TerminfoResult{}
 	}
-	if !info.IsDir() {
-		slog.Warn("TERMINFO is set but path is not a directory, skipping terminfo forwarding", "path", path)
+
+	// -x includes extended capabilities, needed for modern terminal emulators
+	// such as Ghostty to preserve full feature support after compilation.
+	cmd := exec.Command(infocmpPath, "-x", term)
+	src, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			slog.Warn("infocmp failed for terminal entry, skipping terminfo forwarding", "term", term, "stderr", string(exitErr.Stderr))
+		} else {
+			slog.Warn("infocmp execution failed, skipping terminfo forwarding", "term", term, "error", err)
+		}
 		return TerminfoResult{}
 	}
+
+	// Write the infocmp output to a stable file under ~/.config/dcx so the
+	// bind mount source persists across dcx up invocations and container
+	// stop/start cycles.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("could not determine home directory, skipping terminfo forwarding", "error", err)
+		return TerminfoResult{}
+	}
+	cacheDir := filepath.Join(homeDir, ".config", "dcx")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		slog.Warn("could not create dcx config directory, skipping terminfo forwarding", "path", cacheDir, "error", err)
+		return TerminfoResult{}
+	}
+	srcPath := filepath.Join(cacheDir, "terminfo.src")
+	if err := os.WriteFile(srcPath, src, 0o644); err != nil {
+		slog.Warn("failed to write terminfo source, skipping terminfo forwarding", "path", srcPath, "error", err)
+		return TerminfoResult{}
+	}
+
+	compileDest := filepath.Join(containerHomeDir, ".terminfo")
+
+	// Build a postCreateCommand that creates the target directory and compiles
+	// the source entry with tic. We guard against missing tic and suppress its
+	// exit code so that a container without ncurses-bin never fails to start.
+	// The devcontainer CLI wraps string postCreateCommands in sh -c, so we
+	// do not include the shell invocation here.
+	postCmd := fmt.Sprintf("mkdir -p %s && if command -v tic >/dev/null 2>&1; then tic -x -o %s %s || true; fi", compileDest, compileDest, "/opt/dcx/terminfo.src")
 
 	return TerminfoResult{
 		Mount: &mounts.ResolvedMount{
-			Source:   path,
-			Target:   "/opt/dcx/terminfo",
+			Source:   srcPath,
+			Target:   "/opt/dcx/terminfo.src",
 			ReadOnly: true,
 		},
-		EnvName:  "TERMINFO",
-		EnvValue: "/opt/dcx/terminfo",
+		PostCreateCommand: postCmd,
 	}
 }
 

@@ -183,6 +183,32 @@ func (o *OverrideDir) InjectMounts(mountStrings []string) {
 	o.config["mounts"] = json.RawMessage(mountsJSON)
 }
 
+// InjectPostCreateCommand sets the in-memory config's postCreateCommand
+// property to the provided shell command string. If the base config already
+// defines a postCreateCommand string, the commands are combined with " && "
+// so both run. This avoids relying on subtle devcontainer CLI merge semantics.
+// The caller must call Save to persist the change to disk. Called by dcx up
+// when terminfo forwarding is active.
+func (o *OverrideDir) InjectPostCreateCommand(cmd string) {
+	if cmd == "" {
+		return
+	}
+
+	// If the base config already has a postCreateCommand string, combine it
+	// with ours so both commands execute. We intentionally do not try to
+	// merge with array or object forms (rare in practice).
+	if raw, ok := o.config["postCreateCommand"]; ok {
+		var existing string
+		if err := json.Unmarshal(raw, &existing); err == nil {
+			if existing != "" {
+				cmd = existing + " && " + cmd
+			}
+		}
+	}
+
+	o.config["postCreateCommand"] = json.RawMessage(fmt.Sprintf("%q", cmd))
+}
+
 // InjectContainerEnv merges the provided environment variables into the
 // in-memory config's containerEnv property. If the config already has a
 // containerEnv object, the new values are merged on top (new values win on
