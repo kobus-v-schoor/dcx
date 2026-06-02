@@ -42,7 +42,7 @@ func TestProviderDomainsDefaults(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"gitlab.com":         true,
+		"gitlab.com":          true,
 		"registry.gitlab.com": true,
 	}
 	for _, d := range domains {
