@@ -10,6 +10,7 @@
 package gitlab
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -50,9 +51,11 @@ func (g *gitlabProvider) Domains(cfg *config.Config) []string {
 }
 
 // PrepareRequest injects the host's GitLab token into intercepted requests.
-// GitLab tools use either the PRIVATE-TOKEN header (glab CLI with GITLAB_TOKEN)
-// or Authorization: Bearer (OAuth / some git-over-HTTPS clients). The proxy
-// replaces whichever header is present so the real host token reaches GitLab.
+// glab API calls send the token via PRIVATE-TOKEN when using the env var,
+// so the proxy replaces that header with the real token. For git-over-HTTPS
+// and other requests without an existing auth header, the proxy injects
+// Authorization: Basic with the token as the password so that both GitLab
+// API and git endpoints accept it.
 // Returns an error if no token is available on the host.
 func (g *gitlabProvider) PrepareRequest(req *http.Request, cfg *config.Config) error {
 	token, ok := DetectToken()
@@ -63,7 +66,11 @@ func (g *gitlabProvider) PrepareRequest(req *http.Request, cfg *config.Config) e
 	if req.Header.Get("Private-Token") != "" || req.Header.Get("PRIVATE-TOKEN") != "" {
 		req.Header.Set("PRIVATE-TOKEN", token)
 	} else {
-		req.Header.Set("Authorization", "Bearer "+token)
+		// Use basic auth for both GitLab API and git-over-HTTPS
+		// compatibility. GitLab accepts a PAT as the password with any
+		// username; "oauth2" is the conventional choice.
+		auth := base64.StdEncoding.EncodeToString([]byte("oauth2:" + token))
+		req.Header.Set("Authorization", "Basic "+auth)
 	}
 	return nil
 }

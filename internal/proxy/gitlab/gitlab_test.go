@@ -1,6 +1,7 @@
 package gitlab
 
 import (
+	"encoding/base64"
 	"net/http"
 	"testing"
 
@@ -82,7 +83,7 @@ func TestProviderDomainsCustom(t *testing.T) {
 }
 
 // TestProviderPrepareRequest tests that PrepareRequest injects the
-// Authorization header using Bearer auth.
+// Authorization header using basic auth.
 func TestProviderPrepareRequest(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "test-token-123")
 	p := &gitlabProvider{}
@@ -93,7 +94,7 @@ func TestProviderPrepareRequest(t *testing.T) {
 		t.Fatalf("PrepareRequest() error: %v", err)
 	}
 
-	expectedAuth := "Bearer test-token-123"
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("oauth2:test-token-123"))
 	auth := req.Header.Get("Authorization")
 	if auth != expectedAuth {
 		t.Errorf("Authorization header = %q, want %q", auth, expectedAuth)
@@ -113,7 +114,7 @@ func TestProviderPrepareRequestReplacesExistingAuth(t *testing.T) {
 		t.Fatalf("PrepareRequest() error: %v", err)
 	}
 
-	expectedAuth := "Bearer real-token"
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("oauth2:real-token"))
 	auth := req.Header.Get("Authorization")
 	if auth != expectedAuth {
 		t.Errorf("Authorization header = %q, want %q", auth, expectedAuth)

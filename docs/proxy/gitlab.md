@@ -5,7 +5,9 @@ The GitLab proxy injects your host's GitLab token into API requests from the dev
 ## How It Works
 
 1. On `dcx exec`, the proxy intercepts all HTTPS traffic to GitLab domains
-2. It replaces the dummy `GITLAB_TOKEN` / `GLAB_TOKEN` with your **real** GitLab token as an `Authorization: Bearer <token>` header
+2. It injects your **real** GitLab token at the network layer:
+   - For `glab` API calls (which send `PRIVATE-TOKEN: dummy`), the proxy replaces the header with the real token
+   - For `git` over HTTPS and other requests, the proxy adds `Authorization: Basic <base64>` with the real token as the password
 3. Inside the container, `GITLAB_TOKEN=dummy` and `GLAB_TOKEN=dummy` are set — this tells the `glab` CLI to make API requests, but the real token is only injected at the network layer
 
 ## Enabling the GitLab Proxy
