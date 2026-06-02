@@ -92,8 +92,29 @@ type GitHubProxyConfig struct {
 	Domains []string `yaml:"domains" mapstructure:"domains"`
 }
 
+// GitLabProxyConfig controls the GitLab API proxy that injects the host's
+// GitLab token into API requests from the devcontainer. When Enabled is true,
+// dcx exec starts a local MITM proxy that intercepts HTTPS traffic to GitLab
+// domains and injects the host's token as the Authorization header. The proxy
+// is fully transparent: container tools use the real GitLab URLs and only
+// route through the proxy via HTTP_PROXY/HTTPS_PROXY.
+//
+// The user's auth token is never exposed inside the container — the proxy
+// injects it at the network layer. The token exists only in the host-side dcx
+// process memory and is never written to disk or logged.
+type GitLabProxyConfig struct {
+	// Enabled controls whether the GitLab API proxy is active for dcx exec
+	// sessions.
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+
+	// Domains is the list of GitLab domains to intercept. When empty, a
+	// default set of public GitLab domains is used. Override for GitLab
+	// self-managed deployments.
+	Domains []string `yaml:"domains" mapstructure:"domains"`
+}
+
 // ProxyConfig holds the configuration for all proxy services. Each service
-// (e.g. GitHub, OpenAI) gets its own sub-configuration and listens on a
+// (e.g. GitHub, GitLab) gets its own sub-configuration and listens on a
 // separate port. This structure maps to the "proxy:" block in the YAML
 // config file.
 type ProxyConfig struct {
@@ -109,6 +130,9 @@ type ProxyConfig struct {
 
 	// GitHub controls the GitHub API reverse proxy.
 	GitHub GitHubProxyConfig `yaml:"github" mapstructure:"github"`
+
+	// GitLab controls the GitLab API reverse proxy.
+	GitLab GitLabProxyConfig `yaml:"gitlab" mapstructure:"gitlab"`
 }
 
 // EnvVar represents an environment variable passthrough declaration from the

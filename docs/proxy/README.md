@@ -75,6 +75,7 @@ Currently available providers:
 | Provider | Config key | Domains | Injects |
 |----------|-----------|---------|---------|
 | [GitHub](github.md) | `proxy.github.enabled` | `github.com`, `api.github.com`, etc. | `Authorization: Basic <base64>` header |
+| [GitLab](gitlab.md) | `proxy.gitlab.enabled` | `gitlab.com`, `registry.gitlab.com`, etc. | `Authorization: Bearer <token>` header |
 
 ## Configuration
 
