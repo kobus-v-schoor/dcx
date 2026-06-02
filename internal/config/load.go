@@ -39,6 +39,7 @@ func Load(cwd string) (*Config, error) {
 	// explicit defaults are registered automatically when a config file
 	// provides a value.
 	v.SetDefault("proxy.github.enabled", false)
+	v.SetDefault("proxy.gitlab.enabled", false)
 	v.SetDefault("proxy.bind_addr", "")
 	v.SetDefault("proxy.cert_expiry", 24*time.Hour)
 	v.SetDefault("ssh.forward_agent", true)

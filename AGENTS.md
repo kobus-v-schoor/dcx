@@ -73,7 +73,7 @@ config.
 
 - Never log secret values, even with `--verbose`. Log by name only.
 - Never cache secrets on disk.
-- Host credentials (e.g. GitHub tokens) are injected at the network layer by the proxy and are never exposed inside the container.
+- Host credentials (e.g. GitHub or GitLab tokens) are injected at the network layer by the proxy and are never exposed inside the container.
 - All bind mounts under `/opt/dcx/` to avoid conflicts with container-installed software.
 
 ## Documentation

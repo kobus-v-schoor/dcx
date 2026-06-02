@@ -583,6 +583,76 @@ proxy:
 	}
 }
 
+func TestLoadProxyGitLabDefaults(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Proxy should default to disabled.
+	if cfg.Proxy.GitLab.Enabled {
+		t.Error("default Proxy.GitLab.Enabled should be false")
+	}
+	if len(cfg.Proxy.GitLab.Domains) != 0 {
+		t.Errorf("default Proxy.GitLab.Domains = %v, want empty", cfg.Proxy.GitLab.Domains)
+	}
+}
+
+func TestLoadProxyGitLabUserConfig(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+proxy:
+  gitlab:
+    enabled: true
+    domains:
+      - gitlab.example.com
+      - registry.gitlab.example.com
+`)
+
+	setupUserConfigEnv(t, home)
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !cfg.Proxy.GitLab.Enabled {
+		t.Error("Proxy.GitLab.Enabled should be true")
+	}
+	wantDomains := []string{"gitlab.example.com", "registry.gitlab.example.com"}
+	if len(cfg.Proxy.GitLab.Domains) != len(wantDomains) {
+		t.Errorf("Proxy.GitLab.Domains = %v, want %v", cfg.Proxy.GitLab.Domains, wantDomains)
+	}
+	for i, d := range wantDomains {
+		if cfg.Proxy.GitLab.Domains[i] != d {
+			t.Errorf("Proxy.GitLab.Domains[%d] = %q, want %q", i, cfg.Proxy.GitLab.Domains[i], d)
+		}
+	}
+}
+
+func TestLoadProxyGitLabEnvOverride(t *testing.T) {
+	home := t.TempDir()
+	writeUserConfig(t, home, `
+proxy:
+  gitlab:
+    enabled: false
+`)
+
+	setupUserConfigEnv(t, home)
+	t.Setenv("DCX_PROXY_GITLAB_ENABLED", "true")
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !cfg.Proxy.GitLab.Enabled {
+		t.Error("Proxy.GitLab.Enabled should be true after env override")
+	}
+}
+
 func TestLoadDefaultImage(t *testing.T) {
 	home := t.TempDir()
 	writeUserConfig(t, home, `

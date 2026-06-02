@@ -13,6 +13,7 @@ import (
 	// init() function. The blank import ensures the init() runs even though
 	// no symbols are used directly from this package.
 	_ "github.com/kobus-v-schoor/dcx/internal/proxy/github"
+	_ "github.com/kobus-v-schoor/dcx/internal/proxy/gitlab"
 )
 
 var version = "dev"
