@@ -105,6 +105,36 @@ Image removal is best-effort - if another container still references the image, 
 
 ---
 
+## `dcx ps`
+
+List running and stopped containers for the current project. This includes both the devcontainer itself and any Docker Compose services in the same compose project.
+
+```bash
+dcx ps
+```
+
+The output format mirrors `docker compose ps`:
+
+| Column | Description |
+|--------|-------------|
+| `NAME` | Container name |
+| `IMAGE` | Container image |
+| `COMMAND` | Entrypoint/command (truncated to 20 chars) |
+| `SERVICE` | Docker Compose service name, or `-` if not part of a compose project |
+| `CREATED` | How long ago the container was created |
+| `STATUS` | Current state (e.g. `Up 2 hours`, `Exited (0)`) |
+| `PORTS` | Published and exposed ports |
+
+### Example output
+
+```
+NAME                     IMAGE                                      COMMAND                  SERVICE  CREATED        STATUS        PORTS
+myproject_devcontainer   mcr.microsoft.com/devcontainers/base:debian  "/bin/sh -c 'echo ..."  -        2 minutes ago  Up 2 minutes
+myproject_web_1          nginx:latest                               "nginx -g 'daemon o..."  web      2 minutes ago  Up 2 minutes  0.0.0.0:80->80/tcp
+```
+
+---
+
 ## Common Workflows
 
 ### First-time setup
