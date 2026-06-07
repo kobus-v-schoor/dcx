@@ -19,6 +19,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `go build ./cmd/dcx` to build.
 - `go test ./... -race` to run tests.
 - `go vet ./...` to vet.
+- `gofmt -w <changed_files>` or `gofmt -l .` to ensure formatting passes CI lint step.
 - No code generation. No CGO (`CGO_ENABLED=0` for release builds).
 
 ## Integration Testing

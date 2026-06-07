@@ -56,5 +56,3 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-
-

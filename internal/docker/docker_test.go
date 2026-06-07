@@ -17,21 +17,21 @@ import (
 // what the corresponding method returns. Unset fields return zero values and
 // nil errors by default.
 type mockDockerClient struct {
-	pingErr            error
-	containers         client.ContainerListResult
-	containerListErr   error
-	inspectResult      client.ContainerInspectResult
-	inspectErr         error
-	stopErr            error
-	removeErr          error
-	imageRemoveErr     error
-	volumeRemoveErr    error
-	copyErr            error
-	execCreateErr      error
-	execStartErr       error
-	execInspectErr     error
-	execInspectResult  client.ExecInspectResult
-	closed             bool
+	pingErr           error
+	containers        client.ContainerListResult
+	containerListErr  error
+	inspectResult     client.ContainerInspectResult
+	inspectErr        error
+	stopErr           error
+	removeErr         error
+	imageRemoveErr    error
+	volumeRemoveErr   error
+	copyErr           error
+	execCreateErr     error
+	execStartErr      error
+	execInspectErr    error
+	execInspectResult client.ExecInspectResult
+	closed            bool
 }
 
 func (m *mockDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
