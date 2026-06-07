@@ -17,20 +17,21 @@ import (
 // what the corresponding method returns. Unset fields return zero values and
 // nil errors by default.
 type mockDockerClient struct {
-	pingErr           error
-	containers        client.ContainerListResult
-	containerListErr  error
-	inspectResult     client.ContainerInspectResult
-	inspectErr        error
-	stopErr           error
-	removeErr         error
-	imageRemoveErr    error
-	copyErr           error
-	execCreateErr     error
-	execStartErr      error
-	execInspectErr    error
-	execInspectResult client.ExecInspectResult
-	closed            bool
+	pingErr            error
+	containers         client.ContainerListResult
+	containerListErr   error
+	inspectResult      client.ContainerInspectResult
+	inspectErr         error
+	stopErr            error
+	removeErr          error
+	imageRemoveErr     error
+	volumeRemoveErr    error
+	copyErr            error
+	execCreateErr      error
+	execStartErr       error
+	execInspectErr     error
+	execInspectResult  client.ExecInspectResult
+	closed             bool
 }
 
 func (m *mockDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -55,6 +56,10 @@ func (m *mockDockerClient) ContainerRemove(_ context.Context, _ string, _ client
 
 func (m *mockDockerClient) ImageRemove(_ context.Context, _ string, _ client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 	return client.ImageRemoveResult{}, m.imageRemoveErr
+}
+
+func (m *mockDockerClient) VolumeRemove(_ context.Context, _ string, _ client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
+	return client.VolumeRemoveResult{}, m.volumeRemoveErr
 }
 
 func (m *mockDockerClient) CopyToContainer(_ context.Context, _ string, _ client.CopyToContainerOptions) (client.CopyToContainerResult, error) {
@@ -261,9 +266,9 @@ func TestShortID(t *testing.T) {
 		{"abc123def456", "abc123def456"},
 	}
 	for _, tt := range tests {
-		got := shortID(tt.input)
+		got := ShortID(tt.input)
 		if got != tt.want {
-			t.Errorf("shortID(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("ShortID(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

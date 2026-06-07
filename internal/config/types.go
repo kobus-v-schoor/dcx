@@ -5,16 +5,6 @@ import (
 	"time"
 )
 
-// ComposeIntegration holds settings for Docker Compose integration strategies.
-// Pointer fields distinguish "not set" (nil) from a zero value during viper
-// unmarshalling — a nil ComposeIntegration means the user provided no
-// compose_integration block at all.
-type ComposeIntegration struct {
-	ComposeFile string `yaml:"compose_file" mapstructure:"compose_file"`
-	Strategy    string `yaml:"strategy" mapstructure:"strategy"`
-	DevService  string `yaml:"dev_service" mapstructure:"dev_service"`
-}
-
 // Feature represents a devcontainer feature to inject via --additional-features.
 // ID is the feature identifier (e.g. "ghcr.io/devcontainers/features/github-cli").
 // Options holds feature-specific key-value pairs; an empty or nil map serializes
@@ -151,16 +141,14 @@ type EnvVar string
 // Config represents the fully-resolved dcx configuration. Bool fields use plain
 // types with viper defaults; viper's precedence chain (flag → env → config →
 // default) ensures unset fields receive their default value rather than zero.
-// ComposeIntegration uses a pointer so nil indicates the block was absent.
 type Config struct {
-	Proxy              ProxyConfig         `yaml:"proxy" mapstructure:"proxy"`
-	SSH                SSHConfig           `yaml:"ssh" mapstructure:"ssh"`
-	Git                GitConfig           `yaml:"git" mapstructure:"git"`
-	ComposeIntegration *ComposeIntegration `yaml:"compose_integration" mapstructure:"compose_integration"`
-	DefaultFeatures    []Feature           `yaml:"default_features" mapstructure:"default_features"`
-	Mounts             []Mount             `yaml:"mounts" mapstructure:"mounts"`
-	Environment        []EnvVar            `yaml:"environment" mapstructure:"environment"`
-	LogLevel           string              `yaml:"log_level" mapstructure:"log_level"`
+	Proxy           ProxyConfig `yaml:"proxy" mapstructure:"proxy"`
+	SSH             SSHConfig   `yaml:"ssh" mapstructure:"ssh"`
+	Git             GitConfig   `yaml:"git" mapstructure:"git"`
+	DefaultFeatures []Feature   `yaml:"default_features" mapstructure:"default_features"`
+	Mounts          []Mount     `yaml:"mounts" mapstructure:"mounts"`
+	Environment     []EnvVar    `yaml:"environment" mapstructure:"environment"`
+	LogLevel        string      `yaml:"log_level" mapstructure:"log_level"`
 	// DefaultImage is the image to use when the workspace has no
 	// devcontainer.json. When set, dcx up generates a minimal temporary
 	// devcontainer.json containing only the image field. When empty and no
