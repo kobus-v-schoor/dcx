@@ -76,14 +76,6 @@ func Load(cwd string) (*Config, error) {
 		return nil, err
 	}
 
-	// Validate compose_file path if present.
-	if v.IsSet("compose_integration.compose_file") {
-		composeFile := v.GetString("compose_integration.compose_file")
-		if err := validateComposeFilePath(absCWD, composeFile); err != nil {
-			return nil, err
-		}
-	}
-
 	// Unmarshal the fully-merged viper state into the Config struct.
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
@@ -218,28 +210,6 @@ func UserConfigDir() (string, error) {
 		return "", fmt.Errorf("determining user home directory: %w", err)
 	}
 	return filepath.Join(dir, ".config", "dcx"), nil
-}
-
-// validateComposeFilePath warns if the compose_file path resolves outside
-// the project directory. This is a validation step called after config loading
-// to catch misconfigured paths that might reference files outside the project.
-func validateComposeFilePath(cwd, composeFile string) error {
-	resolved := filepath.Clean(filepath.Join(cwd, composeFile))
-	absCWD, err := filepath.Abs(cwd)
-	if err != nil {
-		return fmt.Errorf("resolving cwd: %w", err)
-	}
-
-	rel, err := filepath.Rel(absCWD, resolved)
-	if err != nil {
-		return fmt.Errorf("resolving compose_file path: %w", err)
-	}
-
-	if rel == ".." || len(rel) >= 3 && rel[0:3] == "../" {
-		_, _ = fmt.Fprintf(os.Stderr, "warning: compose_file %q resolves outside the project directory (%s)\n", composeFile, absCWD)
-	}
-
-	return nil
 }
 
 // mergeFeatures combines user and project feature lists with union semantics.

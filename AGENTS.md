@@ -19,6 +19,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `go build ./cmd/dcx` to build.
 - `go test ./... -race` to run tests.
 - `go vet ./...` to vet.
+- `gofmt -w <changed_files>` or `gofmt -l .` to ensure formatting passes CI lint step.
 - No code generation. No CGO (`CGO_ENABLED=0` for release builds).
 
 ## Integration Testing
@@ -39,7 +40,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/colima/` — Colima runtime detection and SSH agent socket resolution inside the Colima VM
 - `internal/git/` — git config auto-detection
 - `internal/shell/` — shell integration (mount configs, inject postCreateCommand)
-- `internal/compose/` — Docker Compose strategies (network join, overlay)
+- `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
 - `internal/override/` — temporary override `devcontainer.json` generation

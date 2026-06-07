@@ -12,15 +12,16 @@ import (
 	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
 // DockerClient is a narrow interface over the Docker Engine API, exposing only
 // the operations needed by dcx (container lifecycle, image cleanup, file
-// copy, and exec). The production implementation is *client.Client (obtained
-// via the docker go-sdk), which satisfies this interface. A mock
-// implementation is used in tests.
+// copy, exec, and volume removal). The production implementation is
+// *client.Client (obtained via the docker go-sdk), which satisfies this
+// interface. A mock implementation is used in tests.
 type DockerClient interface {
 	Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error)
 	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
@@ -28,6 +29,7 @@ type DockerClient interface {
 	ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
 	ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error)
 	ImageRemove(ctx context.Context, imageID string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
+	VolumeRemove(ctx context.Context, volumeID string, options client.VolumeRemoveOptions) (client.VolumeRemoveResult, error)
 	CopyToContainer(ctx context.Context, containerID string, options client.CopyToContainerOptions) (client.CopyToContainerResult, error)
 	ExecCreate(ctx context.Context, containerID string, options client.ExecCreateOptions) (client.ExecCreateResult, error)
 	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
@@ -113,9 +115,9 @@ const (
 	shortIDLen = 12
 )
 
-// shortID returns the first shortIDLen characters of a Docker ID string for
+// ShortID returns the first shortIDLen characters of a Docker ID string for
 // human-readable log output.
-func shortID(id string) string {
+func ShortID(id string) string {
 	if len(id) > shortIDLen {
 		return id[:shortIDLen]
 	}
@@ -154,7 +156,7 @@ func FindDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder st
 func GatewayIP(ctx context.Context, cli DockerClient, containerID string) (string, error) {
 	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
-		return "", fmt.Errorf("inspecting container %s for gateway IP: %w", shortID(containerID), err)
+		return "", fmt.Errorf("inspecting container %s for gateway IP: %w", ShortID(containerID), err)
 	}
 
 	for _, net := range inspect.Container.NetworkSettings.Networks {
@@ -163,7 +165,7 @@ func GatewayIP(ctx context.Context, cli DockerClient, containerID string) (strin
 		}
 	}
 
-	return "", fmt.Errorf("no gateway IP found for container %s", shortID(containerID))
+	return "", fmt.Errorf("no gateway IP found for container %s", ShortID(containerID))
 }
 
 // Stop stops the devcontainer for the given workspace folder without removing
@@ -181,13 +183,13 @@ func Stop(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 	}
 
 	for _, ctr := range containers.Items {
-		slog.Info("stopping container", "id", shortID(ctr.ID), "image", ctr.Image)
+		slog.Info("stopping container", "id", ShortID(ctr.ID), "image", ctr.Image)
 
 		if _, err := cli.ContainerStop(ctx, ctr.ID, client.ContainerStopOptions{}); err != nil {
-			return fmt.Errorf("stopping container %s: %w", shortID(ctr.ID), err)
+			return fmt.Errorf("stopping container %s: %w", ShortID(ctr.ID), err)
 		}
 
-		slog.Info("container stopped", "id", shortID(ctr.ID))
+		slog.Info("container stopped", "id", ShortID(ctr.ID))
 	}
 
 	return nil
@@ -214,35 +216,41 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 		// Inspect before stopping/removing to capture the image ID for cleanup.
 		inspect, err := cli.ContainerInspect(ctx, ctr.ID, client.ContainerInspectOptions{})
 		if err != nil {
-			return fmt.Errorf("inspecting container %s: %w", shortID(ctr.ID), err)
+			return fmt.Errorf("inspecting container %s: %w", ShortID(ctr.ID), err)
 		}
 		imageID := inspect.Container.Image
 
-		slog.Info("stopping container", "id", shortID(ctr.ID), "image", ctr.Image)
+		slog.Info("stopping container", "id", ShortID(ctr.ID), "image", ctr.Image)
 
 		if _, err := cli.ContainerStop(ctx, ctr.ID, client.ContainerStopOptions{}); err != nil {
-			return fmt.Errorf("stopping container %s: %w", shortID(ctr.ID), err)
+			return fmt.Errorf("stopping container %s: %w", ShortID(ctr.ID), err)
 		}
 
-		slog.Info("removing container", "id", shortID(ctr.ID))
+		slog.Info("removing container", "id", ShortID(ctr.ID))
 
 		if _, err := cli.ContainerRemove(ctx, ctr.ID, client.ContainerRemoveOptions{}); err != nil {
-			return fmt.Errorf("removing container %s: %w", shortID(ctr.ID), err)
+			return fmt.Errorf("removing container %s: %w", ShortID(ctr.ID), err)
 		}
 
 		// Attempt image cleanup. This is best-effort: if another container
 		// still references the image, Docker will refuse and we log a debug
 		// message rather than failing the entire down operation.
 		if imageID != "" {
-			slog.Info("removing image", "id", shortID(imageID))
+			slog.Info("removing image", "id", ShortID(imageID))
 
 			if _, err := cli.ImageRemove(ctx, imageID, client.ImageRemoveOptions{}); err != nil {
-				slog.Debug("could not remove image (may still be in use)", "id", shortID(imageID), "error", err)
+				slog.Debug("could not remove image (may still be in use)", "id", ShortID(imageID), "error", err)
 			}
 		}
 	}
 
 	return nil
+}
+
+// IsContainerRunning reports whether a container summary indicates a running
+// state. It checks the State field against [container.StateRunning].
+func IsContainerRunning(ctr container.Summary) bool {
+	return ctr.State == container.StateRunning
 }
 
 // CheckStaleMounts inspects the given container and returns an error if any
@@ -252,7 +260,7 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 func CheckStaleMounts(ctx context.Context, cli DockerClient, containerID string) error {
 	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
-		return fmt.Errorf("inspecting container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("inspecting container %s: %w", ShortID(containerID), err)
 	}
 
 	var stale []string
@@ -267,12 +275,12 @@ func CheckStaleMounts(ctx context.Context, cli DockerClient, containerID string)
 	if len(stale) > 0 {
 		slog.Error(
 			"stale bind mount(s) detected",
-			"container", shortID(containerID),
+			"container", ShortID(containerID),
 			"missing_paths", stale,
 			"resolution", "restore the missing path(s), or remove the mount and run 'dcx up --rebuild'",
 			"note", "SSH agent sockets can change path when rebooting or restarting your SSH agent",
 		)
-		return fmt.Errorf("stale bind mounts detected on container %s", shortID(containerID))
+		return fmt.Errorf("stale bind mounts detected on container %s", ShortID(containerID))
 	}
 
 	return nil
@@ -329,7 +337,7 @@ func CopyBytesToContainer(ctx context.Context, cli DockerClient, containerID, fi
 		Content:         &buf,
 	})
 	if err != nil {
-		return fmt.Errorf("copying to container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("copying to container %s: %w", ShortID(containerID), err)
 	}
 
 	return nil
@@ -354,22 +362,22 @@ func ExecInContainer(ctx context.Context, cli DockerClient, containerID string, 
 		AttachStderr: true,
 	})
 	if err != nil {
-		return fmt.Errorf("creating exec in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("creating exec in container %s: %w", ShortID(containerID), err)
 	}
 
 	_, err = cli.ExecStart(ctx, execCreate.ID, client.ExecStartOptions{})
 	if err != nil {
-		return fmt.Errorf("running exec in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("running exec in container %s: %w", ShortID(containerID), err)
 	}
 
 	// Check the exit code of the command.
 	inspect, err := cli.ExecInspect(ctx, execCreate.ID, client.ExecInspectOptions{})
 	if err != nil {
-		return fmt.Errorf("inspecting exec in container %s: %w", shortID(containerID), err)
+		return fmt.Errorf("inspecting exec in container %s: %w", ShortID(containerID), err)
 	}
 
 	if inspect.ExitCode != 0 {
-		return fmt.Errorf("command %v in container %s exited with code %d", cmd, shortID(containerID), inspect.ExitCode)
+		return fmt.Errorf("command %v in container %s exited with code %d", cmd, ShortID(containerID), inspect.ExitCode)
 	}
 
 	return nil

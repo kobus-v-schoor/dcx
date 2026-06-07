@@ -54,9 +54,6 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.Git.Configs) != 1 || cfg.Git.Configs[0] != "~/.gitconfig" {
 		t.Errorf("default Git.Configs = %v, want [~/.gitconfig]", cfg.Git.Configs)
 	}
-	if cfg.ComposeIntegration != nil {
-		t.Error("default ComposeIntegration should be nil")
-	}
 	if cfg.DefaultImage != "mcr.microsoft.com/devcontainers/base:debian" {
 		t.Errorf("default DefaultImage = %q, want mcr.microsoft.com/devcontainers/base:debian", cfg.DefaultImage)
 	}
@@ -69,9 +66,6 @@ ssh:
   forward_agent: false
 git:
   inject_configs: false
-compose_integration:
-  compose_file: ../docker-compose.yml
-  strategy: network_join
 `)
 
 	setupUserConfigEnv(t, home)
@@ -86,12 +80,6 @@ compose_integration:
 	}
 	if cfg.Git.InjectConfigs {
 		t.Error("Git.InjectConfigs should be false")
-	}
-	if cfg.ComposeIntegration == nil {
-		t.Fatal("ComposeIntegration should not be nil")
-	}
-	if cfg.ComposeIntegration.Strategy != "network_join" {
-		t.Errorf("Strategy = %q, want %q", cfg.ComposeIntegration.Strategy, "network_join")
 	}
 }
 
@@ -136,10 +124,8 @@ func TestLoadInvalidYAML(t *testing.T) {
 func TestLoadProjectConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeProjectConfig(t, dir, `
-compose_integration:
-  compose_file: ../docker-compose.yml
-  strategy: overlay
-  dev_service: app
+ssh:
+  forward_agent: false
 `)
 
 	cfg, err := Load(dir)
@@ -147,14 +133,8 @@ compose_integration:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.ComposeIntegration == nil {
-		t.Fatal("ComposeIntegration should not be nil")
-	}
-	if cfg.ComposeIntegration.Strategy != "overlay" {
-		t.Errorf("Strategy = %q, want %q", cfg.ComposeIntegration.Strategy, "overlay")
-	}
-	if cfg.ComposeIntegration.DevService != "app" {
-		t.Errorf("DevService = %q, want %q", cfg.ComposeIntegration.DevService, "app")
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false")
 	}
 }
 
@@ -165,17 +145,12 @@ ssh:
   forward_agent: false
 git:
   inject_configs: true
-compose_integration:
-  compose_file: ../user-compose.yml
-  strategy: network_join
 `)
 
 	projectDir := t.TempDir()
 	writeProjectConfig(t, projectDir, `
-compose_integration:
-  compose_file: ../project-compose.yml
-  strategy: overlay
-  dev_service: app
+ssh:
+  forward_agent: false
 `)
 
 	setupUserConfigEnv(t, home)
@@ -190,12 +165,6 @@ compose_integration:
 	}
 	if !cfg.Git.InjectConfigs {
 		t.Error("Git.InjectConfigs should preserve user value (true)")
-	}
-	if cfg.ComposeIntegration.ComposeFile != "../project-compose.yml" {
-		t.Errorf("ComposeFile = %q, want project value", cfg.ComposeIntegration.ComposeFile)
-	}
-	if cfg.ComposeIntegration.Strategy != "overlay" {
-		t.Errorf("Strategy = %q, want project value", cfg.ComposeIntegration.Strategy)
 	}
 }
 

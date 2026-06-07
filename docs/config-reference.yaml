@@ -156,23 +156,6 @@ proxy:
     #   - gitlab.example.com
     #   - registry.gitlab.example.com
 
-# --- Docker Compose Integration ---
-
-# Connect the dev container to a Compose project's network.
-# This is the primary project-level setting.
-compose_integration:
-  # Path to the docker-compose.yml, relative to the project root.
-  # Can also be set via the DCX_COMPOSE_INTEGRATION_COMPOSE_FILE environment variable.
-  compose_file: ../docker-compose.yml
-
-  # Strategy: "network_join" (default) or "overlay"
-  # Can also be set via the DCX_COMPOSE_INTEGRATION_STRATEGY environment variable.
-  strategy: network_join
-
-  # Required only for "overlay" strategy: the Compose service to use as the dev container.
-  # Can also be set via the DCX_COMPOSE_INTEGRATION_DEV_SERVICE environment variable.
-  # dev_service: app
-
 # --- Default Features ---
 
 # List of devcontainer features to inject via --additional-features.
