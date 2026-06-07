@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
@@ -244,6 +245,12 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 	}
 
 	return nil
+}
+
+// IsContainerRunning reports whether a container summary indicates a running
+// state. It checks the State field against [container.StateRunning].
+func IsContainerRunning(ctr container.Summary) bool {
+	return ctr.State == container.StateRunning
 }
 
 // CheckStaleMounts inspects the given container and returns an error if any

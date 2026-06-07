@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -37,7 +36,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 	// Discover compose project info before stopping the devcontainer, so
 	// we can still read its labels after it is stopped.
-	composeProjects, err := findComposeProjects(cmd.Context(), cli, workspaceFolder)
+	composeProjects, _, err := compose.FindProjectsAndVolumes(cmd.Context(), cli, workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("dcx stop: %w", err)
 	}
@@ -58,25 +57,4 @@ func runStop(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// findComposeProjects lists devcontainers for the workspace and extracts unique
-// Docker Compose project names from their labels. Returns nil when no
-// devcontainer exists or none are part of a compose project.
-func findComposeProjects(ctx context.Context, cli docker.DockerClient, workspaceFolder string) ([]*compose.Project, error) {
-	containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-	if err != nil {
-		return nil, err
-	}
 
-	var projects []*compose.Project
-	seen := make(map[string]bool)
-	for _, ctr := range containers.Items {
-		project := compose.ExtractProject(ctr.Labels)
-		if project == nil || seen[project.Name] {
-			continue
-		}
-		seen[project.Name] = true
-		projects = append(projects, project)
-	}
-
-	return projects, nil
-}

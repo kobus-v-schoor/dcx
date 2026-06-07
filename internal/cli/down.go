@@ -7,7 +7,6 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/compose"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +50,7 @@ func runDown(ctx context.Context, removeVolumes bool) error {
 	// Discover compose project info and volume names before removing the
 	// devcontainer, because its labels and mount metadata disappear once
 	// the container is gone.
-	composeProjects, composeVolumes, err := findComposeProjectsAndVolumes(ctx, cli, workspaceFolder)
+	composeProjects, composeVolumes, err := compose.FindProjectsAndVolumes(ctx, cli, workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("dcx down: %w", err)
 	}
@@ -85,36 +84,4 @@ func runDown(ctx context.Context, removeVolumes bool) error {
 	return nil
 }
 
-// findComposeProjectsAndVolumes extracts unique Docker Compose projects and
-// named volume names from the devcontainers for the given workspace. The
-// volumes are collected from container Mounts so they can be removed after
-// the containers themselves are gone. Returns nil/empty when no devcontainer
-// exists or none are part of a compose project.
-func findComposeProjectsAndVolumes(ctx context.Context, cli docker.DockerClient, workspaceFolder string) ([]*compose.Project, []string, error) {
-	containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-	if err != nil {
-		return nil, nil, err
-	}
 
-	var projects []*compose.Project
-	var volumes []string
-	seenProjects := make(map[string]bool)
-	seenVolumes := make(map[string]bool)
-
-	for _, ctr := range containers.Items {
-		project := compose.ExtractProject(ctr.Labels)
-		if project != nil && !seenProjects[project.Name] {
-			seenProjects[project.Name] = true
-			projects = append(projects, project)
-		}
-
-		for _, m := range ctr.Mounts {
-			if m.Type == mount.TypeVolume && m.Name != "" && !seenVolumes[m.Name] {
-				seenVolumes[m.Name] = true
-				volumes = append(volumes, m.Name)
-			}
-		}
-	}
-
-	return projects, volumes, nil
-}

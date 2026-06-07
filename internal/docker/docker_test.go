@@ -429,6 +429,29 @@ func TestMkdirInContainerCreateError(t *testing.T) {
 	}
 }
 
+func TestIsContainerRunning(t *testing.T) {
+	tests := []struct {
+		name  string
+		state container.ContainerState
+		want  bool
+	}{
+		{"running", container.StateRunning, true},
+		{"exited", container.StateExited, false},
+		{"paused", container.StatePaused, false},
+		{"dead", container.StateDead, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctr := container.Summary{State: tt.state}
+			got := IsContainerRunning(ctr)
+			if got != tt.want {
+				t.Errorf("IsContainerRunning() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsMissingDockerConfigDir(t *testing.T) {
 	tests := []struct {
 		name string

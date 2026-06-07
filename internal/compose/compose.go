@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
@@ -77,7 +76,7 @@ func Stop(ctx context.Context, cli docker.DockerClient, project *Project) error 
 
 	for _, ctr := range containers.Items {
 		// Skip containers that are already stopped.
-		if !isContainerRunning(ctr) {
+		if !docker.IsContainerRunning(ctr) {
 			slog.Debug("compose container already stopped, skipping", "id", docker.ShortID(ctr.ID), "project", project.Name)
 			continue
 		}
@@ -122,7 +121,7 @@ func Down(ctx context.Context, cli docker.DockerClient, project *Project, remove
 			}
 		}
 
-		if isContainerRunning(ctr) {
+		if docker.IsContainerRunning(ctr) {
 			slog.Info("stopping compose container", "id", docker.ShortID(ctr.ID), "service", ctr.Labels["com.docker.compose.service"], "project", project.Name)
 
 			if _, err := cli.ContainerStop(ctx, ctr.ID, client.ContainerStopOptions{}); err != nil {
@@ -160,10 +159,4 @@ func Down(ctx context.Context, cli docker.DockerClient, project *Project, remove
 	}
 
 	return nil
-}
-
-// isContainerRunning reports whether a container summary indicates a running
-// state. It checks the State.Status field for "running".
-func isContainerRunning(ctr container.Summary) bool {
-	return ctr.State == container.StateRunning
 }
