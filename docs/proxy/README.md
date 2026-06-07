@@ -51,6 +51,8 @@ For the MITM proxy to work, the container must trust the proxy's dynamically-gen
 
 The CA certificate is unique per session.
 
+> **Note:** Some runtimes (e.g. Node.js/undici) use a compiled-in CA bundle and do not automatically pick up certificates from the system trust store. dcx automatically sets `NODE_EXTRA_CA_CERTS` to the injected certificate path so that Node-based tools inside the container (such as pi) trust the proxy without additional configuration.
+
 ## Security Properties
 
 | Property | How dcx enforces it |

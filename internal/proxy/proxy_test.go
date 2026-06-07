@@ -148,6 +148,16 @@ func TestServerMITMInterceptsMatchingDomain(t *testing.T) {
 // TestServerTunnelsNonMatchingDomain tests that HTTPS traffic to a
 // non-matching domain is tunneled without MITM.
 func TestServerTunnelsNonMatchingDomain(t *testing.T) {
+	// Clear proxy environment variables so that goproxy does not try to
+	// forward upstream connections through an external proxy (e.g. when the
+	// test runs inside a container that already has HTTPS_PROXY set).
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("https_proxy", "")
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+
 	// Start a real TLS upstream so the proxy can tunnel to it.
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

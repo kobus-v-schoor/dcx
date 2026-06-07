@@ -138,6 +138,11 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		fmt.Sprintf("--remote-env=http_proxy=%s", proxyURL),
 		fmt.Sprintf("--remote-env=HTTPS_PROXY=%s", proxyURL),
 		fmt.Sprintf("--remote-env=https_proxy=%s", proxyURL),
+		// Node.js uses a compiled-in CA bundle and does not automatically
+		// pick up certificates installed in the system trust store. Setting
+		// NODE_EXTRA_CA_CERTS ensures that Node-based tools (e.g. pi/undici)
+		// trust the proxy's ephemeral CA certificate.
+		fmt.Sprintf("--remote-env=NODE_EXTRA_CA_CERTS=%s", certPath),
 	}
 
 	// Add provider-specific env vars (e.g. GH_TOKEN=dummy for GitHub).
