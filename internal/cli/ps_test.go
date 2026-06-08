@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -10,76 +9,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
 )
-
-// mockPsClient is a minimal test double that satisfies docker.DockerClient.
-type mockPsClient struct {
-	devcontainers     client.ContainerListResult
-	devcontainerErr   error
-	composeContainers client.ContainerListResult
-	composeListErr    error
-}
-
-func (m *mockPsClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
-	return client.PingResult{}, nil
-}
-
-func (m *mockPsClient) ContainerList(_ context.Context, opts client.ContainerListOptions) (client.ContainerListResult, error) {
-	labels, ok := opts.Filters["label"]
-	if !ok {
-		return client.ContainerListResult{}, nil
-	}
-	for k := range labels {
-		if strings.Contains(k, "devcontainer.local_folder") {
-			return m.devcontainers, m.devcontainerErr
-		}
-		if strings.Contains(k, "com.docker.compose.project") {
-			return m.composeContainers, m.composeListErr
-		}
-	}
-	return client.ContainerListResult{}, nil
-}
-
-func (m *mockPsClient) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
-	return client.ContainerInspectResult{}, nil
-}
-
-func (m *mockPsClient) ContainerStop(_ context.Context, _ string, _ client.ContainerStopOptions) (client.ContainerStopResult, error) {
-	return client.ContainerStopResult{}, nil
-}
-
-func (m *mockPsClient) ContainerRemove(_ context.Context, _ string, _ client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
-	return client.ContainerRemoveResult{}, nil
-}
-
-func (m *mockPsClient) ImageRemove(_ context.Context, _ string, _ client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
-	return client.ImageRemoveResult{}, nil
-}
-
-func (m *mockPsClient) VolumeRemove(_ context.Context, _ string, _ client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
-	return client.VolumeRemoveResult{}, nil
-}
-
-func (m *mockPsClient) CopyToContainer(_ context.Context, _ string, _ client.CopyToContainerOptions) (client.CopyToContainerResult, error) {
-	return client.CopyToContainerResult{}, nil
-}
-
-func (m *mockPsClient) ExecCreate(_ context.Context, _ string, _ client.ExecCreateOptions) (client.ExecCreateResult, error) {
-	return client.ExecCreateResult{ID: "exec123"}, nil
-}
-
-func (m *mockPsClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
-	return client.ExecStartResult{}, nil
-}
-
-func (m *mockPsClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
-	return client.ExecInspectResult{ExitCode: 0}, nil
-}
-
-func (m *mockPsClient) Close() error {
-	return nil
-}
 
 func TestFormatName(t *testing.T) {
 	tests := []struct {
@@ -296,122 +226,5 @@ func TestPrintContainers(t *testing.T) {
 	}
 	if !strings.Contains(output, "nginx:latest") {
 		t.Errorf("output should contain image nginx:latest, got:\n%s", output)
-	}
-}
-
-func TestFindProjectContainersDevcontainerOnly(t *testing.T) {
-	cli := &mockPsClient{
-		devcontainers: client.ContainerListResult{
-			Items: []container.Summary{
-				{
-					ID:    "abc123def4567890123456789012",
-					Names: []string{"/vsc-project"},
-					Image: "myimage",
-					State: container.StateRunning,
-				},
-			},
-		},
-	}
-
-	containers, err := findProjectContainers(context.Background(), cli, "/foo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(containers) != 1 {
-		t.Fatalf("expected 1 container, got %d", len(containers))
-	}
-	if containers[0].ID != "abc123def4567890123456789012" {
-		t.Errorf("container ID = %q, want abc123...", containers[0].ID)
-	}
-}
-
-func TestFindProjectContainersWithCompose(t *testing.T) {
-	cli := &mockPsClient{
-		devcontainers: client.ContainerListResult{
-			Items: []container.Summary{
-				{
-					ID:     "dev123def4567890123456789012",
-					Names:  []string{"/vsc-project"},
-					Image:  "myimage",
-					State:  container.StateRunning,
-					Labels: map[string]string{"devcontainer.local_folder": "/foo", "com.docker.compose.project": "proj"},
-				},
-			},
-		},
-		composeContainers: client.ContainerListResult{
-			Items: []container.Summary{
-				{
-					ID:     "svc123def4567890123456789012",
-					Names:  []string{"/proj_web_1"},
-					Image:  "nginx",
-					State:  container.StateRunning,
-					Labels: map[string]string{"com.docker.compose.project": "proj", "com.docker.compose.service": "web"},
-				},
-			},
-		},
-	}
-
-	containers, err := findProjectContainers(context.Background(), cli, "/foo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(containers) != 2 {
-		t.Fatalf("expected 2 containers, got %d", len(containers))
-	}
-
-	// Should be sorted by name.
-	if formatName(containers[0]) != "proj_web_1" {
-		t.Errorf("first container name = %q, want proj_web_1", formatName(containers[0]))
-	}
-	if formatName(containers[1]) != "vsc-project" {
-		t.Errorf("second container name = %q, want vsc-project", formatName(containers[1]))
-	}
-}
-
-func TestFindProjectContainersDedup(t *testing.T) {
-	// If the devcontainer is also returned by compose list, it should not
-	// appear twice.
-	cli := &mockPsClient{
-		devcontainers: client.ContainerListResult{
-			Items: []container.Summary{
-				{
-					ID:     "same123def456789012345678901",
-					Names:  []string{"/vsc-project"},
-					Image:  "myimage",
-					State:  container.StateRunning,
-					Labels: map[string]string{"devcontainer.local_folder": "/foo", "com.docker.compose.project": "proj"},
-				},
-			},
-		},
-		composeContainers: client.ContainerListResult{
-			Items: []container.Summary{
-				{
-					ID:     "same123def456789012345678901",
-					Names:  []string{"/vsc-project"},
-					Image:  "myimage",
-					State:  container.StateRunning,
-					Labels: map[string]string{"com.docker.compose.project": "proj", "com.docker.compose.service": "dev"},
-				},
-			},
-		},
-	}
-
-	containers, err := findProjectContainers(context.Background(), cli, "/foo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(containers) != 1 {
-		t.Fatalf("expected 1 container, got %d", len(containers))
-	}
-}
-
-func TestFindProjectContainersListError(t *testing.T) {
-	cli := &mockPsClient{
-		devcontainerErr: fmt.Errorf("list failed"),
-	}
-
-	_, err := findProjectContainers(context.Background(), cli, "/foo")
-	if err == nil {
-		t.Fatal("expected error when container list fails")
 	}
 }

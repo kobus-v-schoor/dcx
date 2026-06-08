@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -61,6 +62,197 @@ func (m *discoveryMockClient) ExecInspect(_ context.Context, _ string, _ client.
 
 func (m *discoveryMockClient) Close() error {
 	return nil
+}
+
+// projectContainersMockClient is a filter-aware test double that returns
+// different results for devcontainer and compose container list queries.
+type projectContainersMockClient struct {
+	devcontainers     client.ContainerListResult
+	devcontainerErr   error
+	composeContainers client.ContainerListResult
+	composeListErr    error
+}
+
+func (m *projectContainersMockClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
+	return client.PingResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerList(_ context.Context, opts client.ContainerListOptions) (client.ContainerListResult, error) {
+	labels, ok := opts.Filters["label"]
+	if !ok {
+		return client.ContainerListResult{}, nil
+	}
+	for k := range labels {
+		if strings.Contains(k, "devcontainer.local_folder") {
+			return m.devcontainers, m.devcontainerErr
+		}
+		if strings.Contains(k, "com.docker.compose.project") {
+			return m.composeContainers, m.composeListErr
+		}
+	}
+	return client.ContainerListResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	return client.ContainerInspectResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerStop(_ context.Context, _ string, _ client.ContainerStopOptions) (client.ContainerStopResult, error) {
+	return client.ContainerStopResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerRemove(_ context.Context, _ string, _ client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
+	return client.ContainerRemoveResult{}, nil
+}
+
+func (m *projectContainersMockClient) ImageRemove(_ context.Context, _ string, _ client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
+	return client.ImageRemoveResult{}, nil
+}
+
+func (m *projectContainersMockClient) VolumeRemove(_ context.Context, _ string, _ client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
+	return client.VolumeRemoveResult{}, nil
+}
+
+func (m *projectContainersMockClient) CopyToContainer(_ context.Context, _ string, _ client.CopyToContainerOptions) (client.CopyToContainerResult, error) {
+	return client.CopyToContainerResult{}, nil
+}
+
+func (m *projectContainersMockClient) ExecCreate(_ context.Context, _ string, _ client.ExecCreateOptions) (client.ExecCreateResult, error) {
+	return client.ExecCreateResult{ID: "exec123"}, nil
+}
+
+func (m *projectContainersMockClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
+	return client.ExecStartResult{}, nil
+}
+
+func (m *projectContainersMockClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
+	return client.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func (m *projectContainersMockClient) Close() error {
+	return nil
+}
+
+func TestFindProjectContainersDevcontainerOnly(t *testing.T) {
+	cli := &projectContainersMockClient{
+		devcontainers: client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:    "abc123def4567890123456789012",
+					Names: []string{"/vsc-project"},
+					Image: "myimage",
+					State: container.StateRunning,
+				},
+			},
+		},
+	}
+
+	containers, err := FindProjectContainers(context.Background(), cli, "/foo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(containers))
+	}
+	if containers[0].ID != "abc123def4567890123456789012" {
+		t.Errorf("container ID = %q, want abc123...", containers[0].ID)
+	}
+}
+
+func TestFindProjectContainersWithCompose(t *testing.T) {
+	cli := &projectContainersMockClient{
+		devcontainers: client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:     "dev123def4567890123456789012",
+					Names:  []string{"/vsc-project"},
+					Image:  "myimage",
+					State:  container.StateRunning,
+					Labels: map[string]string{"devcontainer.local_folder": "/foo", "com.docker.compose.project": "proj"},
+				},
+			},
+		},
+		composeContainers: client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:     "svc123def4567890123456789012",
+					Names:  []string{"/proj_web_1"},
+					Image:  "nginx",
+					State:  container.StateRunning,
+					Labels: map[string]string{"com.docker.compose.project": "proj", "com.docker.compose.service": "web"},
+				},
+			},
+		},
+	}
+
+	containers, err := FindProjectContainers(context.Background(), cli, "/foo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(containers))
+	}
+
+	// Verify both containers are present (order is unstable since
+	// FindProjectContainers does not sort).
+	ids := make(map[string]bool)
+	for _, c := range containers {
+		ids[c.ID] = true
+	}
+	if !ids["dev123def4567890123456789012"] {
+		t.Errorf("expected devcontainer ID in results")
+	}
+	if !ids["svc123def4567890123456789012"] {
+		t.Errorf("expected compose container ID in results")
+	}
+}
+
+func TestFindProjectContainersDedup(t *testing.T) {
+	// If the devcontainer is also returned by compose list, it should not
+	// appear twice.
+	cli := &projectContainersMockClient{
+		devcontainers: client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:     "same123def456789012345678901",
+					Names:  []string{"/vsc-project"},
+					Image:  "myimage",
+					State:  container.StateRunning,
+					Labels: map[string]string{"devcontainer.local_folder": "/foo", "com.docker.compose.project": "proj"},
+				},
+			},
+		},
+		composeContainers: client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:     "same123def456789012345678901",
+					Names:  []string{"/vsc-project"},
+					Image:  "myimage",
+					State:  container.StateRunning,
+					Labels: map[string]string{"com.docker.compose.project": "proj", "com.docker.compose.service": "dev"},
+				},
+			},
+		},
+	}
+
+	containers, err := FindProjectContainers(context.Background(), cli, "/foo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(containers))
+	}
+}
+
+func TestFindProjectContainersListError(t *testing.T) {
+	cli := &projectContainersMockClient{
+		devcontainerErr: fmt.Errorf("list failed"),
+	}
+
+	_, err := FindProjectContainers(context.Background(), cli, "/foo")
+	if err == nil {
+		t.Fatal("expected error when container list fails")
+	}
 }
 
 func TestFindProjectsAndVolumesNoCompose(t *testing.T) {

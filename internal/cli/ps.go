@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,10 +42,15 @@ func runPs(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = cli.Close() }()
 
-	containers, err := findProjectContainers(cmd.Context(), cli, workspaceFolder)
+	containers, err := compose.FindProjectContainers(cmd.Context(), cli, workspaceFolder)
 	if err != nil {
 		return fmt.Errorf("dcx ps: %w", err)
 	}
+
+	// Sort by name for stable output.
+	sort.Slice(containers, func(i, j int) bool {
+		return formatName(containers[i]) < formatName(containers[j])
+	})
 
 	if len(containers) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "No containers found for this project.")
@@ -54,55 +58,6 @@ func runPs(cmd *cobra.Command, args []string) error {
 	}
 
 	return printContainers(cmd.OutOrStdout(), containers)
-}
-
-// findProjectContainers discovers all containers associated with the current
-// workspace: the devcontainer itself (if any) plus all Docker Compose
-// containers that belong to the same compose project as the devcontainer.
-// Containers are deduplicated by ID so a devcontainer that is itself part
-// of a compose project is not listed twice.
-func findProjectContainers(ctx context.Context, cli docker.DockerClient, workspaceFolder string) ([]container.Summary, error) {
-	devcontainers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := make(map[string]struct{})
-	var all []container.Summary
-
-	for _, ctr := range devcontainers.Items {
-		if _, ok := seen[ctr.ID]; ok {
-			continue
-		}
-		seen[ctr.ID] = struct{}{}
-		all = append(all, ctr)
-	}
-
-	projects, _, err := compose.FindProjectsAndVolumes(ctx, cli, workspaceFolder)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, project := range projects {
-		composeContainers, err := compose.FindContainers(ctx, cli, project)
-		if err != nil {
-			return nil, err
-		}
-		for _, ctr := range composeContainers.Items {
-			if _, ok := seen[ctr.ID]; ok {
-				continue
-			}
-			seen[ctr.ID] = struct{}{}
-			all = append(all, ctr)
-		}
-	}
-
-	// Sort by name for stable output.
-	sort.Slice(all, func(i, j int) bool {
-		return formatName(all[i]) < formatName(all[j])
-	})
-
-	return all, nil
 }
 
 // printContainers writes a tabular listing of containers to w.
