@@ -53,8 +53,8 @@ func runPs(cmd *cobra.Command, args []string) error {
 	})
 
 	if len(containers) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No containers found for this project.")
-		return nil
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "No containers found for this project.")
+		return err
 	}
 
 	return printContainers(cmd.OutOrStdout(), containers)
@@ -63,9 +63,11 @@ func runPs(cmd *cobra.Command, args []string) error {
 // printContainers writes a tabular listing of containers to w.
 func printContainers(w io.Writer, containers []container.Summary) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tIMAGE\tCOMMAND\tSERVICE\tCREATED\tSTATUS\tPORTS")
+	if _, err := fmt.Fprintln(tw, "NAME\tIMAGE\tCOMMAND\tSERVICE\tCREATED\tSTATUS\tPORTS"); err != nil {
+		return err
+	}
 	for _, ctr := range containers {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			formatName(ctr),
 			ctr.Image,
 			formatCommand(ctr.Command),
@@ -73,7 +75,9 @@ func printContainers(w io.Writer, containers []container.Summary) error {
 			formatCreated(ctr.Created),
 			ctr.Status,
 			formatPorts(ctr.Ports),
-		)
+		); err != nil {
+			return err
+		}
 	}
 	return tw.Flush()
 }
