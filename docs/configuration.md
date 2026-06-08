@@ -12,6 +12,8 @@ dcx loads configuration from two YAML files, environment variables, and CLI flag
 | **User config** | `~/.config/dcx/config.yaml` | Personal settings that apply to all projects |
 | **Project config** | `.devcontainer/dcx.yaml` | Project-specific settings committed to the repo |
 
+If you run `dcx` from a subdirectory of a project, it will automatically traverse up the directory tree to find the `.devcontainer` folder and use the corresponding directory as the project root.
+
 If `XDG_CONFIG_HOME` is set, the user config is read from `$XDG_CONFIG_HOME/dcx/config.yaml`.
 
 ## Precedence
