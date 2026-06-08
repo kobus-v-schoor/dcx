@@ -49,6 +49,12 @@ func Execute(v string) error {
 		}
 		activeCfg = cfg
 
+		// If the current directory (or the directory passed via --workspace-folder)
+		// does not contain a .devcontainer directory, config.Load traverses
+		// upwards to find the project root. Update workspaceFolder so that all
+		// downstream commands (up, down, exec, etc.) operate on the resolved root.
+		workspaceFolder = cfg.WorkspaceFolder
+
 		// CLI flag takes highest precedence: if --log-level was explicitly set
 		// it overrides config file and env var values.
 		logLevel := cfg.LogLevel

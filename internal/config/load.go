@@ -26,6 +26,11 @@ func Load(cwd string) (*Config, error) {
 		return nil, fmt.Errorf("resolving path %s: %w", cwd, err)
 	}
 
+	projectRoot, err := FindProjectRoot(absCWD)
+	if err != nil {
+		return nil, err
+	}
+
 	v := viper.New()
 
 	v.SetEnvPrefix("DCX")
@@ -71,7 +76,7 @@ func Load(cwd string) (*Config, error) {
 	// Merge project config on top of user config. Viper's MergeInConfig
 	// replaces values at the same key path, which matches the project >
 	// user precedence rule.
-	projectCaptured, err := mergeProjectConfig(v, absCWD)
+	projectCaptured, err := mergeProjectConfig(v, projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +98,8 @@ func Load(cwd string) (*Config, error) {
 	// Concatenate user and project environment variables; later entries for
 	// the same container-side name take precedence (project wins over user).
 	cfg.Environment = concatSlices(userCaptured.Environment, projectCaptured.Environment)
+
+	cfg.WorkspaceFolder = projectRoot
 
 	return &cfg, nil
 }
@@ -141,13 +148,13 @@ func loadAndCaptureUserConfig(v *viper.Viper) (*capturedConfig, error) {
 }
 
 // mergeProjectConfig merges the project-level config from
-// <cwd>/.devcontainer/dcx.yaml into the viper instance. It returns the
+// <dir>/.devcontainer/dcx.yaml into the viper instance. It returns the
 // project's DefaultFeatures, Mounts, and Environment so the caller can apply
 // custom merge logic. Returns an empty capturedConfig when no project config
 // file exists.
-func mergeProjectConfig(v *viper.Viper, cwd string) (*capturedConfig, error) {
+func mergeProjectConfig(v *viper.Viper, dir string) (*capturedConfig, error) {
 	v.SetConfigName("dcx")
-	v.AddConfigPath(filepath.Join(cwd, ".devcontainer"))
+	v.AddConfigPath(filepath.Join(dir, ".devcontainer"))
 
 	// Reset the config name/path so we read from the project location.
 	// MergeInConfig merges on top of existing values.
@@ -210,6 +217,36 @@ func UserConfigDir() (string, error) {
 		return "", fmt.Errorf("determining user home directory: %w", err)
 	}
 	return filepath.Join(dir, ".config", "dcx"), nil
+}
+
+// FindProjectRoot traverses the directory tree upwards from cwd to find a
+// directory containing a .devcontainer subdirectory. If found, it returns the
+// absolute path to that directory (the project root). If no .devcontainer
+// directory is found, it returns the absolute path of cwd. Called by
+// config.Load to resolve the effective workspace folder before loading
+// project-level config.
+func FindProjectRoot(cwd string) (string, error) {
+	absCWD, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolving path %s: %w", cwd, err)
+	}
+
+	dir := absCWD
+	for {
+		devcontainerPath := filepath.Join(dir, ".devcontainer")
+		info, err := os.Stat(devcontainerPath)
+		if err == nil && info.IsDir() {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return absCWD, nil
 }
 
 // mergeFeatures combines user and project feature lists with union semantics.

@@ -680,3 +680,91 @@ func TestLoadDefaultImageEnvOverride(t *testing.T) {
 		t.Errorf("DefaultImage = %q, want ubuntu:22.04", cfg.DefaultImage)
 	}
 }
+
+func TestFindProjectRootInCurrentDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := FindProjectRoot(dir)
+	if err != nil {
+		t.Fatalf("FindProjectRoot() error: %v", err)
+	}
+	if root != dir {
+		t.Errorf("FindProjectRoot() = %q, want %q", root, dir)
+	}
+}
+
+func TestFindProjectRootInParent(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "src", "subpackage")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".devcontainer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found, err := FindProjectRoot(sub)
+	if err != nil {
+		t.Fatalf("FindProjectRoot() error: %v", err)
+	}
+	if found != root {
+		t.Errorf("FindProjectRoot() = %q, want %q", found, root)
+	}
+}
+
+func TestFindProjectRootNotFound(t *testing.T) {
+	dir := t.TempDir()
+	found, err := FindProjectRoot(dir)
+	if err != nil {
+		t.Fatalf("FindProjectRoot() error: %v", err)
+	}
+	if found != dir {
+		t.Errorf("FindProjectRoot() = %q, want %q", found, dir)
+	}
+}
+
+func TestFindProjectRootIgnoresFile(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "src")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".devcontainer"), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := FindProjectRoot(sub)
+	if err != nil {
+		t.Fatalf("FindProjectRoot() error: %v", err)
+	}
+	if found != sub {
+		t.Errorf("FindProjectRoot() = %q, want %q", found, sub)
+	}
+}
+
+func TestLoadFromSubdirectory(t *testing.T) {
+	home := t.TempDir()
+	setupUserConfigEnv(t, home)
+
+	root := t.TempDir()
+	sub := filepath.Join(root, "src", "subpackage")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProjectConfig(t, root, `
+ssh:
+  forward_agent: false
+`)
+
+	cfg, err := Load(sub)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.WorkspaceFolder != root {
+		t.Errorf("WorkspaceFolder = %q, want %q", cfg.WorkspaceFolder, root)
+	}
+	if cfg.SSH.ForwardAgent {
+		t.Error("SSH.ForwardAgent should be false (project config loaded from parent)")
+	}
+}

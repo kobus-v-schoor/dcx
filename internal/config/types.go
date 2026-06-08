@@ -142,6 +142,12 @@ type EnvVar string
 // types with viper defaults; viper's precedence chain (flag → env → config →
 // default) ensures unset fields receive their default value rather than zero.
 type Config struct {
+	// WorkspaceFolder is the absolute path to the resolved project root.
+	// When the starting directory or one of its ancestors contains a
+	// .devcontainer directory, WorkspaceFolder points to that ancestor.
+	// Otherwise it falls back to the original cwd passed to Load.
+	WorkspaceFolder string
+
 	Proxy           ProxyConfig `yaml:"proxy" mapstructure:"proxy"`
 	SSH             SSHConfig   `yaml:"ssh" mapstructure:"ssh"`
 	Git             GitConfig   `yaml:"git" mapstructure:"git"`
