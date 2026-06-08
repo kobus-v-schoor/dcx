@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 )
 
@@ -39,4 +40,49 @@ func FindProjectsAndVolumes(ctx context.Context, cli docker.DockerClient, worksp
 	}
 
 	return projects, volumes, nil
+}
+
+// FindProjectContainers discovers all containers associated with the given
+// workspace folder: the devcontainer itself (if any) plus all Docker Compose
+// containers that belong to the same compose project as the devcontainer.
+// Containers are deduplicated by ID so a devcontainer that is itself part
+// of a compose project is not listed twice. The returned slice is unordered;
+// callers should sort if stable output is required.
+func FindProjectContainers(ctx context.Context, cli docker.DockerClient, workspaceFolder string) ([]container.Summary, error) {
+	devcontainers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	var all []container.Summary
+
+	for _, ctr := range devcontainers.Items {
+		if _, ok := seen[ctr.ID]; ok {
+			continue
+		}
+		seen[ctr.ID] = struct{}{}
+		all = append(all, ctr)
+	}
+
+	projects, _, err := FindProjectsAndVolumes(ctx, cli, workspaceFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, project := range projects {
+		composeContainers, err := FindContainers(ctx, cli, project)
+		if err != nil {
+			return nil, err
+		}
+		for _, ctr := range composeContainers.Items {
+			if _, ok := seen[ctr.ID]; ok {
+				continue
+			}
+			seen[ctr.ID] = struct{}{}
+			all = append(all, ctr)
+		}
+	}
+
+	return all, nil
 }
