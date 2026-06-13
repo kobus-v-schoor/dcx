@@ -63,13 +63,10 @@ func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 		return nil, err
 	}
 
-	// Extract the container-side workspace folder path. The devcontainer CLI
-	// mounts the workspace at the host path inside the container by default,
-	// so we fall back to the host workspaceFolder when the property is absent.
-	containerWorkspaceFolder := cfg.WorkspaceFolder
-	if containerWorkspaceFolder == "" {
-		containerWorkspaceFolder = workspaceFolder
-	}
+	// Extract the container-side workspace folder path. Delegate to the
+	// spec package so the resolution logic is centralised and matches the
+	// devcontainer specification.
+	containerWorkspaceFolder := spec.ResolveWorkspaceFolder(cfg, workspaceFolder)
 
 	// Extract remoteUser and derive the container home directory.
 	// remoteUser overrides the default user in the container image, and
