@@ -26,14 +26,13 @@ func TestResolveWorkspaceFolderDefault(t *testing.T) {
 }
 
 func TestResolveWorkspaceFolderFallbackWhenAbsFails(t *testing.T) {
-	// Passing an empty string to Abs returns the working directory on most
-	// platforms; this test simply verifies the function does not panic and
-	// returns the input when the config has no workspaceFolder.
+	// Passing an empty string to Abs returns the working directory on all
+	// supported platforms; this test simply verifies the function does not
+	// panic and returns a non-empty path.
 	cfg := &Config{}
 	got := ResolveWorkspaceFolder(cfg, "")
-	if got == "" && runtime.GOOS == "windows" {
-		// On Windows, filepath.Abs("") returns the current directory.
-		// This is acceptable; the test only checks we don't panic.
+	if got == "" {
+		t.Error("expected non-empty path from ResolveWorkspaceFolder with empty input")
 	}
 }
 
