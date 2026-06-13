@@ -43,12 +43,16 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
-- `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation
+- `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation. The upstream spec is vendored here as a Git submodule (`internal/devcontainer/spec/devcontainer-spec/docs/specs/`) and must be treated as the source of truth for all spec-level behavior.
 - `internal/override/` — temporary override `devcontainer.json` generation
 - `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
 - `internal/runner/` — devcontainer CLI execution wrapper
 
 Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--override-config`, `--additional-features`, `--mount`, `--remote-env`). Never modify the original `devcontainer.json` — write overrides to a temp dir and pass via `--override-config`.
+
+## Dev Container Specification
+
+The official dev container specification is included as a Git submodule at `internal/devcontainer/spec/devcontainer-spec/`. When implementing or modifying any spec-level feature (new `devcontainer.json` properties, Features, Templates, lifecycle scripts, etc.), read the relevant markdown files directly from `internal/devcontainer/spec/devcontainer-spec/docs/specs/` and treat them as the authoritative source of truth. Do not rely on summaries, online documentation, or memory of the spec — always reference the actual submodule files.
 
 ## PR & Issue Workflow
 
