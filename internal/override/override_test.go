@@ -578,10 +578,10 @@ func TestInjectMountsAddsNewMounts(t *testing.T) {
 	if len(od.Config.Mounts) != 2 {
 		t.Fatalf("expected 2 mounts, got %d", len(od.Config.Mounts))
 	}
-	if od.Config.Mounts[0] != "type=bind,source=/host/data,target=/container/data,readonly" {
+	if s, _ := od.Config.Mounts[0].AsString(); s != "type=bind,source=/host/data,target=/container/data,readonly" {
 		t.Errorf("Mounts[0] = %v, want readonly mount", od.Config.Mounts[0])
 	}
-	if od.Config.Mounts[1] != "type=bind,source=/host/config,target=/container/config" {
+	if s, _ := od.Config.Mounts[1].AsString(); s != "type=bind,source=/host/config,target=/container/config" {
 		t.Errorf("Mounts[1] = %v, want non-readonly mount", od.Config.Mounts[1])
 	}
 
@@ -636,10 +636,10 @@ func TestInjectMountsAppendsToExisting(t *testing.T) {
 	if len(od.Config.Mounts) != 2 {
 		t.Fatalf("expected 2 mounts (1 existing + 1 injected), got %d", len(od.Config.Mounts))
 	}
-	if od.Config.Mounts[0] != "type=volume,source=myvol,target=/data" {
+	if s, _ := od.Config.Mounts[0].AsString(); s != "type=volume,source=myvol,target=/data" {
 		t.Errorf("Mounts[0] = %v, want existing mount", od.Config.Mounts[0])
 	}
-	if od.Config.Mounts[1] != "type=bind,source=/host/path,target=/container/path,readonly" {
+	if s, _ := od.Config.Mounts[1].AsString(); s != "type=bind,source=/host/path,target=/container/path,readonly" {
 		t.Errorf("Mounts[1] = %v, want injected mount", od.Config.Mounts[1])
 	}
 
@@ -772,8 +772,8 @@ func TestInjectPostCreateCommandAddsNew(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
 
-	if od.Config.PostCreateCommand != "echo hello" {
-		t.Errorf("PostCreateCommand = %q, want echo hello", od.Config.PostCreateCommand)
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo hello" {
+		t.Errorf("PostCreateCommand = %q, want echo hello", s)
 	}
 
 	if err := od.Save(); err != nil {
@@ -818,8 +818,8 @@ func TestInjectPostCreateCommandAppendsToString(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
 
-	if od.Config.PostCreateCommand != "echo original && echo hello" {
-		t.Errorf("PostCreateCommand = %q, want \"echo original && echo hello\"", od.Config.PostCreateCommand)
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo original && echo hello" {
+		t.Errorf("PostCreateCommand = %q, want \"echo original && echo hello\"", s)
 	}
 
 	if err := od.Save(); err != nil {
@@ -845,7 +845,7 @@ func TestInjectPostCreateCommandAppendsToString(t *testing.T) {
 	}
 }
 
-func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
+func TestInjectPostCreateCommandConvertsArray(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
@@ -864,8 +864,8 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
 
-	if od.Config.PostCreateCommand != "echo hello" {
-		t.Errorf("PostCreateCommand = %q, want echo hello", od.Config.PostCreateCommand)
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo original && echo hello" {
+		t.Errorf("PostCreateCommand = %q, want \"echo original && echo hello\"", s)
 	}
 
 	if err := od.Save(); err != nil {
@@ -886,8 +886,8 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected postCreateCommand to be a string, got %T", config["postCreateCommand"])
 	}
-	if cmd != "echo hello" {
-		t.Errorf("postCreateCommand = %v, want echo hello", cmd)
+	if cmd != "echo original && echo hello" {
+		t.Errorf("postCreateCommand = %v, want \"echo original && echo hello\"", cmd)
 	}
 }
 
@@ -909,8 +909,8 @@ func TestInjectPostCreateCommandMultiple(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello", "echo world"})
 
-	if od.Config.PostCreateCommand != "echo hello && echo world" {
-		t.Errorf("PostCreateCommand = %q, want \"echo hello && echo world\"", od.Config.PostCreateCommand)
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo hello && echo world" {
+		t.Errorf("PostCreateCommand = %q, want \"echo hello && echo world\"", s)
 	}
 
 	if err := od.Save(); err != nil {
@@ -955,7 +955,7 @@ func TestInjectPostCreateCommandEmptyNoop(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{})
 
-	if od.Config.PostCreateCommand != "" {
-		t.Errorf("PostCreateCommand = %q, want empty", od.Config.PostCreateCommand)
+	if !od.Config.PostCreateCommand.IsEmpty() {
+		t.Errorf("PostCreateCommand should be empty")
 	}
 }

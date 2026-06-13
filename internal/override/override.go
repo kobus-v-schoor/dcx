@@ -151,26 +151,69 @@ func (o *OverrideDir) InjectMounts(mountStrings []string) {
 		return
 	}
 
-	o.Config.Mounts = append(o.Config.Mounts, mountStrings...)
+	for _, s := range mountStrings {
+		o.Config.Mounts = append(o.Config.Mounts, spec.NewMountEntryString(s))
+	}
 }
 
 // InjectPostCreateCommand appends the provided shell command strings to the
 // in-memory config's postCreateCommand property. If the base config already
 // defines a postCreateCommand string, it is combined with the new commands
 // using " && " so all commands run. If the base config defined an array or
-// object form, the new commands replace it entirely. The caller must call
-// Save to persist the change to disk. Called by dcx up when injecting
-// post-create commands from multiple sources.
+// object form, it is converted to a shell string and then combined. The
+// caller must call Save to persist the change to disk. Called by dcx up
+// when injecting post-create commands from multiple sources.
 func (o *OverrideDir) InjectPostCreateCommand(cmds []string) {
 	if len(cmds) == 0 {
 		return
 	}
 
-	if o.Config.PostCreateCommand != "" {
-		cmds = append([]string{o.Config.PostCreateCommand}, cmds...)
+	injected := strings.Join(cmds, " && ")
+	base := o.Config.PostCreateCommand
+
+	if base.IsEmpty() {
+		o.Config.PostCreateCommand = spec.NewLifecycleCommandString(injected)
+		return
 	}
 
-	o.Config.PostCreateCommand = strings.Join(cmds, " && ")
+	baseStr := lifecycleToString(base)
+	if baseStr != "" {
+		o.Config.PostCreateCommand = spec.NewLifecycleCommandString(baseStr + " && " + injected)
+	} else {
+		o.Config.PostCreateCommand = spec.NewLifecycleCommandString(injected)
+	}
+}
+
+// lifecycleToString converts a LifecycleCommand of any form (string, array,
+// or object) into a single shell string suitable for combining with other
+// commands using &&. Arrays are joined with spaces. Object values are
+// converted to strings and joined with &&.
+func lifecycleToString(lc spec.LifecycleCommand) string {
+	if s, ok := lc.AsString(); ok {
+		return s
+	}
+	if arr, ok := lc.AsArray(); ok {
+		return strings.Join(arr, " ")
+	}
+	if obj, ok := lc.AsObject(); ok {
+		var parts []string
+		for _, v := range obj {
+			switch val := v.(type) {
+			case string:
+				parts = append(parts, val)
+			case []interface{}:
+				var args []string
+				for _, a := range val {
+					if s, ok := a.(string); ok {
+						args = append(args, s)
+					}
+				}
+				parts = append(parts, strings.Join(args, " "))
+			}
+		}
+		return strings.Join(parts, " && ")
+	}
+	return ""
 }
 
 // InjectContainerEnv merges the provided environment variables into the

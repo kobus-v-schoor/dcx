@@ -102,8 +102,8 @@ func TestLoadHandlesPolymorphicFields(t *testing.T) {
 	if len(cfg.DockerComposeFile) != 1 || cfg.DockerComposeFile[0] != "docker-compose.yml" {
 		t.Errorf("DockerComposeFile = %v, want [docker-compose.yml]", cfg.DockerComposeFile)
 	}
-	if cfg.PostCreateCommand != "echo hello" {
-		t.Errorf("PostCreateCommand = %q, want echo hello", cfg.PostCreateCommand)
+	if s, _ := cfg.PostCreateCommand.AsString(); s != "echo hello" {
+		t.Errorf("PostCreateCommand = %q, want echo hello", s)
 	}
 }
 

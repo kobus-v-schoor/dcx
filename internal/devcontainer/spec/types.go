@@ -7,7 +7,207 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
+
+// ForwardPort represents an entry in the devcontainer.json forwardPorts
+// array, which may be an integer port number or a "host:port" string per
+// the official spec. The underlying raw JSON is preserved so the original
+// form survives a marshal round-trip.
+type ForwardPort json.RawMessage
+
+// UnmarshalJSON implements json.Unmarshaler for ForwardPort.
+func (f *ForwardPort) UnmarshalJSON(data []byte) error {
+	*f = ForwardPort(append([]byte(nil), data...))
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler for ForwardPort.
+func (f ForwardPort) MarshalJSON() ([]byte, error) {
+	if f == nil {
+		return []byte("null"), nil
+	}
+	return []byte(f), nil
+}
+
+// AsInt returns the port as an int when the raw JSON is an integer.
+func (f ForwardPort) AsInt() (int, bool) {
+	var i int
+	if err := json.Unmarshal(f, &i); err == nil {
+		return i, true
+	}
+	return 0, false
+}
+
+// AsString returns the port as a string when the raw JSON is a string.
+func (f ForwardPort) AsString() (string, bool) {
+	var s string
+	if err := json.Unmarshal(f, &s); err == nil {
+		return s, true
+	}
+	return "", false
+}
+
+// String returns the best string representation of the port.
+func (f ForwardPort) String() string {
+	if s, ok := f.AsString(); ok {
+		return s
+	}
+	if i, ok := f.AsInt(); ok {
+		return strconv.Itoa(i)
+	}
+	return ""
+}
+
+// IsEmpty reports whether the forward port has no value.
+func (f ForwardPort) IsEmpty() bool {
+	return len(f) == 0 || string(f) == "null"
+}
+
+// Clone returns a deep copy of the ForwardPort.
+func (f ForwardPort) Clone() ForwardPort {
+	if f == nil {
+		return nil
+	}
+	return ForwardPort(append([]byte(nil), f...))
+}
+
+// NewForwardPortInt creates a ForwardPort from an integer.
+func NewForwardPortInt(i int) ForwardPort {
+	raw, _ := json.Marshal(i)
+	return ForwardPort(raw)
+}
+
+// NewForwardPortString creates a ForwardPort from a string.
+func NewForwardPortString(s string) ForwardPort {
+	raw, _ := json.Marshal(s)
+	return ForwardPort(raw)
+}
+
+// MountEntry represents a single mount in the devcontainer.json mounts array.
+// The spec accepts both Docker --mount format strings and structured mount
+// objects. The original JSON is preserved so the form survives round-trip.
+type MountEntry json.RawMessage
+
+// UnmarshalJSON implements json.Unmarshaler for MountEntry.
+func (m *MountEntry) UnmarshalJSON(data []byte) error {
+	*m = MountEntry(append([]byte(nil), data...))
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler for MountEntry.
+func (m MountEntry) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte("null"), nil
+	}
+	return []byte(m), nil
+}
+
+// AsString returns the mount as a string when the raw JSON is a string.
+func (m MountEntry) AsString() (string, bool) {
+	var s string
+	if err := json.Unmarshal(m, &s); err == nil {
+		return s, true
+	}
+	return "", false
+}
+
+// IsEmpty reports whether the mount entry has no value.
+func (m MountEntry) IsEmpty() bool {
+	return len(m) == 0 || string(m) == "null"
+}
+
+// Clone returns a deep copy of the MountEntry.
+func (m MountEntry) Clone() MountEntry {
+	if m == nil {
+		return nil
+	}
+	return MountEntry(append([]byte(nil), m...))
+}
+
+// NewMountEntryString creates a MountEntry from a Docker --mount string.
+func NewMountEntryString(s string) MountEntry {
+	raw, _ := json.Marshal(s)
+	return MountEntry(raw)
+}
+
+// LifecycleCommand represents a devcontainer lifecycle command (e.g.
+// postCreateCommand, postStartCommand). The spec accepts string, array,
+// and object forms. The original JSON is preserved so the form survives
+// round-trip.
+type LifecycleCommand json.RawMessage
+
+// UnmarshalJSON implements json.Unmarshaler for LifecycleCommand.
+func (lc *LifecycleCommand) UnmarshalJSON(data []byte) error {
+	*lc = LifecycleCommand(append([]byte(nil), data...))
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler for LifecycleCommand.
+func (lc LifecycleCommand) MarshalJSON() ([]byte, error) {
+	if lc == nil {
+		return []byte("null"), nil
+	}
+	return []byte(lc), nil
+}
+
+// IsEmpty reports whether the lifecycle command has no value.
+func (lc LifecycleCommand) IsEmpty() bool {
+	return len(lc) == 0 || string(lc) == "null"
+}
+
+// AsString returns the command as a string when the raw JSON is a string.
+func (lc LifecycleCommand) AsString() (string, bool) {
+	var s string
+	if err := json.Unmarshal(lc, &s); err == nil {
+		return s, true
+	}
+	return "", false
+}
+
+// AsArray returns the command as a string slice when the raw JSON is an array.
+func (lc LifecycleCommand) AsArray() ([]string, bool) {
+	var arr []string
+	if err := json.Unmarshal(lc, &arr); err == nil {
+		return arr, true
+	}
+	return nil, false
+}
+
+// AsObject returns the command as a map when the raw JSON is an object.
+func (lc LifecycleCommand) AsObject() (map[string]interface{}, bool) {
+	var obj map[string]interface{}
+	if err := json.Unmarshal(lc, &obj); err == nil {
+		return obj, true
+	}
+	return nil, false
+}
+
+// Clone returns a deep copy of the LifecycleCommand.
+func (lc LifecycleCommand) Clone() LifecycleCommand {
+	if lc == nil {
+		return nil
+	}
+	return LifecycleCommand(append([]byte(nil), lc...))
+}
+
+// NewLifecycleCommandString creates a LifecycleCommand from a string.
+func NewLifecycleCommandString(s string) LifecycleCommand {
+	raw, _ := json.Marshal(s)
+	return LifecycleCommand(raw)
+}
+
+// NewLifecycleCommandArray creates a LifecycleCommand from a string slice.
+func NewLifecycleCommandArray(cmds ...string) LifecycleCommand {
+	raw, _ := json.Marshal(cmds)
+	return LifecycleCommand(raw)
+}
+
+// NewLifecycleCommandObject creates a LifecycleCommand from a map.
+func NewLifecycleCommandObject(obj map[string]interface{}) LifecycleCommand {
+	raw, _ := json.Marshal(obj)
+	return LifecycleCommand(raw)
+}
 
 // Config represents the devcontainer.json configuration properties that dcx
 // cares about. Optional fields use pointer types so that absent, zero, and
@@ -28,17 +228,17 @@ type Config struct {
 	ContainerUser       string                     `json:"containerUser,omitempty"`
 	ContainerEnv        map[string]string          `json:"containerEnv,omitempty"`
 	RemoteEnv           map[string]string          `json:"remoteEnv,omitempty"`
-	Mounts              []string                   `json:"mounts,omitempty"`
+	Mounts              []MountEntry               `json:"mounts,omitempty"`
 	Features            map[string]json.RawMessage `json:"features,omitempty"`
-	PostCreateCommand   string                     `json:"postCreateCommand,omitempty"`
-	PostStartCommand    string                     `json:"postStartCommand,omitempty"`
-	PostAttachCommand   string                     `json:"postAttachCommand,omitempty"`
-	InitializeCommand   string                     `json:"initializeCommand,omitempty"`
+	PostCreateCommand   LifecycleCommand           `json:"postCreateCommand,omitempty"`
+	PostStartCommand    LifecycleCommand           `json:"postStartCommand,omitempty"`
+	PostAttachCommand   LifecycleCommand           `json:"postAttachCommand,omitempty"`
+	InitializeCommand   LifecycleCommand           `json:"initializeCommand,omitempty"`
 	RunArgs             []string                   `json:"runArgs,omitempty"`
 	ShutdownAction      string                     `json:"shutdownAction,omitempty"`
 	OverrideCommand     *bool                      `json:"overrideCommand,omitempty"`
 	UpdateRemoteUserUID *bool                      `json:"updateRemoteUserUID,omitempty"`
-	ForwardPorts        []int                      `json:"forwardPorts,omitempty"`
+	ForwardPorts        []ForwardPort              `json:"forwardPorts,omitempty"`
 	PortsAttributes     map[string]json.RawMessage `json:"portsAttributes,omitempty"`
 }
 
@@ -55,9 +255,10 @@ type Build struct {
 }
 
 // UnmarshalJSON implements custom unmarshaling for Config so that polymorphic
-// fields (build, dockerComposeFile, and lifecycle commands) are parsed
-// correctly. Unknown fields are ignored. Called by json.Unmarshal when
-// loading a devcontainer.json.
+// fields (build and dockerComposeFile) are parsed correctly. Unknown fields are
+// ignored. Lifecycle commands are handled by their own LifecycleCommand
+// UnmarshalJSON so string, array, and object forms are all preserved. Called by
+// json.Unmarshal when loading a devcontainer.json.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	// Unmarshal the straightforward fields into a shadow struct. Fields that
 	// can have multiple JSON shapes are captured as json.RawMessage and
@@ -67,10 +268,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		*plain
 		Build             json.RawMessage `json:"build"`
 		DockerComposeFile json.RawMessage `json:"dockerComposeFile"`
-		PostCreateCommand json.RawMessage `json:"postCreateCommand"`
-		PostStartCommand  json.RawMessage `json:"postStartCommand"`
-		PostAttachCommand json.RawMessage `json:"postAttachCommand"`
-		InitializeCommand json.RawMessage `json:"initializeCommand"`
 	}
 	shadow.plain = (*plain)(c)
 
@@ -106,16 +303,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	// Lifecycle commands are accepted as string, array, or object by the
-	// devcontainer spec. dcx only handles the string form directly; array
-	// and object forms are treated as absent so that InjectPostCreateCommand
-	// overwrites them rather than trying to merge (matching the current
-	// override package behaviour).
-	c.PostCreateCommand = unmarshalLifecycleCommand(shadow.PostCreateCommand)
-	c.PostStartCommand = unmarshalLifecycleCommand(shadow.PostStartCommand)
-	c.PostAttachCommand = unmarshalLifecycleCommand(shadow.PostAttachCommand)
-	c.InitializeCommand = unmarshalLifecycleCommand(shadow.InitializeCommand)
-
 	return nil
 }
 
@@ -148,22 +335,6 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(shadow)
-}
-
-// unmarshalLifecycleCommand extracts the string form of a lifecycle
-// command (postCreateCommand, postStartCommand, etc.) from raw JSON.
-// If the value is an array or object, an empty string is returned so that
-// downstream dcx logic treats it as absent and overwrites rather than
-// attempting to merge.
-func unmarshalLifecycleCommand(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	return ""
 }
 
 // EffectiveDockerfile returns the Dockerfile path that should be used for

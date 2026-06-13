@@ -2,6 +2,7 @@ package spec
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -97,7 +98,7 @@ func TestUnmarshalBuildAsObject(t *testing.T) {
 }
 
 func TestUnmarshalLegacyDockerfile(t *testing.T) {
-	data := []byte(`{"dockerfile": "Dockerfile"}`)
+	data := []byte(`{"dockerFile": "Dockerfile"}`)
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
@@ -140,30 +141,30 @@ func TestUnmarshalLifecycleCommands(t *testing.T) {
 		name string
 		json string
 		want struct {
-			postCreate, postStart, postAttach, init string
+			postCreateStr, postStartStr, postAttachStr, initStr string
 		}
 	}{
 		{
 			name: "all strings",
 			json: `{"postCreateCommand": "echo hello", "postStartCommand": "echo start", "postAttachCommand": "echo attach", "initializeCommand": "echo init"}`,
-			want: struct{ postCreate, postStart, postAttach, init string }{
+			want: struct{ postCreateStr, postStartStr, postAttachStr, initStr string }{
 				"echo hello", "echo start", "echo attach", "echo init",
 			},
 		},
 		{
-			name: "arrays treated as absent",
+			name: "arrays preserved but AsString empty",
 			json: `{"postCreateCommand": ["echo", "hello"]}`,
-			want: struct{ postCreate, postStart, postAttach, init string }{},
+			want: struct{ postCreateStr, postStartStr, postAttachStr, initStr string }{},
 		},
 		{
-			name: "objects treated as absent",
+			name: "objects preserved but AsString empty",
 			json: `{"postCreateCommand": {"bash": "echo hello", "zsh": "echo hi"}}`,
-			want: struct{ postCreate, postStart, postAttach, init string }{},
+			want: struct{ postCreateStr, postStartStr, postAttachStr, initStr string }{},
 		},
 		{
 			name: "absent fields",
 			json: `{}`,
-			want: struct{ postCreate, postStart, postAttach, init string }{},
+			want: struct{ postCreateStr, postStartStr, postAttachStr, initStr string }{},
 		},
 	}
 
@@ -173,19 +174,56 @@ func TestUnmarshalLifecycleCommands(t *testing.T) {
 			if err := json.Unmarshal([]byte(tc.json), &cfg); err != nil {
 				t.Fatalf("unmarshal error: %v", err)
 			}
-			if cfg.PostCreateCommand != tc.want.postCreate {
-				t.Errorf("PostCreateCommand = %q, want %q", cfg.PostCreateCommand, tc.want.postCreate)
+			if got, _ := cfg.PostCreateCommand.AsString(); got != tc.want.postCreateStr {
+				t.Errorf("PostCreateCommand.AsString() = %q, want %q", got, tc.want.postCreateStr)
 			}
-			if cfg.PostStartCommand != tc.want.postStart {
-				t.Errorf("PostStartCommand = %q, want %q", cfg.PostStartCommand, tc.want.postStart)
+			if got, _ := cfg.PostStartCommand.AsString(); got != tc.want.postStartStr {
+				t.Errorf("PostStartCommand.AsString() = %q, want %q", got, tc.want.postStartStr)
 			}
-			if cfg.PostAttachCommand != tc.want.postAttach {
-				t.Errorf("PostAttachCommand = %q, want %q", cfg.PostAttachCommand, tc.want.postAttach)
+			if got, _ := cfg.PostAttachCommand.AsString(); got != tc.want.postAttachStr {
+				t.Errorf("PostAttachCommand.AsString() = %q, want %q", got, tc.want.postAttachStr)
 			}
-			if cfg.InitializeCommand != tc.want.init {
-				t.Errorf("InitializeCommand = %q, want %q", cfg.InitializeCommand, tc.want.init)
+			if got, _ := cfg.InitializeCommand.AsString(); got != tc.want.initStr {
+				t.Errorf("InitializeCommand.AsString() = %q, want %q", got, tc.want.initStr)
 			}
 		})
+	}
+}
+
+func TestUnmarshalLifecycleArray(t *testing.T) {
+	data := []byte(`{"postCreateCommand": ["npm", "install"]}`)
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	arr, ok := cfg.PostCreateCommand.AsArray()
+	if !ok {
+		t.Fatal("expected array")
+	}
+	want := []string{"npm", "install"}
+	if !reflect.DeepEqual(arr, want) {
+		t.Errorf("PostCreateCommand.AsArray() = %v, want %v", arr, want)
+	}
+	if _, ok := cfg.PostCreateCommand.AsString(); ok {
+		t.Error("expected AsString() to fail for array")
+	}
+}
+
+func TestUnmarshalLifecycleObject(t *testing.T) {
+	data := []byte(`{"postCreateCommand": {"server": "npm start", "db": ["mysql", "-u", "root"]}}`)
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	obj, ok := cfg.PostCreateCommand.AsObject()
+	if !ok {
+		t.Fatal("expected object")
+	}
+	if obj["server"] != "npm start" {
+		t.Errorf("server = %v, want npm start", obj["server"])
+	}
+	if _, ok := cfg.PostCreateCommand.AsString(); ok {
+		t.Error("expected AsString() to fail for object")
 	}
 }
 
@@ -230,6 +268,47 @@ func TestUnmarshalPortsAttributes(t *testing.T) {
 	}
 	if attrs["onAutoForward"] != "notify" {
 		t.Errorf("onAutoForward = %v, want notify", attrs["onAutoForward"])
+	}
+}
+
+func TestUnmarshalForwardPorts(t *testing.T) {
+	data := []byte(`{"forwardPorts": [8080, "db:5432", 3000]}`)
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(cfg.ForwardPorts) != 3 {
+		t.Fatalf("expected 3 ports, got %d", len(cfg.ForwardPorts))
+	}
+	if i, ok := cfg.ForwardPorts[0].AsInt(); !ok || i != 8080 {
+		t.Errorf("port[0] = %v, want 8080", cfg.ForwardPorts[0])
+	}
+	if s, ok := cfg.ForwardPorts[1].AsString(); !ok || s != "db:5432" {
+		t.Errorf("port[1] = %v, want db:5432", cfg.ForwardPorts[1])
+	}
+	if i, ok := cfg.ForwardPorts[2].AsInt(); !ok || i != 3000 {
+		t.Errorf("port[2] = %v, want 3000", cfg.ForwardPorts[2])
+	}
+}
+
+func TestUnmarshalMountsObject(t *testing.T) {
+	data := []byte(`{"mounts": [{"source": "myvol", "target": "/data", "type": "volume"}]}`)
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(cfg.Mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(cfg.Mounts))
+	}
+	if s, ok := cfg.Mounts[0].AsString(); ok {
+		t.Errorf("expected object mount, got string: %q", s)
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(cfg.Mounts[0], &obj); err != nil {
+		t.Fatalf("mount is not valid JSON object: %v", err)
+	}
+	if obj["type"] != "volume" {
+		t.Errorf("type = %v, want volume", obj["type"])
 	}
 }
 
@@ -293,10 +372,10 @@ func TestMarshalRoundTrip(t *testing.T) {
 		WorkspaceFolder:   "/workspace",
 		RemoteUser:        "vscode",
 		ContainerEnv:      map[string]string{"FOO": "bar"},
-		Mounts:            []string{"type=bind,source=/tmp,target=/tmp"},
-		PostCreateCommand: "echo hello",
+		Mounts:            []MountEntry{NewMountEntryString("type=bind,source=/tmp,target=/tmp")},
+		PostCreateCommand: NewLifecycleCommandString("echo hello"),
 		RunArgs:           []string{"--cap-add=SYS_PTRACE"},
-		ForwardPorts:      []int{8080, 3000},
+		ForwardPorts:      []ForwardPort{NewForwardPortInt(8080), NewForwardPortInt(3000)},
 	}
 
 	data, err := json.Marshal(&original)
@@ -324,17 +403,26 @@ func TestMarshalRoundTrip(t *testing.T) {
 	if parsed.ContainerEnv["FOO"] != original.ContainerEnv["FOO"] {
 		t.Errorf("ContainerEnv[FOO] = %q, want %q", parsed.ContainerEnv["FOO"], original.ContainerEnv["FOO"])
 	}
-	if len(parsed.Mounts) != 1 || parsed.Mounts[0] != original.Mounts[0] {
-		t.Errorf("Mounts = %v, want %v", parsed.Mounts, original.Mounts)
+	if len(parsed.Mounts) != 1 {
+		t.Errorf("Mounts length = %d, want 1", len(parsed.Mounts))
+	} else if s, _ := parsed.Mounts[0].AsString(); s != "type=bind,source=/tmp,target=/tmp" {
+		t.Errorf("Mounts[0] = %q, want bind mount string", s)
 	}
-	if parsed.PostCreateCommand != original.PostCreateCommand {
-		t.Errorf("PostCreateCommand = %q, want %q", parsed.PostCreateCommand, original.PostCreateCommand)
+	if s, _ := parsed.PostCreateCommand.AsString(); s != "echo hello" {
+		t.Errorf("PostCreateCommand = %q, want echo hello", s)
 	}
 	if len(parsed.RunArgs) != 1 || parsed.RunArgs[0] != original.RunArgs[0] {
 		t.Errorf("RunArgs = %v, want %v", parsed.RunArgs, original.RunArgs)
 	}
-	if len(parsed.ForwardPorts) != 2 || parsed.ForwardPorts[0] != 8080 || parsed.ForwardPorts[1] != 3000 {
-		t.Errorf("ForwardPorts = %v, want %v", parsed.ForwardPorts, original.ForwardPorts)
+	if len(parsed.ForwardPorts) != 2 {
+		t.Errorf("ForwardPorts length = %d, want 2", len(parsed.ForwardPorts))
+	} else {
+		if i, ok := parsed.ForwardPorts[0].AsInt(); !ok || i != 8080 {
+			t.Errorf("ForwardPorts[0] = %v, want 8080", parsed.ForwardPorts[0])
+		}
+		if i, ok := parsed.ForwardPorts[1].AsInt(); !ok || i != 3000 {
+			t.Errorf("ForwardPorts[1] = %v, want 3000", parsed.ForwardPorts[1])
+		}
 	}
 }
 

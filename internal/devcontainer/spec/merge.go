@@ -6,7 +6,7 @@ import "encoding/json"
 // Override values win on conflict. Arrays are replaced rather than merged,
 // except for Mounts which are concatenated because devcontainer mount
 // semantics are additive (user mounts + dcx-injected mounts). Maps are
-// shallow-merged at the top level: override keys override base keys; keys
+// shallow-merged at the top level: override keys win on base keys; keys
 // present only in base are preserved.
 func Merge(base, override *Config) *Config {
 	if base == nil {
@@ -77,17 +77,17 @@ func Merge(base, override *Config) *Config {
 	result.Mounts = concatenateMounts(base.Mounts, override.Mounts)
 
 	// Lifecycle commands: override wins when non-empty.
-	if override.PostCreateCommand != "" {
-		result.PostCreateCommand = override.PostCreateCommand
+	if !override.PostCreateCommand.IsEmpty() {
+		result.PostCreateCommand = override.PostCreateCommand.Clone()
 	}
-	if override.PostStartCommand != "" {
-		result.PostStartCommand = override.PostStartCommand
+	if !override.PostStartCommand.IsEmpty() {
+		result.PostStartCommand = override.PostStartCommand.Clone()
 	}
-	if override.PostAttachCommand != "" {
-		result.PostAttachCommand = override.PostAttachCommand
+	if !override.PostAttachCommand.IsEmpty() {
+		result.PostAttachCommand = override.PostAttachCommand.Clone()
 	}
-	if override.InitializeCommand != "" {
-		result.InitializeCommand = override.InitializeCommand
+	if !override.InitializeCommand.IsEmpty() {
+		result.InitializeCommand = override.InitializeCommand.Clone()
 	}
 
 	// Arrays: override replaces.
@@ -95,7 +95,10 @@ func Merge(base, override *Config) *Config {
 		result.RunArgs = append([]string(nil), override.RunArgs...)
 	}
 	if override.ForwardPorts != nil {
-		result.ForwardPorts = append([]int(nil), override.ForwardPorts...)
+		result.ForwardPorts = make([]ForwardPort, len(override.ForwardPorts))
+		for i, f := range override.ForwardPorts {
+			result.ForwardPorts[i] = f.Clone()
+		}
 	}
 
 	// Pointer fields: override wins when non-nil.
@@ -183,15 +186,30 @@ func mergeRawMessageMaps(base, override map[string]json.RawMessage) map[string]j
 
 // concatenateMounts concatenates base and override mount lists. Mount
 // semantics in devcontainer.json are additive, so both lists are preserved.
-func concatenateMounts(base, override []string) []string {
+func concatenateMounts(base, override []MountEntry) []MountEntry {
 	if len(base) == 0 {
-		return append([]string(nil), override...)
+		if len(override) == 0 {
+			return nil
+		}
+		result := make([]MountEntry, 0, len(override))
+		for _, m := range override {
+			result = append(result, m.Clone())
+		}
+		return result
 	}
 	if len(override) == 0 {
-		return append([]string(nil), base...)
+		result := make([]MountEntry, 0, len(base))
+		for _, m := range base {
+			result = append(result, m.Clone())
+		}
+		return result
 	}
-	result := make([]string, 0, len(base)+len(override))
-	result = append(result, base...)
-	result = append(result, override...)
+	result := make([]MountEntry, 0, len(base)+len(override))
+	for _, m := range base {
+		result = append(result, m.Clone())
+	}
+	for _, m := range override {
+		result = append(result, m.Clone())
+	}
 	return result
 }

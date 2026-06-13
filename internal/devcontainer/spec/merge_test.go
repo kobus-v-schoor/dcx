@@ -198,22 +198,22 @@ func TestMergePortsAttributes(t *testing.T) {
 }
 
 func TestMergeMountsConcatenated(t *testing.T) {
-	base := &Config{Mounts: []string{"type=bind,source=/a,target=/a"}}
-	override := &Config{Mounts: []string{"type=bind,source=/b,target=/b"}}
+	base := &Config{Mounts: []MountEntry{NewMountEntryString("type=bind,source=/a,target=/a")}}
+	override := &Config{Mounts: []MountEntry{NewMountEntryString("type=bind,source=/b,target=/b")}}
 	got := Merge(base, override)
 	if len(got.Mounts) != 2 {
 		t.Fatalf("expected 2 mounts, got %d", len(got.Mounts))
 	}
-	if got.Mounts[0] != "type=bind,source=/a,target=/a" {
-		t.Errorf("Mounts[0] = %q", got.Mounts[0])
+	if s, _ := got.Mounts[0].AsString(); s != "type=bind,source=/a,target=/a" {
+		t.Errorf("Mounts[0] = %q", s)
 	}
-	if got.Mounts[1] != "type=bind,source=/b,target=/b" {
-		t.Errorf("Mounts[1] = %q", got.Mounts[1])
+	if s, _ := got.Mounts[1].AsString(); s != "type=bind,source=/b,target=/b" {
+		t.Errorf("Mounts[1] = %q", s)
 	}
 }
 
 func TestMergeMountsNilBase(t *testing.T) {
-	override := &Config{Mounts: []string{"type=bind,source=/b,target=/b"}}
+	override := &Config{Mounts: []MountEntry{NewMountEntryString("type=bind,source=/b,target=/b")}}
 	got := Merge(nil, override)
 	if len(got.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(got.Mounts))
@@ -221,7 +221,7 @@ func TestMergeMountsNilBase(t *testing.T) {
 }
 
 func TestMergeMountsNilOverride(t *testing.T) {
-	base := &Config{Mounts: []string{"type=bind,source=/a,target=/a"}}
+	base := &Config{Mounts: []MountEntry{NewMountEntryString("type=bind,source=/a,target=/a")}}
 	got := Merge(base, nil)
 	if len(got.Mounts) != 1 {
 		t.Fatalf("expected 1 mount, got %d", len(got.Mounts))
@@ -230,26 +230,26 @@ func TestMergeMountsNilOverride(t *testing.T) {
 
 func TestMergeLifecycleCommands(t *testing.T) {
 	base := &Config{
-		PostCreateCommand: "base-create",
-		PostStartCommand:  "base-start",
+		PostCreateCommand: NewLifecycleCommandString("base-create"),
+		PostStartCommand:  NewLifecycleCommandString("base-start"),
 	}
 	override := &Config{
-		PostCreateCommand: "override-create",
-		PostAttachCommand: "override-attach",
+		PostCreateCommand: NewLifecycleCommandString("override-create"),
+		PostAttachCommand: NewLifecycleCommandString("override-attach"),
 	}
 	got := Merge(base, override)
 
-	if got.PostCreateCommand != "override-create" {
-		t.Errorf("PostCreateCommand = %q, want override-create", got.PostCreateCommand)
+	if s, _ := got.PostCreateCommand.AsString(); s != "override-create" {
+		t.Errorf("PostCreateCommand = %q, want override-create", s)
 	}
-	if got.PostStartCommand != "base-start" {
-		t.Errorf("PostStartCommand = %q, want base-start", got.PostStartCommand)
+	if s, _ := got.PostStartCommand.AsString(); s != "base-start" {
+		t.Errorf("PostStartCommand = %q, want base-start", s)
 	}
-	if got.PostAttachCommand != "override-attach" {
-		t.Errorf("PostAttachCommand = %q, want override-attach", got.PostAttachCommand)
+	if s, _ := got.PostAttachCommand.AsString(); s != "override-attach" {
+		t.Errorf("PostAttachCommand = %q, want override-attach", s)
 	}
-	if got.InitializeCommand != "" {
-		t.Errorf("InitializeCommand = %q, want empty", got.InitializeCommand)
+	if !got.InitializeCommand.IsEmpty() {
+		t.Errorf("InitializeCommand should be empty")
 	}
 }
 
@@ -264,12 +264,17 @@ func TestMergeRunArgs(t *testing.T) {
 }
 
 func TestMergeForwardPorts(t *testing.T) {
-	base := &Config{ForwardPorts: []int{8080}}
-	override := &Config{ForwardPorts: []int{3000, 9000}}
+	base := &Config{ForwardPorts: []ForwardPort{NewForwardPortInt(8080)}}
+	override := &Config{ForwardPorts: []ForwardPort{NewForwardPortInt(3000), NewForwardPortString("db:5432")}}
 	got := Merge(base, override)
-	want := []int{3000, 9000}
-	if !reflect.DeepEqual(got.ForwardPorts, want) {
-		t.Errorf("ForwardPorts = %v, want %v", got.ForwardPorts, want)
+	want := []ForwardPort{NewForwardPortInt(3000), NewForwardPortString("db:5432")}
+	if len(got.ForwardPorts) != len(want) {
+		t.Fatalf("ForwardPorts length = %d, want %d", len(got.ForwardPorts), len(want))
+	}
+	for i := range want {
+		if got.ForwardPorts[i].String() != want[i].String() {
+			t.Errorf("ForwardPorts[%d] = %v, want %v", i, got.ForwardPorts[i], want[i])
+		}
 	}
 }
 
@@ -293,14 +298,14 @@ func TestMergeDoesNotMutateInput(t *testing.T) {
 	base := &Config{
 		Image:        "base:latest",
 		ContainerEnv: map[string]string{"KEY": "base"},
-		Mounts:       []string{"mount-a"},
+		Mounts:       []MountEntry{NewMountEntryString("mount-a")},
 	}
 	baseSnapshot := deepCopy(base)
 
 	override := &Config{
 		Image:        "override:latest",
 		ContainerEnv: map[string]string{"KEY": "override"},
-		Mounts:       []string{"mount-b"},
+		Mounts:       []MountEntry{NewMountEntryString("mount-b")},
 	}
 	overrideSnapshot := deepCopy(override)
 

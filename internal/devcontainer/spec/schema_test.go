@@ -117,20 +117,23 @@ func TestSchemaFullConfig(t *testing.T) {
 		RemoteEnv: map[string]string{
 			"EDITOR": "vim",
 		},
-		Mounts: []string{
-			"type=bind,source=/tmp,target=/tmp",
-			"type=volume,source=myvol,target=/data",
+		Mounts: []MountEntry{
+			NewMountEntryString("type=bind,source=/tmp,target=/tmp"),
+			NewMountEntryString("type=volume,source=myvol,target=/data"),
 		},
 		Features: map[string]json.RawMessage{
 			"ghcr.io/devcontainers/features/go:1": json.RawMessage(`{"version":"1.21"}`),
 		},
-		PostCreateCommand: "echo hello",
-		PostStartCommand:  "echo start",
-		PostAttachCommand: "echo attach",
-		InitializeCommand: "echo init",
+		PostCreateCommand: NewLifecycleCommandString("echo hello"),
+		PostStartCommand:  NewLifecycleCommandString("echo start"),
+		PostAttachCommand: NewLifecycleCommandString("echo attach"),
+		InitializeCommand: NewLifecycleCommandString("echo init"),
 		RunArgs:           []string{"--cap-add=SYS_PTRACE"},
 		ShutdownAction:    "stopContainer",
-		ForwardPorts:      []int{8080, 3000},
+		ForwardPorts: []ForwardPort{
+			NewForwardPortInt(8080),
+			NewForwardPortInt(3000),
+		},
 		PortsAttributes: map[string]json.RawMessage{
 			"8080": json.RawMessage(`{"label":"app","onAutoForward":"notify"}`),
 		},
