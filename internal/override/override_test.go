@@ -692,7 +692,7 @@ func TestInjectMountsEmptySliceNoop(t *testing.T) {
 	// Empty slice should be a no-op — config should not have mounts.
 	od.InjectMounts([]string{})
 
-	if od.Config.Mounts != nil && len(od.Config.Mounts) > 0 {
+	if len(od.Config.Mounts) > 0 {
 		t.Error("mounts should not be present when mount strings slice is empty")
 	}
 }

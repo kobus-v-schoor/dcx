@@ -229,7 +229,7 @@ func TestLoadReadsFileError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.Chmod(path, 0o000)
-	defer os.Chmod(path, 0o644)
+	defer func() { _ = os.Chmod(path, 0o644) }()
 
 	_, err := Load(workspace, "")
 	if err == nil {
