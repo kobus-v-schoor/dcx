@@ -26,21 +26,31 @@ func ResolveWorkspaceFolder(cfg *Config, hostWorkspaceFolder string) string {
 	return hostWorkspaceFolder
 }
 
-// ResolveWorkspaceMount returns the Docker --mount format string for the
-// workspace. The rules are:
+// WorkspaceMount holds the resolved workspace mount configuration.
+// It is independent of any specific orchestrator format so that it can be
+// used both when delegating to the devcontainer CLI and when creating
+// containers directly via the Docker API.
+type WorkspaceMount struct {
+	Type   string // e.g. "bind", "volume", "tmpfs"
+	Source string
+	Target string
+	// Options stores any additional comma-separated parts of the mount string
+	// that are not type, source, or target (e.g. "readonly", "consistency=cached").
+	Options []string
+}
+
+// ResolveWorkspaceMount returns the resolved workspace mount.
+// The rules are:
 //
-//  1. If cfg.WorkspaceMount is non-empty it is validated and returned verbatim.
+//  1. If cfg.WorkspaceMount is non-empty it is parsed into a WorkspaceMount.
 //  2. If cfg.WorkspaceMount is empty a default bind mount is synthesised from
 //     the host workspace folder and resolved workspace folder.
 //
 // On macOS the default mount includes "consistency=cached"; on Linux it is
 // omitted.
-func ResolveWorkspaceMount(cfg *Config, hostWorkspaceFolder string) (string, error) {
+func ResolveWorkspaceMount(cfg *Config, hostWorkspaceFolder string) (*WorkspaceMount, error) {
 	if cfg.WorkspaceMount != "" {
-		if err := validateMountString(cfg.WorkspaceMount); err != nil {
-			return "", fmt.Errorf("invalid workspaceMount: %w", err)
-		}
-		return cfg.WorkspaceMount, nil
+		return parseMountString(cfg.WorkspaceMount)
 	}
 
 	workspaceFolder := ResolveWorkspaceFolder(cfg, hostWorkspaceFolder)
@@ -49,45 +59,57 @@ func ResolveWorkspaceMount(cfg *Config, hostWorkspaceFolder string) (string, err
 		absHost = hostWorkspaceFolder
 	}
 
-	mount := fmt.Sprintf("type=bind,source=%s,target=%s", absHost, workspaceFolder)
-	if goos == "darwin" {
-		mount += ",consistency=cached"
+	wm := &WorkspaceMount{
+		Type:   "bind",
+		Source: absHost,
+		Target: workspaceFolder,
 	}
-	return mount, nil
+	if goos == "darwin" {
+		wm.Options = []string{"consistency=cached"}
+	}
+	return wm, nil
 }
 
-// validateMountString parses a Docker --mount format string and ensures the
-// required fields type, source, and target are present.
-func validateMountString(mount string) error {
+// parseMountString parses a Docker --mount format string into a
+// WorkspaceMount. It ensures the required fields type, source, and target
+// are present.
+func parseMountString(mount string) (*WorkspaceMount, error) {
 	parts := strings.Split(mount, ",")
-	hasType := false
-	hasSource := false
-	hasTarget := false
+	wm := &WorkspaceMount{}
 
 	for _, part := range parts {
-		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-		if len(kv) != 2 {
+		part = strings.TrimSpace(part)
+		if part == "" {
 			continue
 		}
-		key := strings.TrimSpace(kv[0])
+		kv := strings.SplitN(part, "=", 2)
+		key := kv[0]
 		switch key {
 		case "type":
-			hasType = true
+			if len(kv) == 2 {
+				wm.Type = strings.TrimSpace(kv[1])
+			}
 		case "source":
-			hasSource = true
+			if len(kv) == 2 {
+				wm.Source = strings.TrimSpace(kv[1])
+			}
 		case "target":
-			hasTarget = true
+			if len(kv) == 2 {
+				wm.Target = strings.TrimSpace(kv[1])
+			}
+		default:
+			wm.Options = append(wm.Options, part)
 		}
 	}
 
-	if !hasType {
-		return fmt.Errorf("mount string missing required field 'type'")
+	if wm.Type == "" {
+		return nil, fmt.Errorf("mount string missing required field 'type'")
 	}
-	if !hasSource {
-		return fmt.Errorf("mount string missing required field 'source'")
+	if wm.Source == "" {
+		return nil, fmt.Errorf("mount string missing required field 'source'")
 	}
-	if !hasTarget {
-		return fmt.Errorf("mount string missing required field 'target'")
+	if wm.Target == "" {
+		return nil, fmt.Errorf("mount string missing required field 'target'")
 	}
-	return nil
+	return wm, nil
 }

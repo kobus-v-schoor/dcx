@@ -45,9 +45,17 @@ func TestResolveWorkspaceMountCustom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWorkspaceMount() error: %v", err)
 	}
-	want := "type=bind,source=/host/data,target=/workspace,readonly"
-	if got != want {
-		t.Errorf("ResolveWorkspaceMount() = %q, want %q", got, want)
+	if got.Type != "bind" {
+		t.Errorf("Type = %q, want bind", got.Type)
+	}
+	if got.Source != "/host/data" {
+		t.Errorf("Source = %q, want /host/data", got.Source)
+	}
+	if got.Target != "/workspace" {
+		t.Errorf("Target = %q, want /workspace", got.Target)
+	}
+	if len(got.Options) != 1 || got.Options[0] != "readonly" {
+		t.Errorf("Options = %v, want [readonly]", got.Options)
 	}
 }
 
@@ -99,18 +107,23 @@ func TestResolveWorkspaceMountDefault(t *testing.T) {
 	}
 
 	absHost, _ := filepath.Abs(workspace)
-	wantPrefix := "type=bind,source=" + absHost + ",target=" + absHost
-	if !strings.HasPrefix(got, wantPrefix) {
-		t.Errorf("ResolveWorkspaceMount() = %q, want prefix %q", got, wantPrefix)
+	if got.Type != "bind" {
+		t.Errorf("Type = %q, want bind", got.Type)
+	}
+	if got.Source != absHost {
+		t.Errorf("Source = %q, want %q", got.Source, absHost)
+	}
+	if got.Target != absHost {
+		t.Errorf("Target = %q, want %q", got.Target, absHost)
 	}
 
 	if runtime.GOOS == "darwin" {
-		if !strings.HasSuffix(got, ",consistency=cached") {
-			t.Errorf("expected consistency=cached on macOS, got %q", got)
+		if len(got.Options) != 1 || got.Options[0] != "consistency=cached" {
+			t.Errorf("Options = %v, want [consistency=cached] on macOS", got.Options)
 		}
 	} else {
-		if strings.Contains(got, "consistency=") {
-			t.Errorf("expected no consistency on %s, got %q", runtime.GOOS, got)
+		if len(got.Options) != 0 {
+			t.Errorf("Options = %v, want empty on %s", got.Options, runtime.GOOS)
 		}
 	}
 }
@@ -124,9 +137,14 @@ func TestResolveWorkspaceMountDefaultWithCustomFolder(t *testing.T) {
 	}
 
 	absHost, _ := filepath.Abs(workspace)
-	want := "type=bind,source=" + absHost + ",target=/workspace"
-	if !strings.HasPrefix(got, want) {
-		t.Errorf("ResolveWorkspaceMount() = %q, want prefix %q", got, want)
+	if got.Type != "bind" {
+		t.Errorf("Type = %q, want bind", got.Type)
+	}
+	if got.Source != absHost {
+		t.Errorf("Source = %q, want %q", got.Source, absHost)
+	}
+	if got.Target != "/workspace" {
+		t.Errorf("Target = %q, want /workspace", got.Target)
 	}
 }
 
@@ -142,8 +160,8 @@ func TestResolveWorkspaceMountDarwinConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWorkspaceMount() error: %v", err)
 	}
-	if !strings.HasSuffix(got, ",consistency=cached") {
-		t.Errorf("expected consistency=cached when goos=darwin, got %q", got)
+	if len(got.Options) != 1 || got.Options[0] != "consistency=cached" {
+		t.Errorf("Options = %v, want [consistency=cached] when goos=darwin", got.Options)
 	}
 }
 
@@ -159,7 +177,7 @@ func TestResolveWorkspaceMountLinuxNoConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWorkspaceMount() error: %v", err)
 	}
-	if strings.Contains(got, "consistency=") {
-		t.Errorf("expected no consistency when goos=linux, got %q", got)
+	if len(got.Options) != 0 {
+		t.Errorf("Options = %v, want empty when goos=linux", got.Options)
 	}
 }
