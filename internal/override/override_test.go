@@ -27,12 +27,11 @@ func TestCreateWritesOverride(t *testing.T) {
 	}
 	defer od.Close()
 
-	// Config should be parsed into the map.
-	if od.config == nil {
-		t.Fatal("expected config map to be non-nil")
+	if od.Config == nil {
+		t.Fatal("expected Config to be non-nil")
 	}
-	if _, ok := od.config["image"]; !ok {
-		t.Error("expected 'image' key in parsed config")
+	if od.Config.Image != "test:latest" {
+		t.Errorf("Config.Image = %q, want test:latest", od.Config.Image)
 	}
 }
 
@@ -57,11 +56,11 @@ func TestCreateGeneratesSpecWithDefaultImage(t *testing.T) {
 	}
 	defer od.Close()
 
-	if od.config == nil {
-		t.Fatal("expected config map to be non-nil")
+	if od.Config == nil {
+		t.Fatal("expected Config to be non-nil")
 	}
-	if string(od.config["image"]) != `"mcr.microsoft.com/devcontainers/base:debian"` {
-		t.Errorf("image = %s, want %q", od.config["image"], "mcr.microsoft.com/devcontainers/base:debian")
+	if od.Config.Image != "mcr.microsoft.com/devcontainers/base:debian" {
+		t.Errorf("Config.Image = %q, want mcr.microsoft.com/devcontainers/base:debian", od.Config.Image)
 	}
 
 	if od.ContainerWorkspaceFolder != workspace {
@@ -363,7 +362,6 @@ func TestSavePersistsToDisk(t *testing.T) {
 		t.Fatalf("reading override file: %v", err)
 	}
 
-	// The saved file should be valid JSON containing the original keys.
 	var saved map[string]interface{}
 	if err := json.Unmarshal(overrideData, &saved); err != nil {
 		t.Fatalf("unmarshalling saved file: %v", err)
@@ -394,6 +392,16 @@ func TestInjectContainerEnvAddsNewContainerEnv(t *testing.T) {
 		"MY_VAR":            "hello",
 	})
 
+	if len(od.Config.ContainerEnv) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(od.Config.ContainerEnv))
+	}
+	if od.Config.ContainerEnv["AWS_ACCESS_KEY_ID"] != "AKIAIOSFODNN7EXAMPLE" {
+		t.Errorf("ContainerEnv[AWS_ACCESS_KEY_ID] = %q", od.Config.ContainerEnv["AWS_ACCESS_KEY_ID"])
+	}
+	if od.Config.ContainerEnv["MY_VAR"] != "hello" {
+		t.Errorf("ContainerEnv[MY_VAR] = %q", od.Config.ContainerEnv["MY_VAR"])
+	}
+
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
@@ -418,7 +426,6 @@ func TestInjectContainerEnvAddsNewContainerEnv(t *testing.T) {
 	if containerEnv["MY_VAR"] != "hello" {
 		t.Errorf("containerEnv[MY_VAR] = %v, want hello", containerEnv["MY_VAR"])
 	}
-	// Original key should still be present.
 	if config["image"] != "test:latest" {
 		t.Errorf("image = %v, want test:latest", config["image"])
 	}
@@ -442,6 +449,13 @@ func TestInjectContainerEnvMergesWithExisting(t *testing.T) {
 	defer od.Close()
 
 	od.InjectContainerEnv(map[string]string{"NEW_VAR": "new_value"})
+
+	if od.Config.ContainerEnv["EXISTING_VAR"] != "existing_value" {
+		t.Errorf("ContainerEnv[EXISTING_VAR] = %q, want existing_value", od.Config.ContainerEnv["EXISTING_VAR"])
+	}
+	if od.Config.ContainerEnv["NEW_VAR"] != "new_value" {
+		t.Errorf("ContainerEnv[NEW_VAR] = %q, want new_value", od.Config.ContainerEnv["NEW_VAR"])
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -488,6 +502,10 @@ func TestInjectContainerEnvOverridesDuplicateKey(t *testing.T) {
 
 	od.InjectContainerEnv(map[string]string{"MY_VAR": "new_value"})
 
+	if od.Config.ContainerEnv["MY_VAR"] != "new_value" {
+		t.Errorf("ContainerEnv[MY_VAR] = %q, want new_value", od.Config.ContainerEnv["MY_VAR"])
+	}
+
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
@@ -506,7 +524,6 @@ func TestInjectContainerEnvOverridesDuplicateKey(t *testing.T) {
 	if !ok {
 		t.Fatal("containerEnv key missing from override config")
 	}
-	// New value should win on key conflict.
 	if containerEnv["MY_VAR"] != "new_value" {
 		t.Errorf("containerEnv[MY_VAR] = %v, want new_value", containerEnv["MY_VAR"])
 	}
@@ -532,8 +549,8 @@ func TestInjectContainerEnvEmptyMapNoop(t *testing.T) {
 	// Empty map should be a no-op — config should not have containerEnv.
 	od.InjectContainerEnv(map[string]string{})
 
-	if _, ok := od.config["containerEnv"]; ok {
-		t.Error("containerEnv should not be present when env vars map is empty")
+	if od.Config.ContainerEnv != nil {
+		t.Errorf("expected nil ContainerEnv, got %v", od.Config.ContainerEnv)
 	}
 }
 
@@ -557,6 +574,16 @@ func TestInjectMountsAddsNewMounts(t *testing.T) {
 		"type=bind,source=/host/data,target=/container/data,readonly",
 		"type=bind,source=/host/config,target=/container/config",
 	})
+
+	if len(od.Config.Mounts) != 2 {
+		t.Fatalf("expected 2 mounts, got %d", len(od.Config.Mounts))
+	}
+	if s, _ := od.Config.Mounts[0].AsString(); s != "type=bind,source=/host/data,target=/container/data,readonly" {
+		t.Errorf("Mounts[0] = %v, want readonly mount", od.Config.Mounts[0])
+	}
+	if s, _ := od.Config.Mounts[1].AsString(); s != "type=bind,source=/host/config,target=/container/config" {
+		t.Errorf("Mounts[1] = %v, want non-readonly mount", od.Config.Mounts[1])
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -605,6 +632,16 @@ func TestInjectMountsAppendsToExisting(t *testing.T) {
 	defer od.Close()
 
 	od.InjectMounts([]string{"type=bind,source=/host/path,target=/container/path,readonly"})
+
+	if len(od.Config.Mounts) != 2 {
+		t.Fatalf("expected 2 mounts (1 existing + 1 injected), got %d", len(od.Config.Mounts))
+	}
+	if s, _ := od.Config.Mounts[0].AsString(); s != "type=volume,source=myvol,target=/data" {
+		t.Errorf("Mounts[0] = %v, want existing mount", od.Config.Mounts[0])
+	}
+	if s, _ := od.Config.Mounts[1].AsString(); s != "type=bind,source=/host/path,target=/container/path,readonly" {
+		t.Errorf("Mounts[1] = %v, want injected mount", od.Config.Mounts[1])
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -655,7 +692,7 @@ func TestInjectMountsEmptySliceNoop(t *testing.T) {
 	// Empty slice should be a no-op — config should not have mounts.
 	od.InjectMounts([]string{})
 
-	if _, ok := od.config["mounts"]; ok {
+	if len(od.Config.Mounts) > 0 {
 		t.Error("mounts should not be present when mount strings slice is empty")
 	}
 }
@@ -680,6 +717,16 @@ func TestMultipleInjectCallsBeforeSave(t *testing.T) {
 	od.InjectContainerEnv(map[string]string{"VAR_A": "alpha"})
 	// Second inject call — should merge with the first.
 	od.InjectContainerEnv(map[string]string{"VAR_B": "beta"})
+
+	if len(od.Config.ContainerEnv) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(od.Config.ContainerEnv))
+	}
+	if od.Config.ContainerEnv["VAR_A"] != "alpha" {
+		t.Errorf("ContainerEnv[VAR_A] = %q, want alpha", od.Config.ContainerEnv["VAR_A"])
+	}
+	if od.Config.ContainerEnv["VAR_B"] != "beta" {
+		t.Errorf("ContainerEnv[VAR_B] = %q, want beta", od.Config.ContainerEnv["VAR_B"])
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -725,6 +772,10 @@ func TestInjectPostCreateCommandAddsNew(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
 
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo hello" {
+		t.Errorf("PostCreateCommand = %q, want echo hello", s)
+	}
+
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
@@ -767,6 +818,10 @@ func TestInjectPostCreateCommandAppendsToString(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
 
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo original && echo hello" {
+		t.Errorf("PostCreateCommand = %q, want \"echo original && echo hello\"", s)
+	}
+
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
@@ -790,7 +845,7 @@ func TestInjectPostCreateCommandAppendsToString(t *testing.T) {
 	}
 }
 
-func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
+func TestInjectPostCreateCommandConvertsArray(t *testing.T) {
 	workspace := t.TempDir()
 	devcontainerDir := filepath.Join(workspace, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
@@ -808,6 +863,10 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 	defer od.Close()
 
 	od.InjectPostCreateCommand([]string{"echo hello"})
+
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo original && echo hello" {
+		t.Errorf("PostCreateCommand = %q, want \"echo original && echo hello\"", s)
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -827,8 +886,8 @@ func TestInjectPostCreateCommandOverwritesArray(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected postCreateCommand to be a string, got %T", config["postCreateCommand"])
 	}
-	if cmd != "echo hello" {
-		t.Errorf("postCreateCommand = %v, want echo hello", cmd)
+	if cmd != "echo original && echo hello" {
+		t.Errorf("postCreateCommand = %v, want \"echo original && echo hello\"", cmd)
 	}
 }
 
@@ -849,6 +908,10 @@ func TestInjectPostCreateCommandMultiple(t *testing.T) {
 	defer od.Close()
 
 	od.InjectPostCreateCommand([]string{"echo hello", "echo world"})
+
+	if s, _ := od.Config.PostCreateCommand.AsString(); s != "echo hello && echo world" {
+		t.Errorf("PostCreateCommand = %q, want \"echo hello && echo world\"", s)
+	}
 
 	if err := od.Save(); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -892,7 +955,7 @@ func TestInjectPostCreateCommandEmptyNoop(t *testing.T) {
 
 	od.InjectPostCreateCommand([]string{})
 
-	if _, ok := od.config["postCreateCommand"]; ok {
-		t.Error("postCreateCommand should not be present for empty command")
+	if !od.Config.PostCreateCommand.IsEmpty() {
+		t.Errorf("PostCreateCommand should be empty")
 	}
 }

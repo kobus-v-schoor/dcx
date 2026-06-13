@@ -1,0 +1,3 @@
+[submodule "internal/devcontainer/spec/devcontainer-spec"]
+	path = internal/devcontainer/spec/devcontainer-spec
+	url = https://github.com/devcontainers/spec.git

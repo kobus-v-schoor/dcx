@@ -7,6 +7,7 @@ require (
 	github.com/elazarl/goproxy v1.8.3
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.20.1
 	golang.org/x/term v0.43.0
