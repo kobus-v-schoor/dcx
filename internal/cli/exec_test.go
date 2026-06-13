@@ -4,49 +4,6 @@ import (
 	"testing"
 )
 
-func TestParseProxyEnv(t *testing.T) {
-	tests := []struct {
-		name      string
-		remoteEnv []string
-		want      map[string]string
-	}{
-		{
-			name:      "empty",
-			remoteEnv: nil,
-			want:      map[string]string{},
-		},
-		{
-			name:      "single prefixed var",
-			remoteEnv: []string{"--remote-env=FOO=bar"},
-			want:      map[string]string{"FOO": "bar"},
-		},
-		{
-			name:      "multiple prefixed vars",
-			remoteEnv: []string{"--remote-env=HTTP_PROXY=http://host:1234", "--remote-env=HTTPS_PROXY=http://host:1234"},
-			want:      map[string]string{"HTTP_PROXY": "http://host:1234", "HTTPS_PROXY": "http://host:1234"},
-		},
-		{
-			name:      "unprefixed var falls through",
-			remoteEnv: []string{"FOO=bar"},
-			want:      map[string]string{"FOO": "bar"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseProxyEnv(tt.remoteEnv)
-			if len(got) != len(tt.want) {
-				t.Fatalf("parseProxyEnv() = %v, want %v", got, tt.want)
-			}
-			for k, v := range tt.want {
-				if got[k] != v {
-					t.Errorf("parseProxyEnv()[%q] = %q, want %q", k, got[k], v)
-				}
-			}
-		})
-	}
-}
-
 func TestMergeExecEnv(t *testing.T) {
 	tests := []struct {
 		name      string

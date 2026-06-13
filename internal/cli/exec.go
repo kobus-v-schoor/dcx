@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
@@ -58,7 +57,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	// Set up all enabled proxy services. This starts each proxy, handles TLS
 	// certificate injection into the container, and returns the combined remote
 	// env vars and a cleanup function.
-	var proxyRemoteEnv []string
+	var proxyRemoteEnv map[string]string
 	proxyResult, err := proxy.SetupAllProxies(cmd.Context(), activeCfg, containerID)
 	if err != nil {
 		// If proxy setup fails entirely, log a warning and proceed without
@@ -91,7 +90,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 		slog.Warn("failed to load devcontainer spec for exec, using fallbacks", "error", err)
 		user = ""
 		workdir = workspaceFolder
-		envVars = mergeExecEnv(nil, parseProxyEnv(proxyRemoteEnv))
+		envVars = mergeExecEnv(nil, proxyRemoteEnv)
 	} else {
 		user = specCfg.RemoteUser
 		// Features may have injected a remoteUser that is not present in the
@@ -103,7 +102,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 			}
 		}
 		workdir = specCfg.WorkspaceFolder
-		envVars = mergeExecEnv(specCfg.RemoteEnv, parseProxyEnv(proxyRemoteEnv))
+		envVars = mergeExecEnv(specCfg.RemoteEnv, proxyRemoteEnv)
 	}
 
 	// If the user provided a command after --, append it. Otherwise default
@@ -182,20 +181,6 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 	}
 
 	return containers.Items[0].ID, nil
-}
-
-// parseProxyEnv converts the proxy's RemoteEnv slice from devcontainer CLI
-// flag format ("--remote-env=KEY=VALUE") into a map of KEY → VALUE.
-func parseProxyEnv(remoteEnv []string) map[string]string {
-	result := make(map[string]string, len(remoteEnv))
-	const prefix = "--remote-env="
-	for _, e := range remoteEnv {
-		e = strings.TrimPrefix(e, prefix)
-		if idx := strings.Index(e, "="); idx >= 0 {
-			result[e[:idx]] = e[idx+1:]
-		}
-	}
-	return result
 }
 
 // mergeExecEnv merges config remoteEnv and proxy env vars into a single
