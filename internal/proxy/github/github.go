@@ -74,8 +74,8 @@ func (g *githubProvider) PrepareRequest(req *http.Request, cfg *config.Config) e
 // EnvVars returns GH_TOKEN=dummy so that the gh CLI inside the container
 // makes API requests. The proxy replaces the dummy token with the real host
 // token at the network layer.
-func (g *githubProvider) EnvVars(cfg *config.Config) []string {
-	return []string{"GH_TOKEN=dummy"}
+func (g *githubProvider) EnvVars(cfg *config.Config) map[string]string {
+	return map[string]string{"GH_TOKEN": "dummy"}
 }
 
 // DetectToken reads the user's GitHub token from the host environment. It

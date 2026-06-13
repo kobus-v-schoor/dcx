@@ -147,11 +147,11 @@ func TestProviderEnvVars(t *testing.T) {
 	if len(vars) != 2 {
 		t.Fatalf("EnvVars() returned %d vars, want 2", len(vars))
 	}
-	if vars[0] != "GITLAB_TOKEN=dummy" {
-		t.Errorf("EnvVars()[0] = %q, want %q", vars[0], "GITLAB_TOKEN=dummy")
+	if vars["GITLAB_TOKEN"] != "dummy" {
+		t.Errorf("EnvVars()[GITLAB_TOKEN] = %q, want %q", vars["GITLAB_TOKEN"], "dummy")
 	}
-	if vars[1] != "GLAB_TOKEN=dummy" {
-		t.Errorf("EnvVars()[1] = %q, want %q", vars[1], "GLAB_TOKEN=dummy")
+	if vars["GLAB_TOKEN"] != "dummy" {
+		t.Errorf("EnvVars()[GLAB_TOKEN] = %q, want %q", vars["GLAB_TOKEN"], "dummy")
 	}
 }
 

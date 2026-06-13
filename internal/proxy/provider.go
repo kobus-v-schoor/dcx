@@ -45,10 +45,10 @@ type Provider interface {
 	// EnvVars returns additional container environment variables that this
 	// provider needs to function correctly. These are injected alongside
 	// HTTP_PROXY/HTTPS_PROXY. For example, the GitHub provider returns
-	// GH_TOKEN=dummy so that the gh CLI inside the container makes API
+	// {GH_TOKEN: dummy} so that the gh CLI inside the container makes API
 	// requests (the proxy replaces the dummy token with the real host
 	// token at the network layer).
-	EnvVars(cfg *config.Config) []string
+	EnvVars(cfg *config.Config) map[string]string
 }
 
 // providers holds all registered proxy providers. Populated by sub-packages

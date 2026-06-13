@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
-	"strings"
 	"time"
 
 	"net/http"
@@ -147,11 +146,8 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		if !p.Enabled(cfg) {
 			continue
 		}
-		for _, env := range p.EnvVars(cfg) {
-			key, value, _ := strings.Cut(env, "=")
-			if key != "" {
-				remoteEnv[key] = value
-			}
+		for key, value := range p.EnvVars(cfg) {
+			remoteEnv[key] = value
 		}
 	}
 

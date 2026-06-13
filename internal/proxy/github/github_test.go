@@ -144,8 +144,11 @@ func TestProviderEnvVars(t *testing.T) {
 	cfg := &config.Config{}
 
 	vars := p.EnvVars(cfg)
-	if len(vars) != 1 || vars[0] != "GH_TOKEN=dummy" {
-		t.Errorf("EnvVars() = %v, want [GH_TOKEN=dummy]", vars)
+	if len(vars) != 1 {
+		t.Fatalf("EnvVars() returned %d vars, want 1", len(vars))
+	}
+	if vars["GH_TOKEN"] != "dummy" {
+		t.Errorf("EnvVars()[GH_TOKEN] = %q, want %q", vars["GH_TOKEN"], "dummy")
 	}
 }
 
