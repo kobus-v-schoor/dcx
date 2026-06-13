@@ -190,9 +190,7 @@ func parseProxyEnv(remoteEnv []string) map[string]string {
 	result := make(map[string]string, len(remoteEnv))
 	const prefix = "--remote-env="
 	for _, e := range remoteEnv {
-		if strings.HasPrefix(e, prefix) {
-			e = strings.TrimPrefix(e, prefix)
-		}
+		e = strings.TrimPrefix(e, prefix)
 		if idx := strings.Index(e, "="); idx >= 0 {
 			result[e[:idx]] = e[idx+1:]
 		}
