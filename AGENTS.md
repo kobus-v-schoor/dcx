@@ -43,6 +43,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
+- `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation
 - `internal/override/` — temporary override `devcontainer.json` generation
 - `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
 - `internal/runner/` — devcontainer CLI execution wrapper
