@@ -61,6 +61,10 @@ func (m *mockDockerClient) ExecCreate(_ context.Context, _ string, _ client.Exec
 	return client.ExecCreateResult{ID: "exec123"}, nil
 }
 
+func (m *mockDockerClient) ExecAttach(_ context.Context, _ string, _ client.ExecAttachOptions) (client.ExecAttachResult, error) {
+	return client.ExecAttachResult{}, nil
+}
+
 func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
 	return client.ExecStartResult{}, nil
 }

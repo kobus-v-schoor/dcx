@@ -3,14 +3,12 @@ package cli
 import (
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"sort"
+	"strings"
 
-	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/proxy"
-	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/moby/moby/api/types/container"
 	"github.com/spf13/cobra"
 )
@@ -35,9 +33,10 @@ If the devcontainer is not running, it is started first.`,
 	return cmd
 }
 
-// runExec implements the dcx exec workflow. Called by Cobra when the user
-// runs "dcx exec". Config, log level, and Docker daemon reachability are
-// already verified by the root command's PersistentPreRunE.
+// runExec implements the dcx exec workflow using direct docker exec. Called
+// by Cobra when the user runs "dcx exec". Config, log level, and Docker
+// daemon reachability are already verified by the root command's
+// PersistentPreRunE.
 func runExec(cmd *cobra.Command, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
@@ -56,57 +55,70 @@ func runExec(cmd *cobra.Command, args []string) error {
 
 	slog.Info("found devcontainer", "id", shortContainerID(containerID))
 
-	// Set up all enabled proxy services (GitHub, OpenAI, etc.). This starts
-	// each proxy, handles TLS certificate injection into the container, and
-	// returns the combined remote env vars and a cleanup function. The exec
-	// command only needs the env vars to construct the devcontainer flags
-	// and the cleanup function to shut down proxies when the session ends.
-	var remoteEnv []string
+	// Set up all enabled proxy services. This starts each proxy, handles TLS
+	// certificate injection into the container, and returns the combined remote
+	// env vars and a cleanup function.
+	var proxyRemoteEnv []string
 	proxyResult, err := proxy.SetupAllProxies(cmd.Context(), activeCfg, containerID)
 	if err != nil {
 		// If proxy setup fails entirely, log a warning and proceed without
 		// any proxies — the user gets a shell but without API proxy access.
 		slog.Warn("proxy setup failed, proceeding without proxies", "error", err)
 	} else {
-		remoteEnv = proxyResult.RemoteEnv
+		proxyRemoteEnv = proxyResult.RemoteEnv
 		defer proxyResult.Cleanup()
 	}
 
-	// Build and execute the devcontainer exec command. This opens an
-	// interactive shell (or runs the specified command) inside the container.
-	devcontainerPath, err := runner.Find()
+	// Open an interactive exec session directly via the Docker API.
+	cli, err := docker.NewClient(cmd.Context())
 	if err != nil {
 		return err
 	}
+	defer func() { _ = cli.Close() }()
 
-	// When the workspace has no devcontainer.json the devcontainer CLI still
-	// labels the container with the expected config path. Subsequent exec
-	// commands fail trying to read that non-existent file, so we generate a
-	// minimal config and pass --override-config to the exec CLI.
-	var overrideConfigPath string
-	devcontainerJSON := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer.json")
-	if _, err := os.Stat(devcontainerJSON); os.IsNotExist(err) {
-		if activeCfg != nil && activeCfg.DefaultImage != "" {
-			od, err := override.Create(workspaceFolder, activeCfg.DefaultImage)
-			if err != nil {
-				slog.Warn("failed to create override config for exec", "error", err)
-			} else {
-				if err := od.Save(); err != nil {
-					slog.Warn("failed to save override config for exec", "error", err)
-					od.Close()
-				} else {
-					overrideConfigPath = filepath.Join(od.Dir, "devcontainer.json")
-					defer od.Close()
-				}
+	// Load the merged devcontainer spec to resolve remoteUser, workspaceFolder,
+	// and remoteEnv. If the workspace has no devcontainer.json and no default
+	// image is configured, fall back to empty user and host workspace folder.
+	var (
+		user     string
+		workdir  string
+		envVars  []string
+		execArgs []string
+	)
+
+	specCfg, err := spec.Load(workspaceFolder, activeCfg.DefaultImage)
+	if err != nil {
+		slog.Warn("failed to load devcontainer spec for exec, using fallbacks", "error", err)
+		user = ""
+		workdir = workspaceFolder
+		envVars = mergeExecEnv(nil, parseProxyEnv(proxyRemoteEnv))
+	} else {
+		user = specCfg.RemoteUser
+		// Features may have injected a remoteUser that is not present in the
+		// original devcontainer.json. Inspect the container labels to pick it up.
+		if user == "" {
+			containerUser, _ := docker.ResolveRemoteUserFromContainer(cmd.Context(), cli, containerID)
+			if containerUser != "" {
+				user = containerUser
 			}
 		}
+		workdir = specCfg.WorkspaceFolder
+		envVars = mergeExecEnv(specCfg.RemoteEnv, parseProxyEnv(proxyRemoteEnv))
 	}
 
-	execArgs := buildExecArgs(activeCfg, containerID, remoteEnv, args, overrideConfigPath)
+	// If the user provided a command after --, append it. Otherwise default
+	// to the configured shell for an interactive shell.
+	if len(args) > 0 {
+		execArgs = args
+	} else {
+		shell := "bash"
+		if activeCfg != nil && activeCfg.DefaultShell != "" {
+			shell = activeCfg.DefaultShell
+		}
+		execArgs = []string{shell}
+	}
 
-	slog.Debug("invoking devcontainer exec", "args", execArgs)
-
-	return runner.Run(devcontainerPath, execArgs)
+	return docker.ExecInteractive(cmd.Context(), cli, containerID, user, workdir, envVars, execArgs)
 }
 
 // ensureDevcontainerRunning checks whether a devcontainer exists for the
@@ -172,43 +184,44 @@ func findContainerID(cmd *cobra.Command) (string, error) {
 	return containers.Items[0].ID, nil
 }
 
-// buildExecArgs assembles the arguments for devcontainer exec. It includes
-// the container ID, workspace folder, and remote env vars for the proxies.
-// If overrideConfigPath is non-empty, --override-config is injected so the
-// devcontainer CLI can locate the config file when the workspace does not
-// contain a devcontainer.json. If no command is specified, it defaults to the
-// configured default shell (or bash as a fallback) for an interactive shell.
-func buildExecArgs(cfg *config.Config, containerID string, remoteEnv []string, userArgs []string, overrideConfigPath string) []string {
-	args := []string{"exec"}
-
-	if overrideConfigPath != "" {
-		args = append(args, "--override-config", overrideConfigPath)
-	}
-
-	args = append(args, "--workspace-folder", workspaceFolder)
-
-	// Add the container ID so devcontainer exec knows which container to
-	// target. The devcontainer CLI uses this to find the running container.
-	args = append(args, "--container-id", containerID)
-
-	// Add remote env vars for the proxy services (GH_HOST,
-	// NODE_EXTRA_CA_CERTS, GIT_CONFIG_*, etc.). These are only present when
-	// at least one proxy is enabled and set up successfully.
-	args = append(args, remoteEnv...)
-
-	// If the user provided a command after --, append it. Otherwise default
-	// to the configured shell for an interactive shell.
-	if len(userArgs) > 0 {
-		args = append(args, userArgs...)
-	} else {
-		shell := "bash"
-		if cfg != nil && cfg.DefaultShell != "" {
-			shell = cfg.DefaultShell
+// parseProxyEnv converts the proxy's RemoteEnv slice from devcontainer CLI
+// flag format ("--remote-env=KEY=VALUE") into a map of KEY → VALUE.
+func parseProxyEnv(remoteEnv []string) map[string]string {
+	result := make(map[string]string, len(remoteEnv))
+	const prefix = "--remote-env="
+	for _, e := range remoteEnv {
+		if strings.HasPrefix(e, prefix) {
+			e = strings.TrimPrefix(e, prefix)
 		}
-		args = append(args, shell)
+		if idx := strings.Index(e, "="); idx >= 0 {
+			result[e[:idx]] = e[idx+1:]
+		}
+	}
+	return result
+}
+
+// mergeExecEnv merges config remoteEnv and proxy env vars into a single
+// sorted KEY=VALUE slice. Proxy values take precedence on key conflict.
+func mergeExecEnv(remoteEnv, proxyEnv map[string]string) []string {
+	merged := make(map[string]string, len(remoteEnv)+len(proxyEnv))
+	for k, v := range remoteEnv {
+		merged[k] = v
+	}
+	for k, v := range proxyEnv {
+		merged[k] = v
 	}
 
-	return args
+	keys := make([]string, 0, len(merged))
+	for k := range merged {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	result := make([]string, len(keys))
+	for i, k := range keys {
+		result[i] = k + "=" + merged[k]
+	}
+	return result
 }
 
 // shortContainerID returns the first 12 characters of a container ID for

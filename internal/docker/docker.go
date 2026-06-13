@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,9 +14,11 @@ import (
 	"strings"
 
 	gosdkclient "github.com/docker/go-sdk/client"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
+	"golang.org/x/term"
 )
 
 // DockerClient is a narrow interface over the Docker Engine API, exposing only
@@ -32,6 +36,7 @@ type DockerClient interface {
 	VolumeRemove(ctx context.Context, volumeID string, options client.VolumeRemoveOptions) (client.VolumeRemoveResult, error)
 	CopyToContainer(ctx context.Context, containerID string, options client.CopyToContainerOptions) (client.CopyToContainerResult, error)
 	ExecCreate(ctx context.Context, containerID string, options client.ExecCreateOptions) (client.ExecCreateResult, error)
+	ExecAttach(ctx context.Context, execID string, options client.ExecAttachOptions) (client.ExecAttachResult, error)
 	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
 	ExecInspect(ctx context.Context, execID string, options client.ExecInspectOptions) (client.ExecInspectResult, error)
 	Close() error
@@ -351,6 +356,17 @@ func MkdirInContainer(ctx context.Context, cli DockerClient, containerID, dir st
 	return ExecInContainer(ctx, cli, containerID, "mkdir", "-p", dir)
 }
 
+// ExitCodeError wraps a non-zero exit code from a container exec so that the
+// CLI can propagate it to the caller. Returned by ExecInteractive when the
+// command executed inside the container exits with a non-zero status.
+type ExitCodeError struct {
+	ExitCode int
+}
+
+func (e *ExitCodeError) Error() string {
+	return fmt.Sprintf("command exited with code %d", e.ExitCode)
+}
+
 // ExecInContainer executes the given command inside a running container via
 // the Docker exec API. Returns an error if the exec cannot be created, fails
 // to start, or exits with a non-zero code. Used by dcx exec to run commands
@@ -381,4 +397,100 @@ func ExecInContainer(ctx context.Context, cli DockerClient, containerID string, 
 	}
 
 	return nil
+}
+
+// ExecInteractive executes a command inside a running container with the
+// caller's stdin, stdout, and stderr attached bidirectionally. It detects
+// whether stdin is a TTY and enables TTY mode accordingly. Returns an
+// ExitCodeError if the command exits with a non-zero code.
+func ExecInteractive(ctx context.Context, cli DockerClient, containerID, user, workdir string, envVars, cmd []string) error {
+	isTty := term.IsTerminal(int(os.Stdin.Fd()))
+
+	execCreate, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		User:         user,
+		WorkingDir:   workdir,
+		Env:          envVars,
+		Cmd:          cmd,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		TTY:          isTty,
+	})
+	if err != nil {
+		return fmt.Errorf("creating exec in container %s: %w", ShortID(containerID), err)
+	}
+
+	attach, err := cli.ExecAttach(ctx, execCreate.ID, client.ExecAttachOptions{
+		TTY: isTty,
+	})
+	if err != nil {
+		return fmt.Errorf("attaching to exec in container %s: %w", ShortID(containerID), err)
+	}
+	defer attach.Close()
+
+	// Forward the caller's stdin to the container. When stdin reaches EOF,
+	// CloseWrite signals EOF to the container process.
+	go func() {
+		_, _ = io.Copy(attach.Conn, os.Stdin)
+		_ = attach.CloseWrite()
+	}()
+
+	// Copy the container's stdout/stderr back to the caller. For TTY mode
+	// Docker sends a single raw stream; for non-TTY the stdout and stderr
+	// streams are multiplexed and must be de-multiplexed with stdcopy.
+	if isTty {
+		_, err = io.Copy(os.Stdout, attach.Reader)
+	} else {
+		_, err = stdcopy.StdCopy(os.Stdout, os.Stderr, attach.Reader)
+	}
+	if err != nil {
+		return fmt.Errorf("copying exec output from container %s: %w", ShortID(containerID), err)
+	}
+
+	inspect, err := cli.ExecInspect(ctx, execCreate.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspecting exec in container %s: %w", ShortID(containerID), err)
+	}
+
+	if inspect.ExitCode != 0 {
+		return &ExitCodeError{ExitCode: inspect.ExitCode}
+	}
+
+	return nil
+}
+
+// ResolveRemoteUserFromContainer inspects the container's labels for
+// devcontainer.metadata and extracts the remoteUser set by the devcontainer
+// CLI during container creation. Features can inject a remoteUser that is
+// not present in the original devcontainer.json, so this helper ensures dcx
+// exec runs as the correct user. Returns an empty string when no remoteUser
+// is found in the metadata or when the container does not have the label.
+func ResolveRemoteUserFromContainer(ctx context.Context, cli DockerClient, containerID string) (string, error) {
+	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("inspecting container %s: %w", ShortID(containerID), err)
+	}
+
+	if inspect.Container.Config == nil {
+		return "", nil
+	}
+
+	metaJSON := inspect.Container.Config.Labels["devcontainer.metadata"]
+	if metaJSON == "" {
+		return "", nil
+	}
+
+	var metadata []map[string]any
+	if err := json.Unmarshal([]byte(metaJSON), &metadata); err != nil {
+		return "", fmt.Errorf("parsing devcontainer metadata for container %s: %w", ShortID(containerID), err)
+	}
+
+	var user string
+	for _, item := range metadata {
+		if u, ok := item["remoteUser"].(string); ok && u != "" {
+			user = u
+		}
+	}
+
+	return user, nil
 }

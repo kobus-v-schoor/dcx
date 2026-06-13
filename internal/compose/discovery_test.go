@@ -52,6 +52,10 @@ func (m *discoveryMockClient) ExecCreate(_ context.Context, _ string, _ client.E
 	return client.ExecCreateResult{ID: "exec123"}, nil
 }
 
+func (m *discoveryMockClient) ExecAttach(_ context.Context, _ string, _ client.ExecAttachOptions) (client.ExecAttachResult, error) {
+	return client.ExecAttachResult{}, nil
+}
+
 func (m *discoveryMockClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
 	return client.ExecStartResult{}, nil
 }
@@ -119,6 +123,10 @@ func (m *projectContainersMockClient) CopyToContainer(_ context.Context, _ strin
 
 func (m *projectContainersMockClient) ExecCreate(_ context.Context, _ string, _ client.ExecCreateOptions) (client.ExecCreateResult, error) {
 	return client.ExecCreateResult{ID: "exec123"}, nil
+}
+
+func (m *projectContainersMockClient) ExecAttach(_ context.Context, _ string, _ client.ExecAttachOptions) (client.ExecAttachResult, error) {
+	return client.ExecAttachResult{}, nil
 }
 
 func (m *projectContainersMockClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
