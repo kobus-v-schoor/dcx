@@ -78,8 +78,8 @@ func (g *gitlabProvider) PrepareRequest(req *http.Request, cfg *config.Config) e
 // EnvVars returns GITLAB_TOKEN=dummy and GLAB_TOKEN=dummy so that the glab CLI
 // inside the container makes API requests. The proxy replaces the dummy token
 // with the real host token at the network layer.
-func (g *gitlabProvider) EnvVars(cfg *config.Config) []string {
-	return []string{"GITLAB_TOKEN=dummy", "GLAB_TOKEN=dummy"}
+func (g *gitlabProvider) EnvVars(cfg *config.Config) map[string]string {
+	return map[string]string{"GITLAB_TOKEN": "dummy", "GLAB_TOKEN": "dummy"}
 }
 
 // DetectToken reads the user's GitLab token from the host environment. It

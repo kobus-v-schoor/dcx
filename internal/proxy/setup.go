@@ -3,8 +3,8 @@
 // SetupAllProxies, which is the main entry point for the CLI layer. It
 // iterates over registered providers, starts a single MITM proxy configured
 // with all enabled provider domains, handles CA certificate injection into
-// the container's system trust store, and returns the combined results so
-// the caller only needs to pass the final flags to the devcontainer command.
+// the container's system trust store, and returns the combined environment
+// variables so the caller can inject them into the container exec session.
 package proxy
 
 import (
@@ -25,10 +25,10 @@ import (
 // ProxySetupResult holds the results of setting up the proxy.
 // Returned by SetupAllProxies for use by the CLI layer.
 type ProxySetupResult struct {
-	// RemoteEnv contains the --remote-env flags for the devcontainer exec
-	// command. These configure the container to route traffic through the
-	// proxy (HTTP_PROXY, HTTPS_PROXY).
-	RemoteEnv []string
+	// RemoteEnv contains the environment variables to inject into the
+	// container during exec sessions. These configure the container to route
+	// traffic through the proxy (HTTP_PROXY, HTTPS_PROXY).
+	RemoteEnv map[string]string
 
 	// Cleanup must be called when the devcontainer session ends to stop the
 	// proxy and remove any temporary files on the host.
@@ -83,7 +83,7 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 
 	if len(domains) == 0 {
 		return &ProxySetupResult{
-			RemoteEnv: nil,
+			RemoteEnv: make(map[string]string),
 			Cleanup:   func() {},
 		}, nil
 	}
@@ -133,16 +133,12 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 	}
 	proxyURL := fmt.Sprintf("http://%s:%d", proxyHost, port)
 
-	remoteEnv := []string{
-		fmt.Sprintf("--remote-env=HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("--remote-env=http_proxy=%s", proxyURL),
-		fmt.Sprintf("--remote-env=HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("--remote-env=https_proxy=%s", proxyURL),
-		// Node.js uses a compiled-in CA bundle and does not automatically
-		// pick up certificates installed in the system trust store. Setting
-		// NODE_EXTRA_CA_CERTS ensures that Node-based tools (e.g. pi/undici)
-		// trust the proxy's ephemeral CA certificate.
-		fmt.Sprintf("--remote-env=NODE_EXTRA_CA_CERTS=%s", certPath),
+	remoteEnv := map[string]string{
+		"HTTP_PROXY":          proxyURL,
+		"http_proxy":          proxyURL,
+		"HTTPS_PROXY":         proxyURL,
+		"https_proxy":         proxyURL,
+		"NODE_EXTRA_CA_CERTS": certPath,
 	}
 
 	// Add provider-specific env vars (e.g. GH_TOKEN=dummy for GitHub).
@@ -150,8 +146,8 @@ func SetupAllProxies(ctx context.Context, cfg *config.Config, containerID string
 		if !p.Enabled(cfg) {
 			continue
 		}
-		for _, env := range p.EnvVars(cfg) {
-			remoteEnv = append(remoteEnv, fmt.Sprintf("--remote-env=%s", env))
+		for key, value := range p.EnvVars(cfg) {
+			remoteEnv[key] = value
 		}
 	}
 

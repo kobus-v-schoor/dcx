@@ -2,10 +2,14 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -28,6 +32,8 @@ type mockDockerClient struct {
 	volumeRemoveErr   error
 	copyErr           error
 	execCreateErr     error
+	execAttachErr     error
+	execAttachResult  client.ExecAttachResult
 	execStartErr      error
 	execInspectErr    error
 	execInspectResult client.ExecInspectResult
@@ -68,6 +74,10 @@ func (m *mockDockerClient) CopyToContainer(_ context.Context, _ string, _ client
 
 func (m *mockDockerClient) ExecCreate(_ context.Context, _ string, _ client.ExecCreateOptions) (client.ExecCreateResult, error) {
 	return client.ExecCreateResult{ID: "exec123"}, m.execCreateErr
+}
+
+func (m *mockDockerClient) ExecAttach(_ context.Context, _ string, _ client.ExecAttachOptions) (client.ExecAttachResult, error) {
+	return m.execAttachResult, m.execAttachErr
 }
 
 func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecStartOptions) (client.ExecStartResult, error) {
@@ -449,6 +459,75 @@ func TestIsContainerRunning(t *testing.T) {
 				t.Errorf("IsContainerRunning() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+type eofConn struct{}
+
+func (eofConn) Read(b []byte) (int, error)       { return 0, io.EOF }
+func (eofConn) Write(b []byte) (int, error)      { return len(b), nil }
+func (eofConn) Close() error                     { return nil }
+func (eofConn) LocalAddr() net.Addr              { return nil }
+func (eofConn) RemoteAddr() net.Addr             { return nil }
+func (eofConn) SetDeadline(time.Time) error      { return nil }
+func (eofConn) SetReadDeadline(time.Time) error  { return nil }
+func (eofConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestExecInteractiveCreateError(t *testing.T) {
+	cli := &mockDockerClient{execCreateErr: fmt.Errorf("create failed")}
+	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
+	if err == nil {
+		t.Fatal("expected error when exec create fails")
+	}
+	if !strings.Contains(err.Error(), "creating exec in container") {
+		t.Errorf("error should mention creating exec, got: %s", err.Error())
+	}
+}
+
+func TestExecInteractiveAttachError(t *testing.T) {
+	cli := &mockDockerClient{execAttachErr: fmt.Errorf("attach failed")}
+	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
+	if err == nil {
+		t.Fatal("expected error when exec attach fails")
+	}
+	if !strings.Contains(err.Error(), "attaching to exec in container") {
+		t.Errorf("error should mention attaching to exec, got: %s", err.Error())
+	}
+}
+
+func TestExecInteractiveExitCodeError(t *testing.T) {
+	cli := &mockDockerClient{
+		execAttachResult: client.ExecAttachResult{
+			HijackedResponse: client.NewHijackedResponse(eofConn{}, ""),
+		},
+		execInspectResult: client.ExecInspectResult{ExitCode: 42},
+	}
+
+	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
+	if err == nil {
+		t.Fatal("expected error when exec exits non-zero")
+	}
+
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected *ExitCodeError, got %T", err)
+	}
+	if exitErr.ExitCode != 42 {
+		t.Errorf("expected exit code 42, got %d", exitErr.ExitCode)
+	}
+}
+
+func TestExecInteractiveSuccess(t *testing.T) {
+	cli := &mockDockerClient{
+		execAttachResult: client.ExecAttachResult{
+			HijackedResponse: client.NewHijackedResponse(eofConn{}, ""),
+		},
+		execInspectResult: client.ExecInspectResult{ExitCode: 0},
+	}
+
+	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
