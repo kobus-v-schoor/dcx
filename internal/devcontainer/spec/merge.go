@@ -8,6 +8,17 @@ import "encoding/json"
 // semantics are additive (user mounts + dcx-injected mounts). Maps are
 // shallow-merged at the top level: override keys win on base keys; keys
 // present only in base are preserved.
+//
+// This function intentionally uses explicit field-by-field merging rather
+// than a generic reflection-based library such as mergo. The devcontainer
+// merge rules are too custom for a generic deep-merge to handle correctly
+// without extensive transformer configuration: empty strings must be treated
+// as "not set" rather than overriding the base value; the Build struct must
+// be replaced in its entirety rather than merged field-by-field; Mounts
+// must be concatenated while all other slices are replaced; and lifecycle
+// commands with a JSON null value must be treated as empty (they must not
+// override a base value). The explicit approach keeps these semantics clear
+// and avoids adding a dependency.
 func Merge(base, override *Config) *Config {
 	if base == nil {
 		if override == nil {
