@@ -265,14 +265,15 @@ func resolveMounts(mountEntries []spec.MountEntry, workspaceMount *spec.Workspac
 
 	// Convert workspace mount.
 	if workspaceMount != nil {
-		// Reconstruct a mount string so we can reuse the existing parser.
-		wmStr := fmt.Sprintf("type=%s,source=%s,target=%s", workspaceMount.Type, workspaceMount.Source, workspaceMount.Target)
-		for _, opt := range workspaceMount.Options {
-			wmStr += "," + opt
+		m := mount.Mount{
+			Type:   mount.Type(workspaceMount.Type),
+			Source: workspaceMount.Source,
+			Target: workspaceMount.Target,
 		}
-		m, err := parseMountFlag(wmStr)
-		if err != nil {
-			return nil, fmt.Errorf("parsing workspace mount: %w", err)
+		for _, opt := range workspaceMount.Options {
+			if err := applyMountOption(&m, opt); err != nil {
+				return nil, fmt.Errorf("applying workspace mount option %q: %w", opt, err)
+			}
 		}
 		mounts = append(mounts, m)
 	}

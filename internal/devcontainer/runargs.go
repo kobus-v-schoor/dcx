@@ -259,6 +259,57 @@ func parseEnvFlag(r *ParsedRunArgs, value string) error {
 	return nil
 }
 
+// applyMountOption applies a single Docker --mount option (e.g. "readonly",
+// "bind-propagation=rprivate", "consistency=cached") to m.
+func applyMountOption(m *mount.Mount, opt string) error {
+	name, val, ok := strings.Cut(opt, "=")
+	if !ok {
+		// Flags without values.
+		switch opt {
+		case "readonly", "ro":
+			m.ReadOnly = true
+		case "bind-propagation=rprivate":
+			if m.BindOptions == nil {
+				m.BindOptions = &mount.BindOptions{}
+			}
+			m.BindOptions.Propagation = mount.PropagationRPrivate
+		default:
+			// Unrecognised option; skip.
+		}
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	val = strings.TrimSpace(val)
+	switch name {
+	case "readonly", "ro":
+		if val == "true" || val == "" {
+			m.ReadOnly = true
+		}
+	case "bind-propagation":
+		if m.BindOptions == nil {
+			m.BindOptions = &mount.BindOptions{}
+		}
+		m.BindOptions.Propagation = mount.Propagation(val)
+	case "consistency":
+		m.Consistency = mount.Consistency(val)
+	case "volume-nocopy":
+		if m.VolumeOptions == nil {
+			m.VolumeOptions = &mount.VolumeOptions{}
+		}
+		m.VolumeOptions.NoCopy = val == "true"
+	case "tmpfs-size":
+		if m.TmpfsOptions == nil {
+			m.TmpfsOptions = &mount.TmpfsOptions{}
+		}
+		size, err := parseMemoryFlag(val)
+		if err != nil {
+			return fmt.Errorf("parsing tmpfs-size: %w", err)
+		}
+		m.TmpfsOptions.SizeBytes = size
+	}
+	return nil
+}
+
 // parseMountFlag parses a Docker --mount argument into a mount.Mount.
 func parseMountFlag(value string) (mount.Mount, error) {
 	// Format: type=bind,source=/host,target=/container[,readonly,...]
@@ -270,23 +321,10 @@ func parseMountFlag(value string) (mount.Mount, error) {
 			continue
 		}
 		name, val, ok := strings.Cut(part, "=")
-		if !ok {
-			// Flags without values.
-			switch part {
-			case "readonly", "ro":
-				m.ReadOnly = true
-			case "bind-propagation=rprivate":
-				if m.BindOptions == nil {
-					m.BindOptions = &mount.BindOptions{}
-				}
-				m.BindOptions.Propagation = mount.PropagationRPrivate
-			default:
-				// Unrecognised option; skip.
-			}
-			continue
+		if ok {
+			name = strings.TrimSpace(name)
+			val = strings.TrimSpace(val)
 		}
-		name = strings.TrimSpace(name)
-		val = strings.TrimSpace(val)
 		switch name {
 		case "type":
 			m.Type = mount.Type(val)
@@ -294,31 +332,10 @@ func parseMountFlag(value string) (mount.Mount, error) {
 			m.Source = val
 		case "target", "dst", "destination":
 			m.Target = val
-		case "readonly", "ro":
-			if val == "true" || val == "" {
-				m.ReadOnly = true
+		default:
+			if err := applyMountOption(&m, part); err != nil {
+				return mount.Mount{}, err
 			}
-		case "bind-propagation":
-			if m.BindOptions == nil {
-				m.BindOptions = &mount.BindOptions{}
-			}
-			m.BindOptions.Propagation = mount.Propagation(val)
-		case "consistency":
-			m.Consistency = mount.Consistency(val)
-		case "volume-nocopy":
-			if m.VolumeOptions == nil {
-				m.VolumeOptions = &mount.VolumeOptions{}
-			}
-			m.VolumeOptions.NoCopy = val == "true"
-		case "tmpfs-size":
-			if m.TmpfsOptions == nil {
-				m.TmpfsOptions = &mount.TmpfsOptions{}
-			}
-			size, err := parseMemoryFlag(val)
-			if err != nil {
-				return mount.Mount{}, fmt.Errorf("parsing tmpfs-size: %w", err)
-			}
-			m.TmpfsOptions.SizeBytes = size
 		}
 	}
 	if m.Type == "" {
