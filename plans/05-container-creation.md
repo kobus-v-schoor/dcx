@@ -7,7 +7,7 @@ Replace the `devcontainer up` delegation for non-Docker-Compose projects by dire
 ## Architectural Approach
 
 - Create `internal/devcontainer/up.go`:
-  - `UpNative(ctx context.Context, cfg *config.Config, spec *spec.Config, imageRef string, rebuild bool) (containerID string, err error)`
+  - `Up(ctx context.Context, cfg *config.Config, spec *spec.Config, imageRef string, rebuild bool) (containerID string, err error)`
   - Steps:
     1. Check for existing container by label `devcontainer.local_folder=<workspaceFolder>`.
     2. If exists, running, and not `rebuild`: return its ID (no-op).

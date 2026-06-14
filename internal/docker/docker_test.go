@@ -1,17 +1,23 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -21,23 +27,33 @@ import (
 // what the corresponding method returns. Unset fields return zero values and
 // nil errors by default.
 type mockDockerClient struct {
-	pingErr           error
-	containers        client.ContainerListResult
-	containerListErr  error
-	inspectResult     client.ContainerInspectResult
-	inspectErr        error
-	stopErr           error
-	removeErr         error
-	imageRemoveErr    error
-	volumeRemoveErr   error
-	copyErr           error
-	execCreateErr     error
-	execAttachErr     error
-	execAttachResult  client.ExecAttachResult
-	execStartErr      error
-	execInspectErr    error
-	execInspectResult client.ExecInspectResult
-	closed            bool
+	pingErr            error
+	containers         client.ContainerListResult
+	containerListErr   error
+	inspectResult      client.ContainerInspectResult
+	inspectErr         error
+	stopErr            error
+	removeErr          error
+	imageRemoveErr     error
+	imageRemoveCount   int
+	volumeRemoveErr    error
+	copyErr            error
+	execCreateErr      error
+	execAttachErr      error
+	execAttachResult   client.ExecAttachResult
+	execStartErr       error
+	execInspectErr     error
+	execInspectResult  client.ExecInspectResult
+	imagePullResult    client.ImagePullResponse
+	imagePullErr       error
+	imageBuildResult   client.ImageBuildResult
+	imageBuildErr      error
+	imageInspectResult client.ImageInspectResult
+	imageInspectErr    error
+	imageTagErr        error
+	imageListResult    client.ImageListResult
+	imageListErr       error
+	closed             bool
 }
 
 func (m *mockDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -61,6 +77,7 @@ func (m *mockDockerClient) ContainerRemove(_ context.Context, _ string, _ client
 }
 
 func (m *mockDockerClient) ImageRemove(_ context.Context, _ string, _ client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
+	m.imageRemoveCount++
 	return client.ImageRemoveResult{}, m.imageRemoveErr
 }
 
@@ -91,6 +108,40 @@ func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.Exe
 func (m *mockDockerClient) Close() error {
 	m.closed = true
 	return nil
+}
+
+func (m *mockDockerClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+	return m.imagePullResult, m.imagePullErr
+}
+
+func (m *mockDockerClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+	return m.imageBuildResult, m.imageBuildErr
+}
+
+func (m *mockDockerClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	return m.imageInspectResult, m.imageInspectErr
+}
+
+func (m *mockDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, m.imageTagErr
+}
+
+func (m *mockDockerClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
+	return m.imageListResult, m.imageListErr
+}
+
+// mockImagePullResponse implements client.ImagePullResponse for testing.
+type mockImagePullResponse struct {
+	io.ReadCloser
+	waitErr error
+}
+
+func (m *mockImagePullResponse) JSONMessages(_ context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(yield func(jsonstream.Message, error) bool) {}
+}
+
+func (m *mockImagePullResponse) Wait(_ context.Context) error {
+	return m.waitErr
 }
 
 func TestStopNoContainer(t *testing.T) {
@@ -575,5 +626,168 @@ func TestIsMissingDockerConfigDir(t *testing.T) {
 				t.Errorf("isMissingDockerConfigDir() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestImagePullIfMissingAlreadyPresent(t *testing.T) {
+	cli := &mockDockerClient{
+		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}},
+	}
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cli.imagePullResult != nil {
+		t.Error("expected ImagePull to not be called when image is present")
+	}
+}
+
+func TestImagePullIfMissingPulls(t *testing.T) {
+	cli := &mockDockerClient{
+		imageInspectErr: fmt.Errorf("not found"),
+		imagePullResult: &mockImagePullResponse{
+			ReadCloser: io.NopCloser(bytes.NewReader(nil)),
+			waitErr:    nil,
+		},
+	}
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestImagePullIfMissingPullWaitFails(t *testing.T) {
+	cli := &mockDockerClient{
+		imageInspectErr: fmt.Errorf("not found"),
+		imagePullResult: &mockImagePullResponse{
+			ReadCloser: io.NopCloser(bytes.NewReader(nil)),
+			waitErr:    fmt.Errorf("pull failed"),
+		},
+	}
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
+	if err == nil {
+		t.Fatal("expected error when pull wait fails")
+	}
+	if !strings.Contains(err.Error(), "waiting for image pull") {
+		t.Errorf("error should mention waiting for image pull, got: %s", err.Error())
+	}
+}
+
+func TestImagePullIfMissingForcePull(t *testing.T) {
+	cli := &mockDockerClient{
+		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}},
+		imagePullResult: &mockImagePullResponse{
+			ReadCloser: io.NopCloser(bytes.NewReader(nil)),
+			waitErr:    nil,
+		},
+	}
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", true)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cli.imagePullResult == nil {
+		t.Error("expected ImagePull to be called when force=true")
+	}
+}
+
+func TestImageBuildFromDirSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerfile := filepath.Join(tmpDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	cli := &mockDockerClient{
+		imageBuildResult: client.ImageBuildResult{
+			Body: io.NopCloser(bytes.NewReader(nil)),
+		},
+		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}},
+	}
+
+	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
+	id, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if id != "sha256:built123" {
+		t.Errorf("expected id sha256:built123, got %s", id)
+	}
+}
+
+func TestImageBuildFromDirStreamError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerfile := filepath.Join(tmpDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	body := `{"errorDetail":{"message":"syntax error in Dockerfile"}}`
+	cli := &mockDockerClient{
+		imageBuildResult: client.ImageBuildResult{
+			Body: io.NopCloser(bytes.NewReader([]byte(body))),
+		},
+	}
+
+	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
+	_, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
+	if err == nil {
+		t.Fatal("expected error when build stream has error")
+	}
+	if !strings.Contains(err.Error(), "syntax error") {
+		t.Errorf("error should mention syntax error, got: %s", err.Error())
+	}
+}
+
+func TestImageBuildFromDirInspectFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerfile := filepath.Join(tmpDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	cli := &mockDockerClient{
+		imageBuildResult: client.ImageBuildResult{
+			Body: io.NopCloser(bytes.NewReader(nil)),
+		},
+		imageInspectErr: fmt.Errorf("image not found"),
+	}
+
+	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
+	_, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
+	if err == nil {
+		t.Fatal("expected error when inspect fails")
+	}
+	if !strings.Contains(err.Error(), "could not inspect image") {
+		t.Errorf("error should mention inspect failure, got: %s", err.Error())
+	}
+}
+
+func TestDownCleansUpDcxImages(t *testing.T) {
+	cli := &mockDockerClient{
+		containers: client.ContainerListResult{
+			Items: []container.Summary{
+				{ID: "abc123def456", Image: "my-image:latest"},
+			},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Image: "sha256:image123",
+			},
+		},
+		imageListResult: client.ImageListResult{
+			Items: []image.Summary{
+				{
+					ID:       "sha256:dcximg",
+					RepoTags: []string{"dcx-myproject:deadbeef"},
+				},
+			},
+		},
+	}
+	err := Down(context.Background(), cli, ".")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cli.imageRemoveCount != 2 {
+		t.Errorf("expected ImageRemove to be called twice (container image + dcx image), got %d", cli.imageRemoveCount)
 	}
 }

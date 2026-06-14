@@ -3,10 +3,12 @@ package compose
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
@@ -62,6 +64,26 @@ func (m *discoveryMockClient) ExecStart(_ context.Context, _ string, _ client.Ex
 
 func (m *discoveryMockClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func (m *discoveryMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+	return nil, nil
+}
+
+func (m *discoveryMockClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+	return client.ImageBuildResult{}, nil
+}
+
+func (m *discoveryMockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
+}
+
+func (m *discoveryMockClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
+}
+
+func (m *discoveryMockClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
+	return client.ImageListResult{}, nil
 }
 
 func (m *discoveryMockClient) Close() error {
@@ -135,6 +157,26 @@ func (m *projectContainersMockClient) ExecStart(_ context.Context, _ string, _ c
 
 func (m *projectContainersMockClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func (m *projectContainersMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+	return nil, nil
+}
+
+func (m *projectContainersMockClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+	return client.ImageBuildResult{}, nil
+}
+
+func (m *projectContainersMockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
+}
+
+func (m *projectContainersMockClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
+}
+
+func (m *projectContainersMockClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
+	return client.ImageListResult{}, nil
 }
 
 func (m *projectContainersMockClient) Close() error {

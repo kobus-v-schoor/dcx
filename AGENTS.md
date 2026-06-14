@@ -32,7 +32,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `cmd/dcx/` — entry point
 - `internal/config/` — user + project config loading, merge logic
 - `internal/cli/` — Cobra command definitions
-- `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container stop/remove, image cleanup)
+- `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container stop/remove, image pull/build/inspect/tag/cleanup)
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
@@ -43,6 +43,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
+- `internal/devcontainer/` — native devcontainer lifecycle helpers (image building for Part 5+ container creation)
 - `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation. The upstream spec is vendored here as a Git submodule (`internal/devcontainer/spec/devcontainer-spec/docs/specs/`) and must be treated as the source of truth for all spec-level behavior.
 - `internal/override/` — temporary override `devcontainer.json` generation
 - `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
