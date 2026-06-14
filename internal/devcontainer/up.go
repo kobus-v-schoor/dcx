@@ -232,7 +232,7 @@ func buildHostConfig(cfg *spec.Config, workspaceMount *spec.WorkspaceMount, moun
 	}
 
 	if len(parsedRunArgs.Devices) > 0 {
-		hc.Resources.Devices = append(hc.Resources.Devices, parsedRunArgs.Devices...)
+		hc.Devices = append(hc.Devices, parsedRunArgs.Devices...)
 	}
 
 	if len(parsedRunArgs.GroupAdd) > 0 {
@@ -244,11 +244,11 @@ func buildHostConfig(cfg *spec.Config, workspaceMount *spec.WorkspaceMount, moun
 	}
 
 	if parsedRunArgs.Memory > 0 {
-		hc.Resources.Memory = parsedRunArgs.Memory
+		hc.Memory = parsedRunArgs.Memory
 	}
 
 	if parsedRunArgs.NanoCPUs > 0 {
-		hc.Resources.NanoCPUs = parsedRunArgs.NanoCPUs
+		hc.NanoCPUs = parsedRunArgs.NanoCPUs
 	}
 
 	if len(parsedRunArgs.Tmpfs) > 0 {

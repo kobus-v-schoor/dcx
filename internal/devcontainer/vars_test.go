@@ -1,7 +1,6 @@
 package devcontainer
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,8 +71,7 @@ func TestSubstituteBasename(t *testing.T) {
 }
 
 func TestSubstituteLocalEnv(t *testing.T) {
-	os.Setenv("DCX_TEST_VAR", "hello")
-	defer os.Unsetenv("DCX_TEST_VAR")
+	t.Setenv("DCX_TEST_VAR", "hello")
 
 	cfg := &spec.Config{
 		ContainerEnv: map[string]string{
