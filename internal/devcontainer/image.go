@@ -116,7 +116,9 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 		// that the Docker CLI creates automatically. The v1 builder handles
 		// pulling base images during the build and is sufficient for the simple
 		// Dockerfiles used by devcontainer projects.
-		Version: build.BuilderV1,
+		Version:     build.BuilderV1,
+		Remove:      true,
+		ForceRemove: true,
 		Labels: map[string]string{
 			docker.DevcontainerLabel: workspaceFolder,
 		},
