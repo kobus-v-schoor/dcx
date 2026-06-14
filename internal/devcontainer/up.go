@@ -10,8 +10,6 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
@@ -25,9 +23,19 @@ trap "exit 0" 15
 exec "$@"
 while sleep 1 & wait $!; do :; done`
 
+// createContainer is the function used by Up to create a container via the
+// Docker CLI. In production it is docker.ContainerCreateCLI; tests may
+// override it to capture constructed arguments without invoking Docker.
+var createContainer = docker.ContainerCreateCLI
+
+// startContainer is the function used by Up to start a container via the Docker
+// CLI. In production it is docker.ContainerStartCLI; tests may override it.
+var startContainer = docker.ContainerStartCLI
+
 // Up creates or reuses a devcontainer for a non-compose, non-feature project.
-// It substitutes variables, resolves mounts, parses runArgs, sets labels and
-// metadata, creates the container, and starts it.
+// It substitutes variables, resolves mounts into string format, sets labels and
+// metadata, creates the container via docker create, and starts it via
+// docker start.
 //
 // When rebuild is false and a running container already exists, it returns the
 // existing container ID. When rebuild is true, the existing container is removed
@@ -44,26 +52,14 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		return "", fmt.Errorf("substituting variables: %w", err)
 	}
 
-	// Step 2: parse runArgs.
-	parsedRunArgs, err := ParseRunArgs(cfg.RunArgs)
-	if err != nil {
-		return "", fmt.Errorf("parsing runArgs: %w", err)
-	}
-
-	// Step 3: resolve mounts.
+	// Step 2: resolve mounts into string format for Docker CLI --mount flags.
 	workspaceMount, err := spec.ResolveWorkspaceMount(cfg, absHostFolder)
 	if err != nil {
 		return "", fmt.Errorf("resolving workspace mount: %w", err)
 	}
-	allMounts, err := resolveMounts(cfg.Mounts, workspaceMount)
-	if err != nil {
-		return "", fmt.Errorf("resolving mounts: %w", err)
-	}
+	allMounts := resolveMountStrings(cfg.Mounts, workspaceMount)
 
-	// Merge runArgs mounts.
-	allMounts = append(allMounts, parsedRunArgs.Mounts...)
-
-	// Step 4: find existing containers by label.
+	// Step 3: find existing containers by label.
 	existing, err := docker.FindDevcontainers(ctx, cli, absHostFolder)
 	if err != nil {
 		return "", fmt.Errorf("finding existing containers: %w", err)
@@ -75,7 +71,7 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		return "", fmt.Errorf("building devcontainer metadata: %w", err)
 	}
 
-	// Step 5: handle existing container logic.
+	// Step 4: handle existing container logic.
 	if len(existing.Items) > 0 {
 		ctr := existing.Items[0]
 		if docker.IsContainerRunning(ctr) {
@@ -103,31 +99,48 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		}
 	}
 
-	// Step 6: build container and host configs.
-	containerConfig, err := buildContainerConfig(cfg, absHostFolder, imageRef, parsedRunArgs, metadataJSON)
-	if err != nil {
-		return "", fmt.Errorf("building container config: %w", err)
+	// Step 5: build CLI arguments for docker create.
+	labels := map[string]string{
+		docker.DevcontainerLabel:   absHostFolder,
+		"devcontainer.config_file": filepath.Join(absHostFolder, ".devcontainer", "devcontainer.json"),
+		devcontainerMetadataLabel:  metadataJSON,
+		"dcx.managed":              "true",
 	}
 
-	hostConfig := buildHostConfig(cfg, workspaceMount, allMounts, parsedRunArgs)
+	var envList []string
+	for k, v := range cfg.ContainerEnv {
+		envList = append(envList, k+"="+v)
+	}
+	sort.Strings(envList)
 
-	// Step 7: create and start the container.
-	createResult, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     containerConfig,
-		HostConfig: hostConfig,
-	})
+	var user, workdir, entrypoint string
+	var cmdArgs []string
+
+	if cfg.ContainerUser != "" {
+		user = cfg.ContainerUser
+	}
+	if cfg.WorkspaceFolder != "" {
+		workdir = cfg.WorkspaceFolder
+	}
+	if overrideCommandEnabled(cfg) {
+		entrypoint = "/bin/sh"
+		cmdArgs = []string{"-c", keepAliveScript, "-"}
+	}
+
+	// Step 6: create and start the container via Docker CLI.
+	containerID, err := createContainer(ctx, imageRef, cfg.RunArgs, allMounts, envList, labels, user, workdir, entrypoint, cmdArgs)
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
 
-	slog.Info("created container", "id", docker.ShortID(createResult.ID))
+	slog.Info("created container", "id", docker.ShortID(containerID))
 
-	if _, err := cli.ContainerStart(ctx, createResult.ID, client.ContainerStartOptions{}); err != nil {
-		return "", fmt.Errorf("starting container %s: %w", docker.ShortID(createResult.ID), err)
+	if err := startContainer(ctx, containerID); err != nil {
+		return "", fmt.Errorf("starting container %s: %w", docker.ShortID(containerID), err)
 	}
 
-	slog.Info("started container", "id", docker.ShortID(createResult.ID))
-	return createResult.ID, nil
+	slog.Info("started container", "id", docker.ShortID(containerID))
+	return containerID, nil
 }
 
 // removeExistingContainer stops and removes a container by ID. Called during
@@ -143,156 +156,26 @@ func removeExistingContainer(ctx context.Context, cli docker.DockerClient, conta
 	return nil
 }
 
-// buildContainerConfig assembles container.Config from the merged spec, host
-// workspace folder, image reference, runArgs env overrides, and the
-// devcontainer metadata label JSON.
-func buildContainerConfig(cfg *spec.Config, absHostFolder, imageRef string, parsedRunArgs *ParsedRunArgs, metadataJSON string) (*container.Config, error) {
-	// Build the Docker-level Env slice from containerEnv (lower priority) and
-	// runArgs --env overrides (higher priority).
-	envMap := make(map[string]string, len(cfg.ContainerEnv)+len(parsedRunArgs.Env))
-	for k, v := range cfg.ContainerEnv {
-		envMap[k] = v
-	}
-	for k, v := range parsedRunArgs.Env {
-		envMap[k] = v
-	}
+// resolveMountStrings converts all spec.MountEntry strings into a flat slice
+// of Docker --mount flag strings. The workspace mount is also formatted and
+// included as the first element. Non-string mount entries are skipped.
+func resolveMountStrings(mountEntries []spec.MountEntry, workspaceMount *spec.WorkspaceMount) []string {
+	var mounts []string
 
-	var envList []string
-	for k, v := range envMap {
-		envList = append(envList, k+"="+v)
-	}
-	sort.Strings(envList)
-
-	labels := map[string]string{
-		docker.DevcontainerLabel:   absHostFolder,
-		"devcontainer.config_file": filepath.Join(absHostFolder, ".devcontainer", "devcontainer.json"),
-		devcontainerMetadataLabel:  metadataJSON,
-		"dcx.managed":              "true",
-	}
-
-	c := &container.Config{
-		Image:  imageRef,
-		Labels: labels,
-		Env:    envList,
-		Tty:    false,
-	}
-
-	if cfg.ContainerUser != "" {
-		c.User = cfg.ContainerUser
-	}
-
-	if cfg.WorkspaceFolder != "" {
-		c.WorkingDir = cfg.WorkspaceFolder
-	}
-
-	if overrideCommandEnabled(cfg) {
-		c.Entrypoint = []string{"/bin/sh"}
-		c.Cmd = []string{"-c", keepAliveScript, "-"}
-	}
-
-	// Apply entrypoint override from runArgs if present.
-	// runArgs entrypoint takes precedence over the overrideCommand sleep loop.
-	// This matches Docker behaviour where --entrypoint overrides the image default.
-	// In the devcontainer context, runArgs --entrypoint is unusual but we honour it.
-	if len(parsedRunArgs.Entrypoint) > 0 {
-		c.Entrypoint = parsedRunArgs.Entrypoint
-	}
-
-	return c, nil
-}
-
-// buildHostConfig assembles container.HostConfig from the workspace mount, spec
-// mounts, runArgs, and spec fields.
-func buildHostConfig(cfg *spec.Config, workspaceMount *spec.WorkspaceMount, mounts []mount.Mount, parsedRunArgs *ParsedRunArgs) *container.HostConfig {
-	hc := &container.HostConfig{
-		Mounts: mounts,
-	}
-
-	hc.Binds = append(hc.Binds, parsedRunArgs.Binds...)
-
-	if parsedRunArgs.NetworkMode != "" {
-		hc.NetworkMode = parsedRunArgs.NetworkMode
-	}
-
-	if parsedRunArgs.PortBindings != nil {
-		hc.PortBindings = parsedRunArgs.PortBindings
-	}
-
-	hc.CapAdd = append(hc.CapAdd, parsedRunArgs.CapAdd...)
-	hc.CapDrop = append(hc.CapDrop, parsedRunArgs.CapDrop...)
-
-	if parsedRunArgs.Privileged {
-		hc.Privileged = true
-	}
-
-	hc.SecurityOpt = append(hc.SecurityOpt, parsedRunArgs.SecurityOpt...)
-
-	if parsedRunArgs.Init != nil {
-		hc.Init = parsedRunArgs.Init
-	}
-
-	if len(parsedRunArgs.Devices) > 0 {
-		hc.Devices = append(hc.Devices, parsedRunArgs.Devices...)
-	}
-
-	if len(parsedRunArgs.GroupAdd) > 0 {
-		hc.GroupAdd = append(hc.GroupAdd, parsedRunArgs.GroupAdd...)
-	}
-
-	if parsedRunArgs.ReadonlyRootfs {
-		hc.ReadonlyRootfs = true
-	}
-
-	if parsedRunArgs.Memory > 0 {
-		hc.Memory = parsedRunArgs.Memory
-	}
-
-	if parsedRunArgs.NanoCPUs > 0 {
-		hc.NanoCPUs = parsedRunArgs.NanoCPUs
-	}
-
-	if len(parsedRunArgs.Tmpfs) > 0 {
-		hc.Tmpfs = parsedRunArgs.Tmpfs
-	}
-
-	return hc
-}
-
-// resolveMounts converts all spec.MountEntry strings into []mount.Mount after
-// variable substitution. The workspace mount is also converted and included.
-func resolveMounts(mountEntries []spec.MountEntry, workspaceMount *spec.WorkspaceMount) ([]mount.Mount, error) {
-	var mounts []mount.Mount
-
-	// Convert workspace mount.
 	if workspaceMount != nil {
-		m := mount.Mount{
-			Type:   mount.Type(workspaceMount.Type),
-			Source: workspaceMount.Source,
-			Target: workspaceMount.Target,
-		}
-		for _, opt := range workspaceMount.Options {
-			if err := applyMountOption(&m, opt); err != nil {
-				return nil, fmt.Errorf("applying workspace mount option %q: %w", opt, err)
-			}
-		}
-		mounts = append(mounts, m)
+		mounts = append(mounts, workspaceMount.String())
 	}
 
-	// Convert spec mounts.
 	for _, entry := range mountEntries {
 		if entry.IsEmpty() {
 			continue
 		}
 		if s, ok := entry.AsString(); ok {
-			m, err := parseMountFlag(s)
-			if err != nil {
-				return nil, fmt.Errorf("parsing mount %q: %w", s, err)
-			}
-			mounts = append(mounts, m)
+			mounts = append(mounts, s)
 		}
 	}
 
-	return mounts, nil
+	return mounts
 }
 
 const devcontainerMetadataLabel = "devcontainer.metadata"
