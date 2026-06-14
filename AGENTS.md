@@ -2,7 +2,7 @@
 
 ## Project
 
-`dcx` is a Go CLI that wraps the `devcontainer` CLI, adding user-level persistence and workflow automation. It delegates all container lifecycle to the official CLI via its documented flags — it never calls internal APIs or modifies `devcontainer.json` on disk.
+`dcx` is a Go CLI that implements the devcontainer specification natively, adding user-level persistence and workflow automation. It communicates directly with the Docker engine (via the Moby client library and the Docker CLI) and never modifies the user's `devcontainer.json` on disk. The external `devcontainer` CLI dependency is being removed as part of issue #99.
 
 The end-goal of the `dcx` project is to make secure development sandboxing so convenient that there's no friction to use it:
 
@@ -32,7 +32,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `cmd/dcx/` — entry point
 - `internal/config/` — user + project config loading, merge logic
 - `internal/cli/` — Cobra command definitions
-- `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container stop/remove, image pull/build/inspect/tag/cleanup)
+- `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container discovery/inspect/stop/remove, image pull/inspect/tag/cleanup) and Docker CLI helpers (build, create, exec, cp)
 - `internal/features/` — default features → `--additional-features` JSON
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
@@ -43,13 +43,13 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
 - `internal/flags/` — devcontainer CLI flag assembly
-- `internal/devcontainer/` — native devcontainer lifecycle helpers (image building for Part 5+ container creation)
+- `internal/devcontainer/` — native devcontainer lifecycle helpers (image resolution, container creation/up, lifecycle command execution)
 - `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation. The upstream spec is vendored here as a Git submodule (`internal/devcontainer/spec/devcontainer-spec/docs/specs/`) and must be treated as the source of truth for all spec-level behavior.
 - `internal/override/` — temporary override `devcontainer.json` generation
 - `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
 - `internal/runner/` — devcontainer CLI execution wrapper
 
-Key constraint: `dcx` communicates with `devcontainer` CLI only via flags (`--override-config`, `--additional-features`, `--mount`, `--remote-env`). Never modify the original `devcontainer.json` — write overrides to a temp dir and pass via `--override-config`.
+Key constraint: never modify the original `devcontainer.json` on disk. Overrides are written to a temporary directory and applied via the native container creation path (`docker create`) or (during the transition) via `--override-config` passed to the legacy `devcontainer` CLI.
 
 ## Dev Container Specification
 

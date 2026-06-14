@@ -1,4 +1,4 @@
-# Part 7: Docker Compose Integration
+# Part 8: Docker Compose Integration
 
 ## Goal
 
@@ -11,14 +11,16 @@ Re-implement the devcontainer CLI's Docker Compose path so that `dcx up` works f
   - Steps:
     1. Resolve the compose file path(s). Support both single string and array of strings (merged in sequence).
     2. Determine the compose project name. Prefer `spec.Name`, else derive from workspace folder directory name.
-    3. Bring up the compose project. Use the Docker Compose Go library if available and stable, otherwise shell out to `docker compose up -d <service>` as a pragmatic intermediate step. The plan should note that a pure-Go implementation is preferred, but `docker compose` CLI is acceptable as long as `dcx` does not depend on the `devcontainer` CLI itself.
+    3. Bring up the compose project by invoking `docker compose up -d <service>` on the CLI. A pure-Go implementation is out of scope; the Docker Compose CLI is the source of truth for networking, volume creation, `depends_on`, and service profiles.
     4. After the service container is created, resolve its ID.
     5. Apply devcontainer-specific augmentations to the service container that the compose spec does not handle natively:
-       - Add the `devcontainer.local_folder` label.
-       - Ensure workspace mount is correct (compose may already declare it; inspect and patch if needed).
-       - Inject `containerEnv` environment variables.
-       - Apply additional bind mounts from `dcx.yaml` and auto-detected mounts (SSH, git, terminfo).
-       - Because Docker Compose manages the container config, some changes require recreating the service container. Detect if any augmentations differ from the existing container; if so, call `compose up --force-recreate` for this service.
+       - Generate a temporary compose override file (`dcx.compose.override.yml`) that injects:
+         - The `devcontainer.local_folder` label and other `devcontainer.*` / `dcx.managed` labels.
+         - `containerEnv` environment variables.
+         - Additional bind mounts from `dcx.yaml` and auto-detected mounts (SSH agent, git config, terminfo).
+       - Ensure the workspace mount is correct (compose may already declare it; keep the project's definition).
+       - Run `docker compose -f <original> -f dcx.compose.override.yml up -d --force-recreate <service>` so Compose recreates the container with the augmentations without modifying the user's original compose file on disk.
+       - After the container is created, verify via `docker inspect` that all augmentations are present.
     6. Return the container ID.
 - Reuse existing `internal/compose/` helpers:
   - `compose.FindProjectsAndVolumes` for discovery.
