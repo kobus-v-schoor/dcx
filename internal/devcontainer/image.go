@@ -25,28 +25,30 @@ var slugRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 // three cases:
 //
 //  1. "image" is set → the image is pulled if not already present locally.
-//     The reference is returned as-is.
+//     The reference is returned as-is. If forceRebuild is true, the image
+//     is re-pulled even when already present.
 //
 //  2. "build" or legacy "dockerFile" is set → a Dockerfile is built using
 //     the Docker SDK ImageBuild API. The resulting image is tagged with a
 //     stable, deterministic name so that identical configs reuse the same
-//     image without rebuilding. The stable tag is returned.
+//     image without rebuilding. The stable tag is returned. If forceRebuild
+//     is true, the image is rebuilt even when a cached tag already exists.
 //
 //  3. Neither image nor build is configured → returns an error.
 //
 // This function is used by the native dcx up path (Part 5). It is safe to
 // call repeatedly: image-based references are idempotent, and build-based
 // references leverage Docker layer caching.
-func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string) (string, error) {
+func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string, forceRebuild bool) (string, error) {
 	if cfg.Image != "" {
-		if err := docker.ImagePullIfMissing(ctx, cli, cfg.Image); err != nil {
+		if err := docker.ImagePullIfMissing(ctx, cli, cfg.Image, forceRebuild); err != nil {
 			return "", err
 		}
 		return cfg.Image, nil
 	}
 
 	if cfg.Build != nil || cfg.LegacyDockerfile != "" {
-		return buildFromDockerfile(ctx, cli, cfg, workspaceFolder)
+		return buildFromDockerfile(ctx, cli, cfg, workspaceFolder, forceRebuild)
 	}
 
 	return "", fmt.Errorf("devcontainer.json does not specify image or build")
@@ -54,7 +56,9 @@ func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, 
 
 // buildFromDockerfile builds a devcontainer image from a Dockerfile
 // configuration and returns the image reference (stable tag) to use.
-func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string) (string, error) {
+// When forceRebuild is true, the image is rebuilt even if a previously
+// built stable tag already exists locally.
+func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string, forceRebuild bool) (string, error) {
 	devcontainerDir := filepath.Join(workspaceFolder, ".devcontainer")
 
 	dockerfileRel := cfg.EffectiveDockerfile()
@@ -87,9 +91,11 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 	stableTag := fmt.Sprintf("dcx-%s:%s", slug, hash)
 
 	// Fast path: image already built and tagged.
-	if _, err := cli.ImageInspect(ctx, stableTag); err == nil {
-		slog.Debug("reusing cached devcontainer image", "tag", stableTag)
-		return stableTag, nil
+	if !forceRebuild {
+		if _, err := cli.ImageInspect(ctx, stableTag); err == nil {
+			slog.Debug("reusing cached devcontainer image", "tag", stableTag)
+			return stableTag, nil
+		}
 	}
 
 	slog.Info("building devcontainer image", "tag", stableTag, "context", buildContextDir, "dockerfile", dockerfileRel)

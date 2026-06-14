@@ -491,15 +491,19 @@ func ExecInteractive(ctx context.Context, cli DockerClient, containerID, user, w
 // in the local Docker store. It inspects the image first to avoid
 // unnecessary registry traffic. If the image is missing, it pulls and
 // consumes the pull response. Returns an error if either inspect or pull
-// fails.
-func ImagePullIfMissing(ctx context.Context, cli DockerClient, imageRef string) error {
-	_, err := cli.ImageInspect(ctx, imageRef)
-	if err == nil {
-		slog.Debug("image already present locally, skipping pull", "image", imageRef)
-		return nil
+// fails. If force is true, the inspect check is skipped and the image is
+// always pulled, which is useful for mutable tags (e.g. "latest") that may
+// have been updated remotely.
+func ImagePullIfMissing(ctx context.Context, cli DockerClient, imageRef string, force bool) error {
+	if !force {
+		_, err := cli.ImageInspect(ctx, imageRef)
+		if err == nil {
+			slog.Debug("image already present locally, skipping pull", "image", imageRef)
+			return nil
+		}
 	}
 
-	slog.Info("pulling image", "image", imageRef)
+	slog.Info("pulling image", "image", imageRef, "force", force)
 	resp, err := cli.ImagePull(ctx, imageRef, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", imageRef, err)
@@ -613,8 +617,10 @@ func tarBuildContext(buildContextDir string, w io.Writer) error {
 }
 
 // consumeBuildStream reads the Docker image build output stream and collects
-// any error messages. It returns the last error message found, or an empty
-// string if the stream reports success.
+// any error messages. It logs each stream and status line at debug level so
+// the user can inspect build progress when verbose logging is enabled. It
+// returns the last error message found, or an empty string if the stream
+// reports success.
 func consumeBuildStream(body io.ReadCloser) string {
 	defer body.Close()
 
@@ -624,6 +630,12 @@ func consumeBuildStream(body io.ReadCloser) string {
 		var msg jsonstream.Message
 		if err := decoder.Decode(&msg); err != nil {
 			break
+		}
+		if msg.Stream != "" {
+			slog.Debug("docker build output", "stream", strings.TrimSpace(msg.Stream))
+		}
+		if msg.Status != "" {
+			slog.Debug("docker build status", "status", msg.Status, "id", msg.ID)
 		}
 		if msg.Error != nil && msg.Error.Message != "" {
 			buildErr = msg.Error.Message

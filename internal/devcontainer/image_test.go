@@ -141,7 +141,7 @@ func TestBuildImageAlreadyPresent(t *testing.T) {
 		},
 	}
 	cfg := &spec.Config{Image: "alpine:3.19"}
-	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test")
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -165,7 +165,7 @@ func TestBuildImagePullsWhenMissing(t *testing.T) {
 		},
 	}
 	cfg := &spec.Config{Image: "alpine:3.19"}
-	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test")
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -178,7 +178,7 @@ func TestBuildImagePullsWhenMissing(t *testing.T) {
 func TestBuildImageNoImageOrBuild(t *testing.T) {
 	cli := &localMockClient{}
 	cfg := &spec.Config{}
-	_, err := BuildImage(context.Background(), cli, cfg, "/tmp/test")
+	_, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
 	if err == nil {
 		t.Fatal("expected error when neither image or build is configured")
 	}
@@ -211,7 +211,7 @@ func TestBuildImageBuildsWhenNotCached(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -252,7 +252,7 @@ func TestBuildImageReusesCache(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -261,6 +261,42 @@ func TestBuildImageReusesCache(t *testing.T) {
 	}
 	if cli.capturedBuildOpts != nil {
 		t.Error("expected ImageBuild to NOT be called when cached image exists")
+	}
+}
+
+// Test that BuildImage rebuilds the image even when a cached image exists
+// if forceRebuild is true.
+func TestBuildImageForceRebuild(t *testing.T) {
+	tmpDir := t.TempDir()
+	devDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		t.Fatalf("creating .devcontainer dir: %v", err)
+	}
+	dockerfile := filepath.Join(devDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	cli := &localMockClient{
+		inspectResponses: []inspectResponse{
+			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:cached456"}}},
+			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}}},
+		},
+		imageBuildResult: client.ImageBuildResult{
+			Body: io.NopCloser(strings.NewReader("")),
+		},
+	}
+
+	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, true)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.HasPrefix(ref, "dcx-") {
+		t.Errorf("expected ref to start with dcx-, got %s", ref)
+	}
+	if cli.capturedBuildOpts == nil {
+		t.Error("expected ImageBuild to be called when forceRebuild=true")
 	}
 }
 
@@ -292,7 +328,7 @@ func TestBuildImageBuildArgs(t *testing.T) {
 			Args:       map[string]string{"MYARG": "MYVALUE", "EMPTY": ""},
 		},
 	}
-	_, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -339,7 +375,7 @@ func TestBuildImageContextPath(t *testing.T) {
 			Context:    "..",
 		},
 	}
-	_, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -371,7 +407,7 @@ func TestBuildImageStableTag(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref1, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	ref1, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -379,7 +415,7 @@ func TestBuildImageStableTag(t *testing.T) {
 	// Reset counter and re-run; should get the exact same tag because the
 	// Dockerfile and config haven't changed.
 	cli.inspectCallCount = 0
-	ref2, err := BuildImage(context.Background(), cli, cfg, tmpDir)
+	ref2, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
 	if err != nil {
 		t.Fatalf("expected no error on second call, got %v", err)
 	}

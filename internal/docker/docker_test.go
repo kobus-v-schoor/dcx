@@ -633,7 +633,7 @@ func TestImagePullIfMissingAlreadyPresent(t *testing.T) {
 	cli := &mockDockerClient{
 		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}},
 	}
-	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19")
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -650,7 +650,7 @@ func TestImagePullIfMissingPulls(t *testing.T) {
 			waitErr:    nil,
 		},
 	}
-	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19")
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -664,12 +664,29 @@ func TestImagePullIfMissingPullWaitFails(t *testing.T) {
 			waitErr:    fmt.Errorf("pull failed"),
 		},
 	}
-	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19")
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", false)
 	if err == nil {
 		t.Fatal("expected error when pull wait fails")
 	}
 	if !strings.Contains(err.Error(), "waiting for image pull") {
 		t.Errorf("error should mention waiting for image pull, got: %s", err.Error())
+	}
+}
+
+func TestImagePullIfMissingForcePull(t *testing.T) {
+	cli := &mockDockerClient{
+		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}},
+		imagePullResult: &mockImagePullResponse{
+			ReadCloser: io.NopCloser(bytes.NewReader(nil)),
+			waitErr:    nil,
+		},
+	}
+	err := ImagePullIfMissing(context.Background(), cli, "alpine:3.19", true)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cli.imagePullResult == nil {
+		t.Error("expected ImagePull to be called when force=true")
 	}
 }
 
