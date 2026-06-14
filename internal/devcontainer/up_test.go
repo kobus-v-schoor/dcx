@@ -490,3 +490,117 @@ func sliceContains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// postCreateCapture records whether postCreateRunner was called and which
+// container ID it received.
+type postCreateCapture struct {
+	called bool
+	id     string
+}
+
+// mockPostCreateRunner overrides postCreateRunner for the duration of a test.
+func mockPostCreateRunner(t *testing.T) *postCreateCapture {
+	cap := &postCreateCapture{}
+	orig := postCreateRunner
+	postCreateRunner = func(_ context.Context, id string, _ *spec.Config) {
+		cap.called = true
+		cap.id = id
+	}
+	t.Cleanup(func() { postCreateRunner = orig })
+	return cap
+}
+
+func TestUpRunsPostCreateForNewContainer(t *testing.T) {
+	cap := mockPostCreateRunner(t)
+	cleanup := setupMockCreate("new456", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
+	}
+
+	cfg := &spec.Config{Image: "debian:stable-slim", WorkspaceFolder: "/workspace"}
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "new456" {
+		t.Errorf("id = %q, want %q", id, "new456")
+	}
+	if !cap.called {
+		t.Error("expected postCreateRunner to be called")
+	}
+	if cap.id != "new456" {
+		t.Errorf("postCreate id = %q, want %q", cap.id, "new456")
+	}
+}
+
+func TestUpSkipsPostCreateForReusedRunning(t *testing.T) {
+	cap := mockPostCreateRunner(t)
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "existing789", State: container.StateRunning}},
+		},
+	}
+
+	cfg := &spec.Config{Image: "debian:stable-slim", WorkspaceFolder: "/workspace"}
+	_, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if cap.called {
+		t.Error("expected postCreateRunner NOT to be called for reused running container")
+	}
+}
+
+func TestUpSkipsPostCreateForStartedStopped(t *testing.T) {
+	cap := mockPostCreateRunner(t)
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "stopped222", State: container.StateExited}},
+		},
+	}
+
+	cfg := &spec.Config{Image: "debian:stable-slim", WorkspaceFolder: "/workspace"}
+	_, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if cap.called {
+		t.Error("expected postCreateRunner NOT to be called for started stopped container")
+	}
+}
+
+func TestUpRunsPostCreateForRebuild(t *testing.T) {
+	cap := mockPostCreateRunner(t)
+	cleanup := setupMockCreate("rebuild333", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "old333", State: container.StateRunning}},
+		},
+	}
+
+	cfg := &spec.Config{Image: "debian:stable-slim", WorkspaceFolder: "/workspace"}
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", true)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "rebuild333" {
+		t.Errorf("id = %q, want %q", id, "rebuild333")
+	}
+	if !cap.called {
+		t.Error("expected postCreateRunner to be called for rebuild")
+	}
+}
