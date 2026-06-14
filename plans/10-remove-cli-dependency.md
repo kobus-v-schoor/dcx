@@ -1,4 +1,4 @@
-# Part 9: Remove Devcontainer CLI Dependency
+# Part 10: Remove Devcontainer CLI Dependency
 
 ## Goal
 
@@ -8,6 +8,9 @@ Complete the decoupling from the `devcontainer` CLI by deleting all references t
 
 - Delete `internal/runner/runner.go` and `internal/runner/runner_test.go`.
 - Delete `internal/flags/flags.go` and `internal/flags/flags_test.go` (these packages only existed to assemble arguments for the `devcontainer` CLI).
+- Delete `internal/devcontainer/runargs.go` and `internal/devcontainer/runargs_test.go` (replaced by passing `runArgs` verbatim to `docker create`).
+- Delete `internal/devcontainer/up.go` helpers that built Moby `container.Config` / `container.HostConfig` structs if they are unused after Part 6.
+- Remove `ContainerCreate` and `ContainerStart` from the `DockerClient` interface if no production code uses them after the migration to CLI-based creation (keep them temporarily in the interface if tests still depend on them, deleting interface methods is a separate follow-up).
 - Update `internal/cli/root.go`:
   - Remove any `devcontainer` binary PATH checks from `PersistentPreRunE`.
   - Change root command short/long descriptions to remove "wraps devcontainer CLI" language.
@@ -29,7 +32,9 @@ Complete the decoupling from the `devcontainer` CLI by deleting all references t
 
 ## Acceptance Criteria
 
-- [ ] `grep -r "devcontainer" --include="*.go" /workspace/internal/` returns no matches to the external CLI binary (devcontainer.local_folder labels are allowed).
+- [ ] `grep -r "devcontainer" --include="*.go" /workspace/internal/` returns no matches to the external CLI binary (`devcontainer.local_folder` labels are allowed).
+- [ ] `grep -r "ParsedRunArgs" --include="*.go" /workspace/internal/` returns no matches.
+- [ ] `grep -r "ContainerCreate\|ContainerStart" --include="*.go" /workspace/internal/` returns no matches in production code (tests may still reference the interface methods).
 - [ ] Running `dcx up` on a fresh machine without the `devcontainer` CLI installed works end-to-end for image, Dockerfile, and compose projects.
 - [ ] `dcx exec`, `dcx stop`, `dcx down`, and `dcx ps` all work without the `devcontainer` CLI.
 - [ ] `README.md` and `docs/cli.md` do not list the devcontainer CLI as a prerequisite.

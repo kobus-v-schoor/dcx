@@ -1,4 +1,4 @@
-# Part 8: Devcontainer Features Support
+# Part 9: Devcontainer Features Support
 
 ## Goal
 
@@ -23,9 +23,10 @@ Re-implement devcontainer features installation so that `dcx` can resolve, downl
     - `FROM <base-image-ref>` (the image built in Part 4).
     - For each feature in order: `COPY <feature-dir> /tmp/feature-<n>`, then `RUN cd /tmp/feature-<n> && ./install.sh` (with options injected as env vars or via the feature's option-handling convention).
     - Tag the final image with a stable name that encodes the base image digest + sorted feature IDs + hash of options.
-  - Build this generated Dockerfile using `docker.ImageBuild` (Part 4).
+  - Build the generated Dockerfile by invoking `docker build` on the Docker CLI (passing the temp directory as the build context and the stable tag via `--tag`). This avoids manual tar-streaming and JSON build-stream parsing that the Moby ImageBuild API requires.
 - Modify `internal/devcontainer/image.go`:
-  - `BuildImage` should accept a list of resolved features. If features are present, it invokes the feature builder to produce the final image instead of using the raw base image.
+  - `BuildImage` should accept a list of resolved features. If features are present, it invokes the feature builder to produce the final image.
+  - The feature builder calls `docker build` CLI (see Part 6 architectural approach for CLI helpers) rather than the Moby `ImageBuild` API.
 - Start with a whitelist of well-known registries (`ghcr.io`) and log a clear unsupported-feature-registry error for others, reducing scope.
 
 ## Acceptance Criteria

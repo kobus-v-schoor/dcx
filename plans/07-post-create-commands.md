@@ -1,4 +1,4 @@
-# Part 6: Post-Create Commands
+# Part 7: Post-Create Commands
 
 ## Goal
 
@@ -15,10 +15,10 @@ Re-implement `postCreateCommand` (and optionally `postStartCommand`, `postAttach
   - Array form: `["echo", "hello"]` → execute directly (no shell).
   - Object form (rare): `{"command": "...", "type": "shell|exec"}` → out of scope unless trivial; document.
 - Implementation:
-  - After `ContainerStart` in `UpNative`, call `RunPostCreate`.
-  - After confirming the container is running (e.g. in `UpNative` or on `dcx exec` first invocation), optionally call `RunPostStart`.
+  - After the container is started in the non-Compose `dcx up` path, call `RunPostCreate`.
+  - After confirming the container is running (e.g. on first `dcx exec`), optionally call `RunPostStart`.
   - `RunPostAttach` can be triggered inside `dcx exec` before the user's command runs, if we want full spec parity.
-  - Use `docker.ExecInContainer` for non-interactive commands. For long-running post-create commands that might produce output, create a similar helper that streams stdout/stderr to the host terminal so the user sees build logs.
+  - Invoke lifecycle commands via `docker exec` on the CLI. Stream stdout/stderr directly to the host terminal so the user sees build logs. For non-interactive commands, capture output and log the result.
   - Exit codes: a failing post-create command should be logged as a warning but not fail the entire `dcx up` (matching the devcontainer CLI's lenient default behaviour). Document this decision.
 - Update `internal/override/override.go`:
   - Ensure that commands injected into the override config (e.g. terminfo compilation) are still executed. Since `UpNative` reads the merged spec rather than the raw override JSON, the override layer's `InjectPostCreateCommand` must write into the typed `spec.Config`.
