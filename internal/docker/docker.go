@@ -16,6 +16,7 @@ import (
 	gosdkclient "github.com/docker/go-sdk/client"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"golang.org/x/term"
@@ -39,6 +40,11 @@ type DockerClient interface {
 	ExecAttach(ctx context.Context, execID string, options client.ExecAttachOptions) (client.ExecAttachResult, error)
 	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
 	ExecInspect(ctx context.Context, execID string, options client.ExecInspectOptions) (client.ExecInspectResult, error)
+	ImagePull(ctx context.Context, ref string, options client.ImagePullOptions) (client.ImagePullResponse, error)
+	ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
+	ImageInspect(ctx context.Context, image string, options ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	ImageTag(ctx context.Context, options client.ImageTagOptions) (client.ImageTagResult, error)
+	ImageList(ctx context.Context, options client.ImageListOptions) (client.ImageListResult, error)
 	Close() error
 }
 
@@ -245,6 +251,28 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 
 			if _, err := cli.ImageRemove(ctx, imageID, client.ImageRemoveOptions{}); err != nil {
 				slog.Debug("could not remove image (may still be in use)", "id", ShortID(imageID), "error", err)
+			}
+		}
+	}
+
+	// Also clean up any dcx-* tagged images that carry the devcontainer
+	// label for this workspace (images built by the native dcx path).
+	absPath, _ := filepath.Abs(workspaceFolder)
+	dxcImages, err := cli.ImageList(ctx, client.ImageListOptions{
+		Filters: client.Filters{
+			"label": {DevcontainerLabel + "=" + absPath: true},
+		},
+	})
+	if err == nil {
+		for _, img := range dxcImages.Items {
+			for _, tag := range img.RepoTags {
+				if strings.HasPrefix(tag, "dcx-") {
+					slog.Info("removing dcx image", "tag", tag)
+					if _, err := cli.ImageRemove(ctx, tag, client.ImageRemoveOptions{}); err != nil {
+						slog.Debug("could not remove dcx image", "tag", tag, "error", err)
+					}
+					break
+				}
 			}
 		}
 	}
@@ -457,6 +485,151 @@ func ExecInteractive(ctx context.Context, cli DockerClient, containerID, user, w
 	}
 
 	return nil
+}
+
+// ImagePullIfMissing pulls the specified image if it is not already present
+// in the local Docker store. It inspects the image first to avoid
+// unnecessary registry traffic. If the image is missing, it pulls and
+// consumes the pull response. Returns an error if either inspect or pull
+// fails.
+func ImagePullIfMissing(ctx context.Context, cli DockerClient, imageRef string) error {
+	_, err := cli.ImageInspect(ctx, imageRef)
+	if err == nil {
+		slog.Debug("image already present locally, skipping pull", "image", imageRef)
+		return nil
+	}
+
+	slog.Info("pulling image", "image", imageRef)
+	resp, err := cli.ImagePull(ctx, imageRef, client.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("pulling image %s: %w", imageRef, err)
+	}
+
+	_, _ = io.Copy(io.Discard, resp)
+	if err := resp.Wait(ctx); err != nil {
+		return fmt.Errorf("waiting for image pull %s: %w", imageRef, err)
+	}
+
+	slog.Info("image pulled", "image", imageRef)
+	return nil
+}
+
+// ImageBuildFromDir builds a Docker image from a Dockerfile located inside
+// buildContextDir. It creates a tar archive of the directory, passes it to
+// the Docker daemon via ImageBuild, and consumes the build output stream.
+// The image is tagged with the provided tags (from opts.Tags). Returns the
+// image ID of the built image by inspecting the first requested tag after
+// the build completes.
+func ImageBuildFromDir(ctx context.Context, cli DockerClient, buildContextDir string, opts client.ImageBuildOptions) (string, error) {
+	pr, pw := io.Pipe()
+
+	// Stream the tar archive in a goroutine so the main goroutine can
+	// pass the reader directly to the Docker ImageBuild API.
+	go func() {
+		defer pw.Close()
+		if err := tarBuildContext(buildContextDir, pw); err != nil {
+			pw.CloseWithError(fmt.Errorf("creating build context tar: %w", err))
+		}
+	}()
+
+	result, err := cli.ImageBuild(ctx, pr, opts)
+	pr.Close() // Unblock the writer goroutine if ImageBuild didn't read everything.
+	if err != nil {
+		return "", fmt.Errorf("starting docker build: %w", err)
+	}
+
+	buildErr := consumeBuildStream(result.Body)
+	if buildErr != "" {
+		return "", fmt.Errorf("docker build failed: %s", buildErr)
+	}
+
+	if len(opts.Tags) == 0 {
+		return "", fmt.Errorf("no tags specified for built image")
+	}
+
+	tag := opts.Tags[0]
+	inspect, err := cli.ImageInspect(ctx, tag)
+	if err != nil {
+		return "", fmt.Errorf("docker build completed but could not inspect image %s: %w", tag, err)
+	}
+
+	return inspect.ID, nil
+}
+
+// tarBuildContext walks the buildContextDir and writes a tar archive into w.
+// It includes all regular files and directories, skipping hidden directories
+// (names starting with '.') to avoid polluting the build context with
+// VCS metadata and similar. This is a minimal implementation; full
+// .dockerignore support is a future enhancement.
+func tarBuildContext(buildContextDir string, w io.Writer) error {
+	tw := tar.NewWriter(w)
+	defer tw.Close()
+
+	return filepath.Walk(buildContextDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself; it has no relative name in the tar.
+		if path == buildContextDir {
+			return nil
+		}
+
+		// Skip hidden directories anywhere in the tree.
+		if info.IsDir() && strings.HasPrefix(filepath.Base(path), ".") {
+			return filepath.SkipDir
+		}
+
+		name, err := filepath.Rel(buildContextDir, path)
+		if err != nil {
+			return err
+		}
+		name = filepath.ToSlash(name)
+
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = name
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+
+		if info.Mode().IsRegular() {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(tw, f); err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
+		}
+
+		return nil
+	})
+}
+
+// consumeBuildStream reads the Docker image build output stream and collects
+// any error messages. It returns the last error message found, or an empty
+// string if the stream reports success.
+func consumeBuildStream(body io.ReadCloser) string {
+	defer body.Close()
+
+	decoder := json.NewDecoder(body)
+	var buildErr string
+	for {
+		var msg jsonstream.Message
+		if err := decoder.Decode(&msg); err != nil {
+			break
+		}
+		if msg.Error != nil && msg.Error.Message != "" {
+			buildErr = msg.Error.Message
+		}
+	}
+	return buildErr
 }
 
 // ResolveRemoteUserFromContainer inspects the container's labels for

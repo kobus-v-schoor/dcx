@@ -3,9 +3,11 @@ package compose
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
@@ -71,6 +73,26 @@ func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecS
 
 func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func (m *mockDockerClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+	return nil, nil
+}
+
+func (m *mockDockerClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+	return client.ImageBuildResult{}, nil
+}
+
+func (m *mockDockerClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
+}
+
+func (m *mockDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
+}
+
+func (m *mockDockerClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
+	return client.ImageListResult{}, nil
 }
 
 func (m *mockDockerClient) Close() error {
