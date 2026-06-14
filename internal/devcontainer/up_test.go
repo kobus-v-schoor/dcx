@@ -11,7 +11,6 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -20,8 +19,6 @@ import (
 type mockClient struct {
 	listResult         client.ContainerListResult
 	listErr            error
-	createResult       client.ContainerCreateResult
-	createErr          error
 	startErr           error
 	stopErr            error
 	removeErr          error
@@ -29,8 +26,6 @@ type mockClient struct {
 	inspectErr         error
 	imageInspectResult client.ImageInspectResult
 	imageInspectErr    error
-
-	lastCreateOptions client.ContainerCreateOptions
 }
 
 var _ docker.DockerClient = &mockClient{}
@@ -105,19 +100,60 @@ func (m *mockClient) ImageList(_ context.Context, _ client.ImageListOptions) (cl
 
 func (m *mockClient) Close() error { return nil }
 
-func (m *mockClient) ContainerCreate(_ context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
-	m.lastCreateOptions = options
-	return m.createResult, m.createErr
+func (m *mockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, nil
 }
 
 func (m *mockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
 	return client.ContainerStartResult{}, m.startErr
 }
 
+// createCapture holds the arguments passed to the mocked createContainer.
+type createCapture struct {
+	imageRef   string
+	runArgs    []string
+	mounts     []string
+	envs       []string
+	labels     map[string]string
+	user       string
+	workdir    string
+	entrypoint string
+	cmdArgs    []string
+}
+
+func setupMockCreate(returnID string, cap *createCapture) func() {
+	orig := createContainer
+	createContainer = func(_ context.Context, imageRef string, runArgs, mounts, envs []string, labels map[string]string, user, workdir, entrypoint string, cmdArgs []string) (string, error) {
+		if cap != nil {
+			cap.imageRef = imageRef
+			cap.runArgs = runArgs
+			cap.mounts = mounts
+			cap.envs = envs
+			cap.labels = labels
+			cap.user = user
+			cap.workdir = workdir
+			cap.entrypoint = entrypoint
+			cap.cmdArgs = cmdArgs
+		}
+		return returnID, nil
+	}
+	return func() { createContainer = orig }
+}
+
+func setupMockStart(err error) func() {
+	orig := startContainer
+	startContainer = func(_ context.Context, _ string) error { return err }
+	return func() { startContainer = orig }
+}
+
 func TestUpNoExistingContainer(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("new123", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "new123", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 	}
 
 	cfg := &spec.Config{
@@ -137,34 +173,36 @@ func TestUpNoExistingContainer(t *testing.T) {
 		t.Errorf("id = %q, want %q", id, "new123")
 	}
 
-	// Verify container config.
-	if cli.lastCreateOptions.Config == nil {
-		t.Fatal("expected Config to be set")
+	if cap.imageRef != "debian:stable-slim" {
+		t.Errorf("imageRef = %q, want %q", cap.imageRef, "debian:stable-slim")
 	}
-	c := cli.lastCreateOptions.Config
-	if c.Image != "debian:stable-slim" {
-		t.Errorf("Image = %q, want %q", c.Image, "debian:stable-slim")
-	}
-	if c.Labels[docker.DevcontainerLabel] == "" {
+	if cap.labels[docker.DevcontainerLabel] == "" {
 		t.Errorf("label %q not set", docker.DevcontainerLabel)
 	}
-	if c.Labels["devcontainer.metadata"] == "" {
+	if cap.labels["devcontainer.metadata"] == "" {
 		t.Errorf("label devcontainer.metadata not set")
 	}
-	if !sliceContains(c.Env, "TEST_VAR=hello") {
-		t.Errorf("Env missing TEST_VAR=hello, got %v", c.Env)
+	if !sliceContains(cap.envs, "TEST_VAR=hello") {
+		t.Errorf("envs missing TEST_VAR=hello, got %v", cap.envs)
 	}
-
-	// Verify overrideCommand.
-	if len(c.Entrypoint) != 1 || c.Entrypoint[0] != "/bin/sh" {
-		t.Errorf("Entrypoint = %v, want [/bin/sh]", c.Entrypoint)
+	if cap.entrypoint != "/bin/sh" {
+		t.Errorf("entrypoint = %q, want %q", cap.entrypoint, "/bin/sh")
 	}
-	if len(c.Cmd) != 3 || c.Cmd[0] != "-c" || c.Cmd[2] != "-" {
-		t.Errorf("Cmd = %v, want [-c <script> -]", c.Cmd)
+	if len(cap.cmdArgs) != 3 || cap.cmdArgs[0] != "-c" || cap.cmdArgs[2] != "-" {
+		t.Errorf("cmdArgs = %v, want [-c <script> -]", cap.cmdArgs)
 	}
 }
 
 func TestUpExistingRunningNoRebuild(t *testing.T) {
+	var createCalled bool
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+	createContainer = func(_ context.Context, _ string, _, _, _ []string, _ map[string]string, _, _, _ string, _ []string) (string, error) {
+		createCalled = true
+		return "", nil
+	}
+
 	cli := &mockClient{
 		listResult: client.ContainerListResult{
 			Items: []container.Summary{
@@ -181,19 +219,23 @@ func TestUpExistingRunningNoRebuild(t *testing.T) {
 	if id != "existing456" {
 		t.Errorf("id = %q, want %q", id, "existing456")
 	}
-	if cli.lastCreateOptions.Config != nil {
-		t.Error("expected ContainerCreate to NOT be called")
+	if createCalled {
+		t.Error("expected createContainer to NOT be called")
 	}
 }
 
 func TestUpExistingRunningRebuild(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("new789", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
 		listResult: client.ContainerListResult{
 			Items: []container.Summary{
 				{ID: "old789", State: container.StateRunning},
 			},
 		},
-		createResult: client.ContainerCreateResult{ID: "new789", Warnings: []string{}},
 	}
 
 	cfg := &spec.Config{Image: "debian:stable-slim", WorkspaceFolder: "/workspace"}
@@ -204,12 +246,21 @@ func TestUpExistingRunningRebuild(t *testing.T) {
 	if id != "new789" {
 		t.Errorf("id = %q, want %q", id, "new789")
 	}
-	if cli.lastCreateOptions.Config == nil {
-		t.Error("expected ContainerCreate to be called")
+	if cap.imageRef == "" {
+		t.Error("expected createContainer to be called")
 	}
 }
 
 func TestUpExistingStoppedNoRebuild(t *testing.T) {
+	var createCalled bool
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+	createContainer = func(_ context.Context, _ string, _, _, _ []string, _ map[string]string, _, _, _ string, _ []string) (string, error) {
+		createCalled = true
+		return "", nil
+	}
+
 	cli := &mockClient{
 		listResult: client.ContainerListResult{
 			Items: []container.Summary{
@@ -226,15 +277,19 @@ func TestUpExistingStoppedNoRebuild(t *testing.T) {
 	if id != "stopped111" {
 		t.Errorf("id = %q, want %q", id, "stopped111")
 	}
-	if cli.lastCreateOptions.Config != nil {
-		t.Error("expected ContainerCreate to NOT be called for stopped container")
+	if createCalled {
+		t.Error("expected createContainer to NOT be called for stopped container")
 	}
 }
 
 func TestUpMetadataLabelContainsRemoteUser(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("meta222", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "meta222", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 	}
 
 	cfg := &spec.Config{
@@ -250,7 +305,7 @@ func TestUpMetadataLabelContainsRemoteUser(t *testing.T) {
 		t.Fatalf("Up error: %v", err)
 	}
 
-	metaJSON := cli.lastCreateOptions.Config.Labels["devcontainer.metadata"]
+	metaJSON := cap.labels["devcontainer.metadata"]
 	if metaJSON == "" {
 		t.Fatal("devcontainer.metadata label not set")
 	}
@@ -263,9 +318,13 @@ func TestUpMetadataLabelContainsRemoteUser(t *testing.T) {
 }
 
 func TestUpMergesImageMetadata(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("meta333", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "meta333", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 		imageInspectResult: client.ImageInspectResult{
 			InspectResponse: image.InspectResponse{
 				Config: &dockerspec.DockerOCIImageConfig{
@@ -290,7 +349,7 @@ func TestUpMergesImageMetadata(t *testing.T) {
 		t.Fatalf("Up error: %v", err)
 	}
 
-	metaJSON := cli.lastCreateOptions.Config.Labels["devcontainer.metadata"]
+	metaJSON := cap.labels["devcontainer.metadata"]
 	if !strings.Contains(metaJSON, `"remoteUser":"baseuser"`) {
 		t.Errorf("metadata missing image remoteUser: %s", metaJSON)
 	}
@@ -299,10 +358,14 @@ func TestUpMergesImageMetadata(t *testing.T) {
 	}
 }
 
-func TestUpWorkspaceMountInHostConfig(t *testing.T) {
+func TestUpWorkspaceMountPassed(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("mount444", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "mount444", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 	}
 
 	cfg := &spec.Config{
@@ -316,33 +379,32 @@ func TestUpWorkspaceMountInHostConfig(t *testing.T) {
 		t.Fatalf("Up error: %v", err)
 	}
 
-	hc := cli.lastCreateOptions.HostConfig
-	if hc == nil {
-		t.Fatal("expected HostConfig to be set")
-	}
-
 	foundWorkspace := false
-	for _, m := range hc.Mounts {
-		if m.Target == "/workspace" && m.Type == mount.TypeBind {
+	for _, m := range cap.mounts {
+		if strings.Contains(m, "/workspace") && strings.HasPrefix(m, "type=bind,") {
 			foundWorkspace = true
 			break
 		}
 	}
 	if !foundWorkspace {
-		t.Errorf("workspace mount not found in HostConfig.Mounts: %v", hc.Mounts)
+		t.Errorf("workspace mount not found in mounts: %v", cap.mounts)
 	}
 }
 
-func TestUpRunArgsPortBinding(t *testing.T) {
+func TestUpRunArgsPassedVerbatim(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("port555", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "port555", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 	}
 
 	cfg := &spec.Config{
 		Image:           "debian:stable-slim",
 		WorkspaceFolder: "/workspace",
-		RunArgs:         []string{"-p", "8080:80"},
+		RunArgs:         []string{"-p", "8080:80", "--network", "host"},
 	}
 
 	_, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
@@ -350,16 +412,29 @@ func TestUpRunArgsPortBinding(t *testing.T) {
 		t.Fatalf("Up error: %v", err)
 	}
 
-	hc := cli.lastCreateOptions.HostConfig
-	if hc == nil {
-		t.Fatal("expected HostConfig to be set")
+	// Verify runArgs appear verbatim in the passed slice.
+	if !sliceContains(cap.runArgs, "-p") {
+		t.Error("expected runArgs to contain -p")
 	}
-	if len(hc.PortBindings) == 0 {
-		t.Error("expected PortBindings to be set")
+	if !sliceContains(cap.runArgs, "8080:80") {
+		t.Error("expected runArgs to contain 8080:80")
+	}
+	if !sliceContains(cap.runArgs, "--network") {
+		t.Error("expected runArgs to contain --network")
+	}
+	if !sliceContains(cap.runArgs, "host") {
+		t.Error("expected runArgs to contain host")
 	}
 }
 
-func TestUpUnsupportedRunArg(t *testing.T) {
+func TestUpUnsupportedRunArgNoError(t *testing.T) {
+	// With CLI-based creation, all runArgs are passed verbatim to docker
+	// create, so there is no "unsupported runArg" error from dcx itself.
+	var cap createCapture
+	cleanup := setupMockCreate("gpus777", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{listResult: client.ContainerListResult{Items: []container.Summary{}}}
 
 	cfg := &spec.Config{
@@ -369,19 +444,23 @@ func TestUpUnsupportedRunArg(t *testing.T) {
 	}
 
 	_, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
-	if err == nil {
-		t.Fatal("expected error for unsupported runArg")
+	if err != nil {
+		t.Fatalf("Up should not error for previously unsupported runArgs: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unsupported runArg") {
-		t.Errorf("expected unsupported runArg error, got: %v", err)
+	if !sliceContains(cap.runArgs, "--gpus") {
+		t.Error("expected runArgs to contain --gpus")
 	}
 }
 
 func TestUpOverrideCommandFalse(t *testing.T) {
 	f := false
+	var cap createCapture
+	cleanup := setupMockCreate("cmd666", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
 	cli := &mockClient{
-		listResult:   client.ContainerListResult{Items: []container.Summary{}},
-		createResult: client.ContainerCreateResult{ID: "cmd666", Warnings: []string{}},
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
 	}
 
 	cfg := &spec.Config{
@@ -395,12 +474,11 @@ func TestUpOverrideCommandFalse(t *testing.T) {
 		t.Fatalf("Up error: %v", err)
 	}
 
-	c := cli.lastCreateOptions.Config
-	if len(c.Entrypoint) > 0 {
-		t.Errorf("expected empty Entrypoint when overrideCommand=false, got %v", c.Entrypoint)
+	if cap.entrypoint != "" {
+		t.Errorf("expected empty entrypoint when overrideCommand=false, got %q", cap.entrypoint)
 	}
-	if len(c.Cmd) > 0 {
-		t.Errorf("expected empty Cmd when overrideCommand=false, got %v", c.Cmd)
+	if len(cap.cmdArgs) > 0 {
+		t.Errorf("expected empty cmdArgs when overrideCommand=false, got %v", cap.cmdArgs)
 	}
 }
 

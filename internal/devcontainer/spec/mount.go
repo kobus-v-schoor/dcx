@@ -39,6 +39,15 @@ type WorkspaceMount struct {
 	Options []string
 }
 
+// String returns the WorkspaceMount in Docker --mount flag format.
+func (wm *WorkspaceMount) String() string {
+	s := fmt.Sprintf("type=%s,source=%s,target=%s", wm.Type, wm.Source, wm.Target)
+	for _, opt := range wm.Options {
+		s += "," + opt
+	}
+	return s
+}
+
 // ResolveWorkspaceMount returns the resolved workspace mount.
 // The rules are:
 //
