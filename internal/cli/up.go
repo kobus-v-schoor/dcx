@@ -116,14 +116,51 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 	// supports image- and Dockerfile-based projects without features or
 	// Docker Compose. All other configurations continue to delegate to the
 	// devcontainer CLI while Parts 7 and 8 are still in progress.
-	useNative := !overrideDir.Config.IsComposeProject() && !overrideDir.Config.HasFeatures() &&
-		(overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "")
-
-	if useNative {
+	switch {
+	case overrideDir.Config.IsComposeProject():
+		return runUpCompose(ctx, overrideDir.Config, rebuild)
+	case !overrideDir.Config.HasFeatures() && (overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != ""):
 		return runUpNative(ctx, overrideDir.Config, rebuild)
+	default:
+		return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
+	}
+}
+
+// runUpCompose creates or reuses a Docker Compose-based devcontainer.
+// It checks for stale mounts on stopped containers, then delegates to
+// devcontainer.UpCompose which generates a temporary compose override file
+// and invokes docker compose up.
+func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild bool) error {
+	cli, err := docker.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cli.Close() }()
+
+	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
+	// source no longer exists, Docker Compose will refuse to start the
+	// container. Return a helpful error so the user can decide how to proceed
+	// instead of silently removing the container.
+	if !rebuild {
+		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
+		if err != nil {
+			return fmt.Errorf("checking for existing devcontainer: %w", err)
+		}
+
+		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
+			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
+				return err
+			}
+		}
 	}
 
-	return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
+	containerID, err := devcontainer.UpCompose(ctx, cli, cfg, workspaceFolder, rebuild)
+	if err != nil {
+		return fmt.Errorf("creating compose devcontainer: %w", err)
+	}
+
+	slog.Info("devcontainer ready", "id", containerID)
+	return nil
 }
 
 // runUpNative creates or reuses a devcontainer directly via the Docker

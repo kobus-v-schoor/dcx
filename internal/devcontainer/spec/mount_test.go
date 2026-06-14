@@ -181,3 +181,34 @@ func TestResolveWorkspaceMountLinuxNoConsistency(t *testing.T) {
 		t.Errorf("Options = %v, want empty when goos=linux", got.Options)
 	}
 }
+
+func TestParseMountStringAliases(t *testing.T) {
+	mount := "type=bind,src=/host/path,dst=/container/path"
+	wm, err := ParseMountString(mount)
+	if err != nil {
+		t.Fatalf("ParseMountString() error: %v", err)
+	}
+	if wm.Type != "bind" {
+		t.Errorf("Type = %q, want bind", wm.Type)
+	}
+	if wm.Source != "/host/path" {
+		t.Errorf("Source = %q, want /host/path", wm.Source)
+	}
+	if wm.Target != "/container/path" {
+		t.Errorf("Target = %q, want /container/path", wm.Target)
+	}
+}
+
+func TestParseMountStringDestinationAlias(t *testing.T) {
+	mount := "type=bind,source=/host,destination=/dst"
+	wm, err := ParseMountString(mount)
+	if err != nil {
+		t.Fatalf("ParseMountString() error: %v", err)
+	}
+	if wm.Source != "/host" {
+		t.Errorf("Source = %q, want /host", wm.Source)
+	}
+	if wm.Target != "/dst" {
+		t.Errorf("Target = %q, want /dst", wm.Target)
+	}
+}

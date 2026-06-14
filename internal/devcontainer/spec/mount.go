@@ -59,7 +59,7 @@ func (wm *WorkspaceMount) String() string {
 // omitted.
 func ResolveWorkspaceMount(cfg *Config, hostWorkspaceFolder string) (*WorkspaceMount, error) {
 	if cfg.WorkspaceMount != "" {
-		return parseMountString(cfg.WorkspaceMount)
+		return ParseMountString(cfg.WorkspaceMount)
 	}
 
 	workspaceFolder := ResolveWorkspaceFolder(cfg, hostWorkspaceFolder)
@@ -79,10 +79,11 @@ func ResolveWorkspaceMount(cfg *Config, hostWorkspaceFolder string) (*WorkspaceM
 	return wm, nil
 }
 
-// parseMountString parses a Docker --mount format string into a
+// ParseMountString parses a Docker --mount format string into a
 // WorkspaceMount. It ensures the required fields type, source, and target
-// are present.
-func parseMountString(mount string) (*WorkspaceMount, error) {
+// are present. Supported key aliases are src (for source) and dst/
+// destination (for target).
+func ParseMountString(mount string) (*WorkspaceMount, error) {
 	parts := strings.Split(mount, ",")
 	wm := &WorkspaceMount{}
 
@@ -98,11 +99,11 @@ func parseMountString(mount string) (*WorkspaceMount, error) {
 			if len(kv) == 2 {
 				wm.Type = strings.TrimSpace(kv[1])
 			}
-		case "source":
+		case "source", "src":
 			if len(kv) == 2 {
 				wm.Source = strings.TrimSpace(kv[1])
 			}
-		case "target":
+		case "target", "dst", "destination":
 			if len(kv) == 2 {
 				wm.Target = strings.TrimSpace(kv[1])
 			}
