@@ -530,14 +530,14 @@ func ImageBuildFromDir(ctx context.Context, cli DockerClient, buildContextDir st
 	// Stream the tar archive in a goroutine so the main goroutine can
 	// pass the reader directly to the Docker ImageBuild API.
 	go func() {
-		defer pw.Close()
+		defer func() { _ = pw.Close() }()
 		if err := tarBuildContext(buildContextDir, pw); err != nil {
 			pw.CloseWithError(fmt.Errorf("creating build context tar: %w", err))
 		}
 	}()
 
 	result, err := cli.ImageBuild(ctx, pr, opts)
-	pr.Close() // Unblock the writer goroutine if ImageBuild didn't read everything.
+	_ = pr.Close() // Unblock the writer goroutine if ImageBuild didn't read everything.
 	if err != nil {
 		return "", fmt.Errorf("starting docker build: %w", err)
 	}
@@ -567,7 +567,7 @@ func ImageBuildFromDir(ctx context.Context, cli DockerClient, buildContextDir st
 // .dockerignore support is a future enhancement.
 func tarBuildContext(buildContextDir string, w io.Writer) error {
 	tw := tar.NewWriter(w)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	return filepath.Walk(buildContextDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -606,10 +606,10 @@ func tarBuildContext(buildContextDir string, w io.Writer) error {
 				return err
 			}
 			if _, err := io.Copy(tw, f); err != nil {
-				f.Close()
+				_ = f.Close()
 				return err
 			}
-			f.Close()
+			_ = f.Close()
 		}
 
 		return nil
@@ -622,7 +622,7 @@ func tarBuildContext(buildContextDir string, w io.Writer) error {
 // returns the last error message found, or an empty string if the stream
 // reports success.
 func consumeBuildStream(body io.ReadCloser) string {
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	decoder := json.NewDecoder(body)
 	var buildErr string
