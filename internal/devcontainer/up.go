@@ -32,6 +32,11 @@ var createContainer = docker.ContainerCreateCLI
 // CLI. In production it is docker.ContainerStartCLI; tests may override it.
 var startContainer = docker.ContainerStartCLI
 
+// postCreateRunner is called by Up after a new container is created and
+// started to run any configured postCreateCommand. In production it is
+// RunPostCreate; tests may override it to avoid invoking Docker.
+var postCreateRunner = RunPostCreate
+
 // Up creates or reuses a devcontainer for a non-compose, non-feature project.
 // It substitutes variables, resolves mounts into string format, sets labels and
 // metadata, creates the container via docker create, and starts it via
@@ -140,6 +145,10 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 	}
 
 	slog.Info("started container", "id", docker.ShortID(containerID))
+
+	// Run post-create command for newly created containers.
+	postCreateRunner(ctx, containerID, cfg)
+
 	return containerID, nil
 }
 
