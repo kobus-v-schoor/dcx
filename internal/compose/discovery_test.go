@@ -86,6 +86,14 @@ func (m *discoveryMockClient) ImageList(_ context.Context, _ client.ImageListOpt
 	return client.ImageListResult{}, nil
 }
 
+func (m *discoveryMockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, nil
+}
+
+func (m *discoveryMockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
+	return client.ContainerStartResult{}, nil
+}
+
 func (m *discoveryMockClient) Close() error {
 	return nil
 }
@@ -177,6 +185,14 @@ func (m *projectContainersMockClient) ImageTag(_ context.Context, _ client.Image
 
 func (m *projectContainersMockClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
 	return client.ImageListResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, nil
+}
+
+func (m *projectContainersMockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
+	return client.ContainerStartResult{}, nil
 }
 
 func (m *projectContainersMockClient) Close() error {

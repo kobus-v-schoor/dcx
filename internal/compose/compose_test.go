@@ -95,6 +95,14 @@ func (m *mockDockerClient) ImageList(_ context.Context, _ client.ImageListOption
 	return client.ImageListResult{}, nil
 }
 
+func (m *mockDockerClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, nil
+}
+
+func (m *mockDockerClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
+	return client.ContainerStartResult{}, nil
+}
+
 func (m *mockDockerClient) Close() error {
 	return nil
 }

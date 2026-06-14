@@ -6,6 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer"
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/env"
 	"github.com/kobus-v-schoor/dcx/internal/flags"
@@ -43,18 +45,13 @@ func newUpCmd() *cobra.Command {
 }
 
 // runUp implements the dcx up workflow. Called by Cobra when the user
-// runs "dcx up". The rebuild parameter controls whether the devcontainer
-// CLI's --remove-existing-container flag is emitted, forcing container
-// recreation so config changes take effect. Config and log level are
-// already initialised by the root command's PersistentPreRunE.
+// runs "dcx up". When the project is a non-compose, non-feature image or
+// Dockerfile project, it uses the native Docker Engine API path. Otherwise,
+// it delegates to the external devcontainer CLI. The rebuild parameter
+// controls container recreation so config changes take effect. Config and
+// log level are already initialised by the root command's PersistentPreRunE.
 func runUp(ctx context.Context, rebuild bool, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
-
-	devcontainerPath, err := runner.Find()
-	if err != nil {
-		return err
-	}
-	slog.Info("found devcontainer CLI", "path", devcontainerPath)
 
 	slog.Info("config loaded")
 	slog.Debug("ssh.forward_agent", "enabled", activeCfg.SSH.ForwardAgent)
@@ -108,11 +105,79 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		overrideDir.InjectPostCreateCommand([]string{terminfoResult.PostCreateCommand})
 	}
 
-	// Persist all injected modifications to disk before delegating to the
-	// devcontainer CLI.
+	// Persist all injected modifications to disk. This is required for the
+	// delegation path (the devcontainer CLI reads the override file) and
+	// useful for debugging the native path.
 	if err := overrideDir.Save(); err != nil {
 		return fmt.Errorf("saving override config: %w", err)
 	}
+
+	// Determine whether the native path can be used. The native path
+	// supports image- and Dockerfile-based projects without features or
+	// Docker Compose. All other configurations continue to delegate to the
+	// devcontainer CLI while Parts 7 and 8 are still in progress.
+	useNative := !overrideDir.Config.IsComposeProject() && !overrideDir.Config.HasFeatures() &&
+		(overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "")
+
+	if useNative {
+		return runUpNative(ctx, overrideDir.Config, rebuild)
+	}
+
+	return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
+}
+
+// runUpNative creates or reuses a devcontainer directly via the Docker
+// Engine API, bypassing the external devcontainer CLI. It resolves the
+// image (pull or build), substitutes variables, and creates and starts the
+// container.
+func runUpNative(ctx context.Context, cfg *spec.Config, rebuild bool) error {
+	cli, err := docker.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cli.Close() }()
+
+	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
+	// source no longer exists, Docker will refuse to start the container.
+	// Return a helpful error so the user can decide how to proceed instead of
+	// silently removing the container.
+	if !rebuild {
+		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
+		if err != nil {
+			return fmt.Errorf("checking for existing devcontainer: %w", err)
+		}
+
+		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
+			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild)
+	if err != nil {
+		return fmt.Errorf("building devcontainer image: %w", err)
+	}
+	slog.Info("resolved image", "ref", imageRef)
+
+	containerID, err := devcontainer.Up(ctx, cli, cfg, workspaceFolder, imageRef, rebuild)
+	if err != nil {
+		return fmt.Errorf("creating devcontainer: %w", err)
+	}
+
+	slog.Info("devcontainer ready", "id", containerID)
+	return nil
+}
+
+// runUpDelegation delegates to the external devcontainer CLI. It assembles
+// flags and invokes the binary, preserving the existing behaviour for
+// Docker Compose, feature, and unsupported projects.
+func runUpDelegation(ctx context.Context, rebuild bool, args []string, overrideDir string) error {
+	devcontainerPath, err := runner.Find()
+	if err != nil {
+		return err
+	}
+	slog.Info("found devcontainer CLI", "path", devcontainerPath)
 
 	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
 	// source no longer exists, Docker will refuse to start the container.
@@ -137,7 +202,7 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		}
 	}
 
-	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir.Dir, rebuild)
+	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir, rebuild)
 
 	dcArgs = append(dcArgs, args...)
 

@@ -101,6 +101,14 @@ func (m *localMockClient) ExecInspect(_ context.Context, _ string, _ client.Exec
 	return client.ExecInspectResult{}, nil
 }
 
+func (m *localMockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, nil
+}
+
+func (m *localMockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
+	return client.ContainerStartResult{}, nil
+}
+
 func (m *localMockClient) Close() error {
 	return nil
 }
@@ -221,8 +229,8 @@ func TestBuildImageBuildsWhenNotCached(t *testing.T) {
 	if cli.capturedBuildOpts == nil {
 		t.Fatal("expected ImageBuild to be called")
 	}
-	if cli.capturedBuildOpts.Version != "2" {
-		t.Errorf("expected BuildKit version, got %q", cli.capturedBuildOpts.Version)
+	if string(cli.capturedBuildOpts.Version) != "1" {
+		t.Errorf("expected v1 builder version, got %q", cli.capturedBuildOpts.Version)
 	}
 	if len(cli.capturedBuildOpts.Tags) == 0 || !strings.HasPrefix(cli.capturedBuildOpts.Tags[0], "dcx-") {
 		t.Errorf("expected tags to include dcx- prefix, got %v", cli.capturedBuildOpts.Tags)

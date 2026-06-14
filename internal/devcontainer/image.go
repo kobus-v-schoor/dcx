@@ -110,7 +110,15 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 		Tags:       []string{stableTag},
 		Dockerfile: filepath.ToSlash(dockerfileInContext),
 		Target:     cfg.Build.Target,
-		Version:    build.BuilderBuildKit,
+		// Use the v1 builder rather than BuildKit. BuildKit via the Docker SDK
+		// fails with "no active sessions" when the base image is not already
+		// present locally because the SDK does not set up the BuildKit session
+		// that the Docker CLI creates automatically. The v1 builder handles
+		// pulling base images during the build and is sufficient for the simple
+		// Dockerfiles used by devcontainer projects.
+		Version:     build.BuilderV1,
+		Remove:      true,
+		ForceRemove: true,
 		Labels: map[string]string{
 			docker.DevcontainerLabel: workspaceFolder,
 		},
