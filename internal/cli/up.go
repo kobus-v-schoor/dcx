@@ -16,7 +16,6 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/override"
 	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/kobus-v-schoor/dcx/internal/ssh"
-	"github.com/moby/moby/api/types/container"
 	"github.com/spf13/cobra"
 )
 
@@ -127,32 +126,14 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 }
 
 // runUpCompose creates or reuses a Docker Compose-based devcontainer.
-// It checks for stale mounts on stopped containers, then delegates to
-// devcontainer.UpCompose which generates a temporary compose override file
-// and invokes docker compose up.
+// It delegates to devcontainer.UpCompose which generates a temporary
+// compose override file and invokes docker compose up.
 func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild bool) error {
 	cli, err := docker.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
-
-	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
-	// source no longer exists, Docker Compose will refuse to start the
-	// container. Return a helpful error so the user can decide how to proceed
-	// instead of silently removing the container.
-	if !rebuild {
-		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-		if err != nil {
-			return fmt.Errorf("checking for existing devcontainer: %w", err)
-		}
-
-		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
-			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
-				return err
-			}
-		}
-	}
 
 	containerID, err := devcontainer.UpCompose(ctx, cli, cfg, workspaceFolder, rebuild)
 	if err != nil {
@@ -173,23 +154,6 @@ func runUpNative(ctx context.Context, cfg *spec.Config, rebuild bool) error {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
-
-	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
-	// source no longer exists, Docker will refuse to start the container.
-	// Return a helpful error so the user can decide how to proceed instead of
-	// silently removing the container.
-	if !rebuild {
-		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-		if err != nil {
-			return fmt.Errorf("checking for existing devcontainer: %w", err)
-		}
-
-		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
-			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
-				return err
-			}
-		}
-	}
 
 	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild)
 	if err != nil {
@@ -215,29 +179,6 @@ func runUpDelegation(ctx context.Context, rebuild bool, args []string, overrideD
 		return err
 	}
 	slog.Info("found devcontainer CLI", "path", devcontainerPath)
-
-	// Check for stale bind mounts on a stopped devcontainer. If a bind mount
-	// source no longer exists, Docker will refuse to start the container.
-	// Return a helpful error so the user can decide how to proceed instead of
-	// silently removing the container.
-	if !rebuild {
-		cli, err := docker.NewClient(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = cli.Close() }()
-
-		containers, err := docker.FindDevcontainers(ctx, cli, workspaceFolder)
-		if err != nil {
-			return fmt.Errorf("checking for existing devcontainer: %w", err)
-		}
-
-		if len(containers.Items) > 0 && containers.Items[0].State != container.StateRunning {
-			if err := docker.CheckStaleMounts(ctx, cli, containers.Items[0].ID); err != nil {
-				return err
-			}
-		}
-	}
 
 	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir, rebuild)
 

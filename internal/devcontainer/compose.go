@@ -13,6 +13,7 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
+	"gopkg.in/yaml.v3"
 )
 
 // composeKeepAliveScript is the shell script used to keep a compose service
@@ -34,10 +35,8 @@ var composeUpRunner = runComposeUpCLI
 // It substitutes variables, generates a temporary compose override file,
 // brings the target service up, and runs postCreateCommand for newly
 // created containers. When rebuild is false and a running container already
-// exists, it returns the existing container ID. When a stopped container
-// exists and rebuild is false, it is started with --no-recreate. When
-// rebuild is true or no container exists, the container is created or
-// recreated.
+// exists, it returns the existing container ID. Otherwise, docker compose up
+// is allowed to start or recreate the container as needed.
 func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWorkspaceFolder string, rebuild bool) (string, error) {
 	absHostFolder, err := filepath.Abs(hostWorkspaceFolder)
 	if err != nil {
@@ -63,30 +62,9 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 		return "", fmt.Errorf("finding existing containers: %w", err)
 	}
 
-	if len(existing.Items) > 0 && !rebuild {
-		ctr := existing.Items[0]
-		if docker.IsContainerRunning(ctr) {
-			slog.Info("reusing running devcontainer", "id", docker.ShortID(ctr.ID))
-			return ctr.ID, nil
-		}
-
-		// Stopped container: start without recreation so that config
-		// changes do not force an unwanted recreate.
-		slog.Info("starting stopped devcontainer", "id", docker.ShortID(ctr.ID))
-		args := buildComposeUpArgs(projectName, composeFiles, "", "no", cfg.Service, cfg.RunServices)
-		if err := composeUpRunner(ctx, args); err != nil {
-			return "", fmt.Errorf("starting compose project: %w", err)
-		}
-
-		updated, err := docker.FindDevcontainers(ctx, cli, absHostFolder)
-		if err != nil {
-			return "", fmt.Errorf("finding container after compose up: %w", err)
-		}
-		if len(updated.Items) == 0 {
-			return "", fmt.Errorf("devcontainer container not found after compose up")
-		}
-		slog.Info("started container", "id", docker.ShortID(updated.Items[0].ID))
-		return updated.Items[0].ID, nil
+	if len(existing.Items) > 0 && !rebuild && docker.IsContainerRunning(existing.Items[0]) {
+		slog.Info("reusing running devcontainer", "id", docker.ShortID(existing.Items[0].ID))
+		return existing.Items[0].ID, nil
 	}
 
 	// Phase 2: create or recreate the container with a temporary override.
@@ -134,11 +112,8 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 
 // buildComposeUpArgs constructs the full argument slice for
 // docker compose up. composeFiles must contain at least one path.
-// overrideFile may be empty. recreatePolicy is one of:
-//
-//	""     → no recreate flag
-//	"no"   → --no-recreate
-//	"force"→ --force-recreate
+// overrideFile may be empty. recreatePolicy is either "force" (adds
+// --force-recreate) or any other value (no recreate flag).
 //
 // When runServices is empty, no service names are appended so that all
 // services in the compose file are started. When runServices is non-empty,
@@ -154,10 +129,7 @@ func buildComposeUpArgs(projectName string, composeFiles []string, overrideFile 
 		args = append(args, "-f", overrideFile)
 	}
 	args = append(args, "up", "-d")
-	switch recreatePolicy {
-	case "no":
-		args = append(args, "--no-recreate")
-	case "force":
+	if recreatePolicy == "force" {
 		args = append(args, "--force-recreate")
 	}
 	if len(runServices) > 0 {
@@ -194,40 +166,61 @@ func resolveProjectName(absHostFolder string) string {
 	return filepath.Base(absHostFolder)
 }
 
+// composeOverrideFile represents a minimal Docker Compose override file for a
+// single service. It is serialised to YAML by writeComposeOverride.
+type composeOverrideFile struct {
+	Services map[string]composeServiceOverride `yaml:"services"`
+}
+
+// composeServiceOverride captures the dcx-injected labels, environment,
+// volumes, and entrypoint for a compose service.
+type composeServiceOverride struct {
+	Labels      []string        `yaml:"labels,omitempty"`
+	Environment []string        `yaml:"environment,omitempty"`
+	Volumes     []composeVolume `yaml:"volumes,omitempty"`
+	Entrypoint  []string        `yaml:"entrypoint,omitempty"`
+}
+
+// composeVolume mirrors the Docker Compose long-form volume mount syntax.
+type composeVolume struct {
+	Type        string    `yaml:"type"`
+	Source      string    `yaml:"source"`
+	Target      string    `yaml:"target"`
+	ReadOnly    bool      `yaml:"read_only,omitempty"`
+	Consistency string    `yaml:"consistency,omitempty"`
+	Bind        *bindOpts `yaml:"bind,omitempty"`
+}
+
+type bindOpts struct {
+	Propagation string `yaml:"propagation,omitempty"`
+}
+
 // writeComposeOverride generates a temporary Docker Compose override file
 // that injects devcontainer labels, environment variables, additional
 // mounts, and the keep-alive entrypoint into the target service.
 func writeComposeOverride(cfg *spec.Config, path, absHostFolder string) error {
-	var b strings.Builder
-
-	b.WriteString("services:\n")
-	b.WriteString(fmt.Sprintf("  %s:\n", cfg.Service))
+	svc := composeServiceOverride{}
 
 	// Labels
 	labels := buildComposeLabels(cfg, absHostFolder)
 	if len(labels) > 0 {
-		b.WriteString("    labels:\n")
-		for _, l := range labels {
-			b.WriteString(fmt.Sprintf("      - %q\n", l))
-		}
+		svc.Labels = labels
 	}
 
 	// Environment variables sorted for determinism.
 	if len(cfg.ContainerEnv) > 0 {
-		b.WriteString("    environment:\n")
 		keys := make([]string, 0, len(cfg.ContainerEnv))
 		for k := range cfg.ContainerEnv {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			b.WriteString(fmt.Sprintf("      - %q\n", k+"="+cfg.ContainerEnv[k]))
+			svc.Environment = append(svc.Environment, k+"="+cfg.ContainerEnv[k])
 		}
 	}
 
 	// Volumes (mounts) converted to Compose long-form syntax.
 	if len(cfg.Mounts) > 0 {
-		b.WriteString("    volumes:\n")
 		for _, m := range cfg.Mounts {
 			if m.IsEmpty() {
 				continue
@@ -238,31 +231,26 @@ func writeComposeOverride(cfg *spec.Config, path, absHostFolder string) error {
 					slog.Warn("skipping invalid mount entry", "error", err, "mount", s)
 					continue
 				}
-				lines := strings.Split(vol, "\n")
-				if len(lines) > 0 {
-					b.WriteString("      - ")
-					b.WriteString(lines[0])
-					b.WriteString("\n")
-					for _, line := range lines[1:] {
-						b.WriteString("        ")
-						b.WriteString(line)
-						b.WriteString("\n")
-					}
-				}
+				svc.Volumes = append(svc.Volumes, vol)
 			}
 		}
 	}
 
 	// Entrypoint: always injected for compose projects so the container
 	// stays alive for dcx exec regardless of overrideCommand setting.
-	b.WriteString("    entrypoint:\n")
-	b.WriteString("      - \"/bin/sh\"\n")
-	b.WriteString("      - \"-c\"\n")
-	b.WriteString(fmt.Sprintf("      - %q\n", composeKeepAliveScript))
-	b.WriteString("      - \"-\"\n")
+	svc.Entrypoint = []string{"/bin/sh", "-c", composeKeepAliveScript, "-"}
 
-	content := b.String()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	override := composeOverrideFile{
+		Services: map[string]composeServiceOverride{
+			cfg.Service: svc,
+		},
+	}
+
+	data, err := yaml.Marshal(override)
+	if err != nil {
+		return fmt.Errorf("marshalling compose override: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing override file: %w", err)
 	}
 	return nil
@@ -326,35 +314,37 @@ func buildComposeMetadataJSON(cfg *spec.Config) (string, error) {
 }
 
 // mountEntryToComposeVolume converts a Docker --mount format string into a
-// Compose long-form volume YAML entry (without the leading list marker).
-// Supported options are mapped to their Compose equivalents; unsupported
-// options are skipped with a warning.
-func mountEntryToComposeVolume(mount string) (string, error) {
+// composeVolume struct. Supported options are mapped to their Compose
+// equivalents; unsupported options are skipped with a warning.
+func mountEntryToComposeVolume(mount string) (composeVolume, error) {
 	wm, err := spec.ParseMountString(mount)
 	if err != nil {
-		return "", err
+		return composeVolume{}, err
 	}
 
-	var lines []string
-	lines = append(lines, fmt.Sprintf("type: %s", wm.Type))
-	lines = append(lines, fmt.Sprintf("source: %s", wm.Source))
-	lines = append(lines, fmt.Sprintf("target: %s", wm.Target))
+	vol := composeVolume{
+		Type:   wm.Type,
+		Source: wm.Source,
+		Target: wm.Target,
+	}
 
 	for _, opt := range wm.Options {
 		switch {
 		case opt == "readonly":
-			lines = append(lines, "read_only: true")
+			vol.ReadOnly = true
 		case strings.HasPrefix(opt, "consistency="):
-			lines = append(lines, fmt.Sprintf("consistency: %s", strings.TrimPrefix(opt, "consistency=")))
+			vol.Consistency = strings.TrimPrefix(opt, "consistency=")
 		case strings.HasPrefix(opt, "bind-propagation="):
-			lines = append(lines, "bind:")
-			lines = append(lines, fmt.Sprintf("  propagation: %s", strings.TrimPrefix(opt, "bind-propagation=")))
+			if vol.Bind == nil {
+				vol.Bind = &bindOpts{}
+			}
+			vol.Bind.Propagation = strings.TrimPrefix(opt, "bind-propagation=")
 		default:
 			slog.Warn("unsupported mount option for compose, skipping", "option", opt)
 		}
 	}
 
-	return strings.Join(lines, "\n"), nil
+	return vol, nil
 }
 
 // runComposeUpCLI invokes docker compose with the given arguments via

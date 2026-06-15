@@ -55,8 +55,8 @@ func TestResolveProjectName(t *testing.T) {
 
 func TestBuildComposeUpArgsNoRecreate(t *testing.T) {
 	args := buildComposeUpArgs("myproj", []string{"/a.yml"}, "/override.yml", "no", "app", nil)
-	if !slices.Contains(args, "--no-recreate") {
-		t.Error("expected --no-recreate in args")
+	if slices.Contains(args, "--no-recreate") {
+		t.Error("did not expect --no-recreate for 'no' policy")
 	}
 	if slices.Contains(args, "--force-recreate") {
 		t.Error("did not expect --force-recreate")
@@ -98,14 +98,14 @@ func TestMountEntryToComposeVolumePlain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !strings.Contains(got, "type: bind") {
-		t.Error("missing type: bind")
+	if got.Type != "bind" {
+		t.Errorf("got Type %q, want bind", got.Type)
 	}
-	if !strings.Contains(got, "source: /host") {
-		t.Error("missing source: /host")
+	if got.Source != "/host" {
+		t.Errorf("got Source %q, want /host", got.Source)
 	}
-	if !strings.Contains(got, "target: /container") {
-		t.Error("missing target: /container")
+	if got.Target != "/container" {
+		t.Errorf("got Target %q, want /container", got.Target)
 	}
 }
 
@@ -114,8 +114,8 @@ func TestMountEntryToComposeVolumeReadonly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !strings.Contains(got, "read_only: true") {
-		t.Errorf("missing read_only, got:\n%s", got)
+	if !got.ReadOnly {
+		t.Error("expected ReadOnly to be true")
 	}
 }
 
@@ -124,8 +124,8 @@ func TestMountEntryToComposeVolumeUnsupportedOption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if strings.Contains(got, "mode") {
-		t.Error("unsupported option should be skipped")
+	if got.ReadOnly || got.Consistency != "" || got.Bind != nil {
+		t.Error("unsupported option should not affect volume")
 	}
 }
 
@@ -287,8 +287,22 @@ func TestUpComposeStartStoppedContainer(t *testing.T) {
 	if !cap.called {
 		t.Fatal("expected composeUpRunner to be called")
 	}
-	if !slices.Contains(cap.args, "--no-recreate") {
-		t.Error("expected --no-recreate")
+	if slices.Contains(cap.args, "--no-recreate") {
+		t.Error("did not expect --no-recreate")
+	}
+	if slices.Contains(cap.args, "--force-recreate") {
+		t.Error("did not expect --force-recreate")
+	}
+	// Verify the temporary override file is included in the args.
+	foundOverride := false
+	for i, a := range cap.args {
+		if a == "-f" && i+1 < len(cap.args) && strings.Contains(cap.args[i+1], "dcx.compose.override.yml") {
+			foundOverride = true
+			break
+		}
+	}
+	if !foundOverride {
+		t.Error("expected override file in args")
 	}
 }
 
