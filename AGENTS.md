@@ -25,7 +25,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 ## Integration Testing
 
 - A test devcontainer setup is provided at `test/.devcontainer/` (simple `mcr.microsoft.com/devcontainers/base:debian` image) for use as the target container in integration tests.
-- **Whenever changes are made to the codebase**, test your changes against the test project in test/ and also test basic functionality (`dcx up` and `down`) to catch regressions
+- **Whenever changes are made to the codebase**, test the functionality you implemented against the test project in test/ and also test basic functionality (`dcx up` and `down`) to catch regressions
 
 ## Architecture
 
