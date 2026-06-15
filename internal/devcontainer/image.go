@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer/features"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/moby/moby/api/types/build"
@@ -39,19 +40,56 @@ var slugRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 // This function is used by the native dcx up path (Part 5). It is safe to
 // call repeatedly: image-based references are idempotent, and build-based
 // references leverage Docker layer caching.
+// featureImageBuilder is the function used by BuildImage to build a feature
+// image when the config includes features. In production it is
+// features.BuildFeatureImage; tests may override it to avoid invoking Docker.
+var featureImageBuilder = features.BuildFeatureImage
+
+// BuildImage resolves the image reference that should be used for creating
+// a devcontainer based on the parsed devcontainer.json spec. It handles
+// three cases:
+//
+//  1. "image" is set → the image is pulled if not already present locally.
+//     The reference is returned as-is. If forceRebuild is true, the image
+//     is re-pulled even when already present.
+//
+//  2. "build" or legacy "dockerFile" is set → a Dockerfile is built using
+//     the Docker SDK ImageBuild API. The resulting image is tagged with a
+//     stable, deterministic name so that identical configs reuse the same
+//     image without rebuilding. The stable tag is returned. If forceRebuild
+//     is true, the image is rebuilt even when a cached tag already exists.
+//
+//  3. Neither image nor build is configured → returns an error.
+//
+// When the config includes features, the resolved base image is layered with
+// all features via a generated Dockerfile built with the Docker CLI.
+//
+// This function is used by the native dcx up path. It is safe to call
+// repeatedly: image-based references are idempotent, and build-based
+// references leverage Docker layer caching.
 func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string, forceRebuild bool) (string, error) {
-	if cfg.Image != "" {
+	var baseImageRef string
+	switch {
+	case cfg.Image != "":
 		if err := docker.ImagePullIfMissing(ctx, cli, cfg.Image, forceRebuild); err != nil {
 			return "", err
 		}
-		return cfg.Image, nil
+		baseImageRef = cfg.Image
+	case cfg.Build != nil || cfg.LegacyDockerfile != "":
+		tag, err := buildFromDockerfile(ctx, cli, cfg, workspaceFolder, forceRebuild)
+		if err != nil {
+			return "", err
+		}
+		baseImageRef = tag
+	default:
+		return "", fmt.Errorf("devcontainer.json does not specify image or build")
 	}
 
-	if cfg.Build != nil || cfg.LegacyDockerfile != "" {
-		return buildFromDockerfile(ctx, cli, cfg, workspaceFolder, forceRebuild)
+	if !cfg.HasFeatures() {
+		return baseImageRef, nil
 	}
 
-	return "", fmt.Errorf("devcontainer.json does not specify image or build")
+	return featureImageBuilder(ctx, cli, baseImageRef, cfg.Features, cfg.ContainerUser, cfg.RemoteUser, workspaceFolder, forceRebuild)
 }
 
 // buildFromDockerfile builds a devcontainer image from a Dockerfile

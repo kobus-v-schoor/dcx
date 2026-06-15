@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
-	"github.com/kobus-v-schoor/dcx/internal/features"
+	"github.com/kobus-v-schoor/dcx/internal/dcxfeatures"
 )
 
 // Build assembles the devcontainer up CLI flags from the resolved config,
@@ -44,7 +44,7 @@ func buildAdditionalFeatures(cfg *config.Config) []string {
 		return nil
 	}
 
-	jsonStr, err := features.BuildJSON(cfg.DefaultFeatures)
+	jsonStr, err := dcxfeatures.BuildJSON(cfg.DefaultFeatures)
 	if err != nil {
 		return nil
 	}

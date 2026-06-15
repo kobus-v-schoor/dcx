@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer"
@@ -104,6 +106,12 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		overrideDir.InjectPostCreateCommand([]string{terminfoResult.PostCreateCommand})
 	}
 
+	// Merge dcx default_features into the project features. Project features
+	// win on base-ID conflict.
+	if len(activeCfg.DefaultFeatures) > 0 {
+		overrideDir.Config.Features = mergeDefaultFeatures(overrideDir.Config.Features, activeCfg.DefaultFeatures)
+	}
+
 	// Persist all injected modifications to disk. This is required for the
 	// delegation path (the devcontainer CLI reads the override file) and
 	// useful for debugging the native path.
@@ -111,14 +119,17 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		return fmt.Errorf("saving override config: %w", err)
 	}
 
-	// Determine whether the native path can be used. The native path
-	// supports image- and Dockerfile-based projects without features or
-	// Docker Compose. All other configurations continue to delegate to the
-	// devcontainer CLI while Parts 7 and 8 are still in progress.
+	// Determine which up path to use. Native path supports image- and
+	// Dockerfile-based projects. Compose projects without features also use
+	// the native path. Compose projects with features continue to delegate
+	// to the external devcontainer CLI.
 	switch {
 	case overrideDir.Config.IsComposeProject():
+		if overrideDir.Config.HasFeatures() {
+			return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
+		}
 		return runUpCompose(ctx, overrideDir.Config, rebuild)
-	case !overrideDir.Config.HasFeatures() && (overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != ""):
+	case overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "":
 		return runUpNative(ctx, overrideDir.Config, rebuild)
 	default:
 		return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
@@ -265,4 +276,43 @@ func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult, termin
 	}
 
 	return result
+}
+
+// mergeDefaultFeatures combines project features (from devcontainer.json)
+// with dcx default_features (from config). Project features win on base-ID
+// conflict. A base ID is the feature identifier without the trailing version
+// tag (e.g. "ghcr.io/foo/bar" from "ghcr.io/foo/bar:1").
+func mergeDefaultFeatures(specFeatures map[string]json.RawMessage, defaultFeatures []config.Feature) map[string]json.RawMessage {
+	if len(defaultFeatures) == 0 {
+		return specFeatures
+	}
+	result := make(map[string]json.RawMessage, len(specFeatures)+len(defaultFeatures))
+	for k, v := range specFeatures {
+		result[k] = v
+	}
+	seen := make(map[string]bool)
+	for k := range specFeatures {
+		seen[baseFeatureID(k)] = true
+	}
+	for _, f := range defaultFeatures {
+		base := baseFeatureID(f.FeatureID())
+		if seen[base] {
+			continue // project wins
+		}
+		opts, _ := json.Marshal(f.Options)
+		result[f.FeatureID()] = opts
+		seen[base] = true
+	}
+	return result
+}
+
+// baseFeatureID strips the trailing version tag from a feature identifier.
+// It returns the input unchanged if there is no recognizable version tag.
+func baseFeatureID(id string) string {
+	if idx := strings.LastIndex(id, ":"); idx > 0 {
+		if !strings.Contains(id[idx+1:], "/") {
+			return id[:idx]
+		}
+	}
+	return id
 }

@@ -1,4 +1,4 @@
-package features
+package dcxfeatures
 
 import (
 	"encoding/json"

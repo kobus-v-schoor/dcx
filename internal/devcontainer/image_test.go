@@ -2,6 +2,7 @@ package devcontainer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"iter"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer/features"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/moby/moby/api/types/image"
@@ -440,5 +442,46 @@ func TestBuildImageStableTag(t *testing.T) {
 	}
 	if len(parts[1]) != 16 {
 		t.Errorf("expected 16-char hash, got %q (len=%d)", parts[1], len(parts[1]))
+	}
+}
+
+// Test that BuildImage delegates to the feature builder when features are
+// configured. The base image is resolved first, then featureImageBuilder is
+// invoked with the base reference and feature list.
+func TestBuildImageWithFeatures_CallsFeatureBuilder(t *testing.T) {
+	cli := &localMockClient{
+		inspectResponses: []inspectResponse{
+			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:baseimg"}}},
+		},
+	}
+
+	called := false
+	featureImageBuilder = func(_ context.Context, _ docker.DockerClient, baseImage string, features map[string]json.RawMessage, _, _, _ string, _ bool) (string, error) {
+		called = true
+		if baseImage != "alpine:3.19" {
+			t.Errorf("expected baseImage alpine:3.19, got %s", baseImage)
+		}
+		if len(features) != 1 {
+			t.Errorf("expected 1 feature, got %d", len(features))
+		}
+		return "dcx-test-feat:1234", nil
+	}
+	defer func() { featureImageBuilder = features.BuildFeatureImage }()
+
+	cfg := &spec.Config{
+		Image: "alpine:3.19",
+		Features: map[string]json.RawMessage{
+			"ghcr.io/devcontainers/features/github-cli:1": {},
+		},
+	}
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if ref != "dcx-test-feat:1234" {
+		t.Errorf("expected ref dcx-test-feat:1234, got %s", ref)
+	}
+	if !called {
+		t.Error("expected featureImageBuilder to be called")
 	}
 }
