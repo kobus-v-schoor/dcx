@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -24,6 +25,25 @@ func (f Feature) FeatureID() string {
 		}
 	}
 	return f.ID + ":latest"
+}
+
+// AsSpecFeatures converts a slice of dcx config features into the
+// devcontainer.json spec format (map from feature ID to JSON-encoded
+// options). An empty or nil options map serializes as "{}".
+func AsSpecFeatures(features []Feature) map[string]json.RawMessage {
+	if len(features) == 0 {
+		return nil
+	}
+	result := make(map[string]json.RawMessage, len(features))
+	for _, f := range features {
+		opts := f.Options
+		if opts == nil {
+			opts = map[string]interface{}{}
+		}
+		raw, _ := json.Marshal(opts)
+		result[f.FeatureID()] = raw
+	}
+	return result
 }
 
 // Mount represents a user-configured bind mount declaration. Source and Target

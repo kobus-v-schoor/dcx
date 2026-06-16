@@ -145,7 +145,7 @@ func ensureDevcontainerRunning(cmd *cobra.Command) error {
 		}
 
 		slog.Info("devcontainer exists but is not running, starting")
-		if err := runUp(cmd.Context(), false, nil); err != nil {
+		if err := runUp(cmd.Context(), false, false, nil); err != nil {
 			return fmt.Errorf("running dcx up: %w", err)
 		}
 		return nil
@@ -154,7 +154,7 @@ func ensureDevcontainerRunning(cmd *cobra.Command) error {
 	// No devcontainer found — start one.
 	slog.Info("no devcontainer found, starting one with dcx up")
 
-	if err := runUp(cmd.Context(), false, nil); err != nil {
+	if err := runUp(cmd.Context(), false, false, nil); err != nil {
 		return fmt.Errorf("running dcx up: %w", err)
 	}
 

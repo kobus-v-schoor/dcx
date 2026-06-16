@@ -2,54 +2,54 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/kobus-v-schoor/dcx/internal/env"
-	"github.com/kobus-v-schoor/dcx/internal/flags"
 	"github.com/kobus-v-schoor/dcx/internal/git"
 	"github.com/kobus-v-schoor/dcx/internal/mounts"
 	"github.com/kobus-v-schoor/dcx/internal/override"
-	"github.com/kobus-v-schoor/dcx/internal/runner"
 	"github.com/kobus-v-schoor/dcx/internal/ssh"
 	"github.com/spf13/cobra"
 )
 
 // newUpCmd creates the "up" subcommand. It reads the already-loaded config,
-// creates the override directory, assembles devcontainer CLI flags, and
-// delegates execution. The --rebuild flag maps to the devcontainer CLI's
-// --remove-existing-container flag, forcing container recreation so that
-// config changes (env vars, mounts, features) take effect. Added to the
-// root command tree in Execute().
+// creates the override directory, and starts the devcontainer using the native
+// Docker Engine API. The --rebuild flag forces container recreation so that
+// config changes take effect. Added to the root command tree in Execute().
 func newUpCmd() *cobra.Command {
 	var rebuild bool
+	var upgradeLockfile bool
 
 	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start a devcontainer using dcx configuration",
-		Long:  "Start a devcontainer by delegating to the devcontainer CLI with dcx-assembled flags.\nAny flags after -- are passed through to devcontainer up unchanged.",
+		Long:  "Start a devcontainer using dcx configuration.\nAny flags after -- are passed through unchanged.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUp(cmd.Context(), rebuild, args)
+			return runUp(cmd.Context(), rebuild, upgradeLockfile, args)
 		},
 	}
 
 	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "recreate the container if it already exists, so config changes take effect")
+	cmd.Flags().BoolVar(&upgradeLockfile, "upgrade-lockfile", false, "ignore the existing devcontainer-lock.json and write a new one with the latest resolved feature digests")
 
 	return cmd
 }
 
 // runUp implements the dcx up workflow. Called by Cobra when the user
-// runs "dcx up". When the project is a non-compose, non-feature image or
-// Dockerfile project, it uses the native Docker Engine API path. Otherwise,
-// it delegates to the external devcontainer CLI. The rebuild parameter
-// controls container recreation so config changes take effect. Config and
-// log level are already initialised by the root command's PersistentPreRunE.
-func runUp(ctx context.Context, rebuild bool, args []string) error {
+// runs "dcx up". It uses the native Docker Engine API path for image- and
+// Dockerfile-based projects, and the native Docker Compose path for Compose
+// projects. The rebuild parameter controls container recreation so config
+// changes take effect. Config and log level are already initialised by the
+// root command's PersistentPreRunE.
+func runUp(ctx context.Context, rebuild, upgradeLockfile bool, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	slog.Info("config loaded")
@@ -104,24 +104,29 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		overrideDir.InjectPostCreateCommand([]string{terminfoResult.PostCreateCommand})
 	}
 
-	// Persist all injected modifications to disk. This is required for the
-	// delegation path (the devcontainer CLI reads the override file) and
-	// useful for debugging the native path.
+	// Merge dcx default_features into the project features. Project features
+	// win on base-ID conflict.
+	if len(activeCfg.DefaultFeatures) > 0 {
+		defaultFeatures := config.AsSpecFeatures(activeCfg.DefaultFeatures)
+		overrideDir.Config.Features = mergeDefaultFeatures(overrideDir.Config.Features, defaultFeatures)
+	}
+
+	// Persist all injected modifications to disk for debugging.
 	if err := overrideDir.Save(); err != nil {
 		return fmt.Errorf("saving override config: %w", err)
 	}
 
-	// Determine whether the native path can be used. The native path
-	// supports image- and Dockerfile-based projects without features or
-	// Docker Compose. All other configurations continue to delegate to the
-	// devcontainer CLI while Parts 7 and 8 are still in progress.
+	// Determine which up path to use.
 	switch {
 	case overrideDir.Config.IsComposeProject():
+		if overrideDir.Config.HasFeatures() {
+			return fmt.Errorf("compose projects with features are not yet supported natively")
+		}
 		return runUpCompose(ctx, overrideDir.Config, rebuild)
-	case !overrideDir.Config.HasFeatures() && (overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != ""):
-		return runUpNative(ctx, overrideDir.Config, rebuild)
+	case overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "":
+		return runUpNative(ctx, overrideDir.Config, rebuild, upgradeLockfile)
 	default:
-		return runUpDelegation(ctx, rebuild, args, overrideDir.Dir)
+		return fmt.Errorf("devcontainer.json must specify image, build, or dockerComposeFile")
 	}
 }
 
@@ -148,14 +153,14 @@ func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild bool) error {
 // Engine API, bypassing the external devcontainer CLI. It resolves the
 // image (pull or build), substitutes variables, and creates and starts the
 // container.
-func runUpNative(ctx context.Context, cfg *spec.Config, rebuild bool) error {
+func runUpNative(ctx context.Context, cfg *spec.Config, rebuild, upgradeLockfile bool) error {
 	cli, err := docker.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
 
-	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild)
+	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild, upgradeLockfile)
 	if err != nil {
 		return fmt.Errorf("building devcontainer image: %w", err)
 	}
@@ -168,25 +173,6 @@ func runUpNative(ctx context.Context, cfg *spec.Config, rebuild bool) error {
 
 	slog.Info("devcontainer ready", "id", containerID)
 	return nil
-}
-
-// runUpDelegation delegates to the external devcontainer CLI. It assembles
-// flags and invokes the binary, preserving the existing behaviour for
-// Docker Compose, feature, and unsupported projects.
-func runUpDelegation(ctx context.Context, rebuild bool, args []string, overrideDir string) error {
-	devcontainerPath, err := runner.Find()
-	if err != nil {
-		return err
-	}
-	slog.Info("found devcontainer CLI", "path", devcontainerPath)
-
-	dcArgs := flags.Build(workspaceFolder, activeCfg, overrideDir, rebuild)
-
-	dcArgs = append(dcArgs, args...)
-
-	slog.Debug("invoking devcontainer", "args", dcArgs)
-
-	return runner.Run(devcontainerPath, dcArgs)
 }
 
 // collectContainerEnv gathers all environment variables that should be set in the
@@ -265,4 +251,42 @@ func collectMountStrings(cfg *config.Config, agentResult ssh.AgentResult, termin
 	}
 
 	return result
+}
+
+// mergeDefaultFeatures combines project features (from devcontainer.json)
+// with dcx default_features (from config). Project features win on base-ID
+// conflict. A base ID is the feature identifier without the trailing version
+// tag (e.g. "ghcr.io/foo/bar" from "ghcr.io/foo/bar:1").
+func mergeDefaultFeatures(specFeatures, defaultFeatures map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(defaultFeatures) == 0 {
+		return specFeatures
+	}
+	result := make(map[string]json.RawMessage, len(specFeatures)+len(defaultFeatures))
+	for k, v := range specFeatures {
+		result[k] = v
+	}
+	seen := make(map[string]bool)
+	for k := range specFeatures {
+		seen[baseFeatureID(k)] = true
+	}
+	for k, v := range defaultFeatures {
+		base := baseFeatureID(k)
+		if seen[base] {
+			continue // project wins
+		}
+		result[k] = v
+		seen[base] = true
+	}
+	return result
+}
+
+// baseFeatureID strips the trailing version tag from a feature identifier.
+// It returns the input unchanged if there is no recognizable version tag.
+func baseFeatureID(id string) string {
+	if idx := strings.LastIndex(id, ":"); idx > 0 {
+		if !strings.Contains(id[idx+1:], "/") {
+			return id[:idx]
+		}
+	}
+	return id
 }

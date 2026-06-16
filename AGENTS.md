@@ -20,6 +20,7 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `go test ./... -race` to run tests.
 - `go vet ./...` to vet.
 - `gofmt -w <changed_files>` or `gofmt -l .` to ensure formatting passes CI lint step.
+- `golangci-lint run ./...` to run the linter used in CI.
 - No code generation. No CGO (`CGO_ENABLED=0` for release builds).
 
 ## Integration Testing
@@ -33,7 +34,8 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/config/` — user + project config loading, merge logic
 - `internal/cli/` — Cobra command definitions
 - `internal/docker/` — Docker client via docker/go-sdk (context-aware socket resolution, container discovery/inspect/stop/remove, image pull/inspect/tag/cleanup) and Docker CLI helpers (build, create, exec, cp)
-- `internal/features/` — default features → `--additional-features` JSON
+- `internal/dcxfeatures/` — default features → `--additional-features` JSON
+- `internal/devcontainer/features/` — OCI feature resolution, ordering, and image building for the native `dcx up` path
 - `internal/mounts/` — bind mount generation
 - `internal/env/` — env var passthrough
 - `internal/ssh/` — SSH agent auto-detection (with VM runtime awareness for Colima)
