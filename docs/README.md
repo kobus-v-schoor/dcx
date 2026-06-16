@@ -4,7 +4,7 @@ Welcome to the dcx documentation. This page will help you find the right guide f
 
 ## New to devcontainers?
 
-dcx is a thin wrapper around the official devcontainer CLI - it does not replace it. If you are new to devcontainers, start with the [devcontainer specification](https://containers.dev/) to understand how `devcontainer.json`, features, and lifecycle scripts work. Once you are comfortable with that, dcx adds user-level persistence, credential injection, and workflow automation on top.
+dcx implements the devcontainer specification natively in Go. If you are new to devcontainers, start with the [devcontainer specification](https://containers.dev/) to understand how `devcontainer.json`, features, and lifecycle scripts work. Once you are comfortable with that, dcx adds user-level persistence, credential injection, and workflow automation on top.
 
 ## Where to start
 

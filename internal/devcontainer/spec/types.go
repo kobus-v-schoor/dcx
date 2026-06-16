@@ -309,7 +309,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON implements custom marshaling for Config so that polymorphic
-// fields are written back in the shape expected by the devcontainer CLI.
+// fields are written back in the shape expected by the devcontainer spec.
 // Build is written as a string when only Dockerfile is set, and as an object
 // otherwise. dockerComposeFile is written as a string for a single file, or
 // an array for multiple files.
@@ -326,7 +326,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	if c.Build != nil && (c.Build.Dockerfile != "" || c.Build.Context != "" || len(c.Build.Args) > 0 || c.Build.Target != "") {
 		// The devcontainer spec schema requires build to be an object;
 		// writing it as a string is not schema-valid even though the
-		// devcontainer CLI accepts the shorthand form.
+		// devcontainer spec accepts the shorthand form.
 		shadow.Build = c.Build
 	}
 

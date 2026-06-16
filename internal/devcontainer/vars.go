@@ -123,8 +123,8 @@ func resolveVar(inner, absHostFolder, containerFolder, devcontainerID string) st
 }
 
 // computeDevcontainerID returns a stable SHA256 hex hash of the host workspace
-// folder path, truncated to 32 characters. This matches the devcontainer CLI's
-// stable identifier generation.
+// folder path, truncated to 32 characters. This matches the devcontainer
+// spec's stable identifier generation.
 func computeDevcontainerID(absHostFolder string) string {
 	h := sha256.Sum256([]byte(absHostFolder))
 	return hex.EncodeToString(h[:])[:32]

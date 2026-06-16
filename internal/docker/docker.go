@@ -40,8 +40,6 @@ type DockerClient interface {
 	ExecAttach(ctx context.Context, execID string, options client.ExecAttachOptions) (client.ExecAttachResult, error)
 	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
 	ExecInspect(ctx context.Context, execID string, options client.ExecInspectOptions) (client.ExecInspectResult, error)
-	ContainerCreate(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error)
-	ContainerStart(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error)
 	ImagePull(ctx context.Context, ref string, options client.ImagePullOptions) (client.ImagePullResponse, error)
 	ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspect(ctx context.Context, image string, options ...client.ImageInspectOption) (client.ImageInspectResult, error)
@@ -119,8 +117,8 @@ func isMissingDockerConfigDir(err error) bool {
 }
 
 const (
-	// DevcontainerLabel is the Docker label key that the devcontainer CLI sets on
-	// containers it manages. The value is the absolute path of the workspace folder.
+	// DevcontainerLabel is the Docker label key used to mark devcontainer-managed
+	// containers. The value is the absolute path of the workspace folder.
 	DevcontainerLabel = "devcontainer.local_folder"
 
 	// shortIDLen is the number of characters to show from a container or image ID
@@ -137,10 +135,10 @@ func ShortID(id string) string {
 	return id
 }
 
-// FindDevcontainers lists all containers (running and stopped) that were
-// created by the devcontainer CLI for the given workspace folder. Returns an
-// empty slice if none are found. Exported so the exec command can check
-// whether a devcontainer exists before attempting to exec into it.
+// FindDevcontainers lists all containers (running and stopped) that are
+// managed by dcx for the given workspace folder. Returns an empty slice if
+// none are found. Exported so the exec command can check whether a devcontainer
+// exists before attempting to exec into it.
 func FindDevcontainers(ctx context.Context, cli DockerClient, workspaceFolder string) (client.ContainerListResult, error) {
 	absPath, err := filepath.Abs(workspaceFolder)
 	if err != nil {

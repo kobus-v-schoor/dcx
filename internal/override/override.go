@@ -28,7 +28,7 @@ type OverrideDir struct {
 	// ContainerWorkspaceFolder is the path to the workspace folder inside the
 	// container, extracted from the devcontainer.json workspaceFolder property.
 	// When the property is absent, it defaults to the host workspace folder
-	// path because the devcontainer CLI mounts the workspace at the same host
+	// path because the devcontainer spec mounts the workspace at the same host
 	// path inside the container by default.
 	ContainerWorkspaceFolder string
 
@@ -50,7 +50,7 @@ type OverrideDir struct {
 // previous runs cannot affect the current one. Callers should defer Close() to
 // clean up the temporary directory, and call Save() after all Inject calls to
 // persist modifications to disk. Called by dcx up to prepare the override
-// config before delegating to the devcontainer CLI.
+// config before creating the container natively.
 func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 	dir, err := os.MkdirTemp("", "dcx-")
 	if err != nil {
@@ -89,7 +89,7 @@ func Create(workspaceFolder string, defaultImage string) (*OverrideDir, error) {
 		}
 		// If remoteUser was absent from the original devcontainer.json and
 		// defaulted based on the image, inject it into the override config so
-		// the devcontainer CLI applies the correct user.
+		// the correct user is used when creating the container.
 		if cfg.RemoteUser == "" {
 			cfg.RemoteUser = remoteUser
 		}
@@ -113,7 +113,7 @@ func (o *OverrideDir) Close() {
 // Save marshals the in-memory typed config back to the override
 // devcontainer.json on disk. This must be called after all Inject functions
 // have modified the config to persist the changes. Called by dcx up after
-// all injection steps are complete, before delegating to the devcontainer CLI.
+// all injection steps are complete, before creating the container natively.
 func (o *OverrideDir) Save() error {
 	if o.Config == nil {
 		return fmt.Errorf("no config to save")
@@ -138,7 +138,7 @@ func (o *OverrideDir) Save() error {
 // --mount format strings (e.g.
 // "type=bind,source=/host/path,target=/container/path,readonly"), which
 // support the full range of Docker mount options including readonly — unlike
-// the devcontainer CLI's --mount flag which only accepts type, source,
+// docker create --mount which only accepts type, source,
 // target, and external. If the config already has a mounts array, the new
 // entries are appended. If mounts is absent, it is created. The caller must
 // call Save to persist the change to disk. Called by dcx up after resolving

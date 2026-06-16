@@ -103,14 +103,6 @@ func (m *localMockClient) ExecInspect(_ context.Context, _ string, _ client.Exec
 	return client.ExecInspectResult{}, nil
 }
 
-func (m *localMockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
-	return client.ContainerCreateResult{}, nil
-}
-
-func (m *localMockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
-	return client.ContainerStartResult{}, nil
-}
-
 func (m *localMockClient) Close() error {
 	return nil
 }

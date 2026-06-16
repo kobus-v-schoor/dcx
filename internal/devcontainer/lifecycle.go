@@ -49,7 +49,7 @@ func runLifecycleCommand(ctx context.Context, containerID string, lc spec.Lifecy
 // RunPostCreate executes the container's postCreateCommand if one is defined.
 // It is called after a new devcontainer has been created and started. A
 // failing post-create command is logged as a warning but does not abort the
-// up flow, matching the devcontainer CLI's lenient default behaviour.
+// up flow, matching the devcontainer spec's lenient default behaviour.
 func RunPostCreate(ctx context.Context, containerID string, cfg *spec.Config) {
 	if err := runLifecycleCommand(ctx, containerID, cfg.PostCreateCommand, cfg.WorkspaceFolder, "postCreateCommand"); err != nil {
 		slog.Warn("postCreateCommand failed", "error", err)

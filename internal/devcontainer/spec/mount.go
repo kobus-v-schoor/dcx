@@ -14,7 +14,7 @@ var goos = runtime.GOOS
 // ResolveWorkspaceFolder returns the container-side workspace folder path.
 // When cfg.WorkspaceFolder is non-empty it is returned verbatim. Otherwise,
 // the absolute path of hostWorkspaceFolder is returned, matching the
-// devcontainer CLI default behaviour.
+// devcontainer spec default behaviour.
 func ResolveWorkspaceFolder(cfg *Config, hostWorkspaceFolder string) string {
 	if cfg.WorkspaceFolder != "" {
 		return cfg.WorkspaceFolder
@@ -28,7 +28,7 @@ func ResolveWorkspaceFolder(cfg *Config, hostWorkspaceFolder string) string {
 
 // WorkspaceMount holds the resolved workspace mount configuration.
 // It is independent of any specific orchestrator format so that it can be
-// used both when delegating to the devcontainer CLI and when creating
+// used both when generating Docker CLI arguments and when creating
 // containers directly via the Docker API.
 type WorkspaceMount struct {
 	Type   string // e.g. "bind", "volume", "tmpfs"

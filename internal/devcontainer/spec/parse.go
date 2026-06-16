@@ -14,7 +14,7 @@ import (
 //
 // The workspaceFolder is resolved from the parsed workspaceFolder property,
 // falling back to the host workspaceFolder path when absent (matching the
-// devcontainer CLI default behaviour).
+// devcontainer spec default behaviour).
 func Load(workspaceFolder, defaultImage string) (*Config, error) {
 	srcPath := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer.json")
 

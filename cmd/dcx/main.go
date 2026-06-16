@@ -7,8 +7,6 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/cli"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/kobus-v-schoor/dcx/internal/runner"
-
 	// Register proxy providers so that proxy.SetupAllProxies() can discover
 	// them. Each provider registers itself via proxy.RegisterProvider in its
 	// init() function. The blank import ensures the init() runs even though
@@ -21,11 +19,6 @@ var version = "dev"
 
 func main() {
 	if err := cli.Execute(version); err != nil {
-		var runnerExitErr *runner.ExitCodeError
-		if errors.As(err, &runnerExitErr) {
-			os.Exit(runnerExitErr.ExitCode)
-		}
-
 		var dockerExitErr *docker.ExitCodeError
 		if errors.As(err, &dockerExitErr) {
 			os.Exit(dockerExitErr.ExitCode)
