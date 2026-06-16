@@ -367,20 +367,7 @@ func (m *imageMetadata) substitute(absHostFolder, containerFolder string) {
 	devcontainerID := computeDevcontainerID(absHostFolder)
 
 	for i := range m.Mounts {
-		if s, ok := m.Mounts[i].AsString(); ok {
-			m.Mounts[i] = spec.NewMountEntryString(substituteString(s, absHostFolder, containerFolder, devcontainerID))
-		} else {
-			var obj map[string]interface{}
-			if err := json.Unmarshal(m.Mounts[i], &obj); err == nil {
-				for k, v := range obj {
-					if str, ok := v.(string); ok {
-						obj[k] = substituteString(str, absHostFolder, containerFolder, devcontainerID)
-					}
-				}
-				raw, _ := json.Marshal(obj)
-				m.Mounts[i] = spec.MountEntry(raw)
-			}
-		}
+		m.Mounts[i] = substituteMountEntry(m.Mounts[i], absHostFolder, containerFolder, devcontainerID)
 	}
 
 	if m.Entrypoint != "" {

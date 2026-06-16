@@ -235,13 +235,13 @@ type Config struct {
 	PostCreateCommand    LifecycleCommand           `json:"postCreateCommand,omitempty"`
 	PostStartCommand     LifecycleCommand           `json:"postStartCommand,omitempty"`
 	PostAttachCommand    LifecycleCommand           `json:"postAttachCommand,omitempty"`
-	InitializeCommand    LifecycleCommand           `json:"initializeCommand,omitempty"`
+	InitializeCommand    LifecycleCommand           `json:"initializeCommand,omitempty"` // Unsupported: not implemented by dcx.
 	RunArgs              []string                   `json:"runArgs,omitempty"`
-	ShutdownAction       string                     `json:"shutdownAction,omitempty"`
+	ShutdownAction       string                     `json:"shutdownAction,omitempty"` // Unsupported: not implemented by dcx.
 	OverrideCommand      *bool                      `json:"overrideCommand,omitempty"`
-	UpdateRemoteUserUID  *bool                      `json:"updateRemoteUserUID,omitempty"`
-	ForwardPorts         []ForwardPort              `json:"forwardPorts,omitempty"`
-	PortsAttributes      map[string]json.RawMessage `json:"portsAttributes,omitempty"`
+	UpdateRemoteUserUID  *bool                      `json:"updateRemoteUserUID,omitempty"` // Unsupported: not implemented by dcx.
+	ForwardPorts         []ForwardPort              `json:"forwardPorts,omitempty"`        // Unsupported: not implemented by dcx.
+	PortsAttributes      map[string]json.RawMessage `json:"portsAttributes,omitempty"`     // Unsupported: not implemented by dcx.
 }
 
 // Build represents the object form of the devcontainer.json build property.

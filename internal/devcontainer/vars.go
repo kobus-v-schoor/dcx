@@ -3,6 +3,7 @@ package devcontainer
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,9 +49,7 @@ func SubstituteAll(cfg *spec.Config, hostWorkspaceFolder string) error {
 
 	// Substitute in mounts.
 	for i, m := range cfg.Mounts {
-		if s, ok := m.AsString(); ok {
-			cfg.Mounts[i] = spec.NewMountEntryString(substituteString(s, absHostFolder, cfg.WorkspaceFolder, devcontainerID))
-		}
+		cfg.Mounts[i] = substituteMountEntry(m, absHostFolder, cfg.WorkspaceFolder, devcontainerID)
 	}
 
 	// Substitute in containerEnv values.
@@ -73,6 +72,25 @@ func substituteString(s, absHostFolder, containerFolder, devcontainerID string) 
 		inner := match[2 : len(match)-1] // strip ${ and }
 		return resolveVar(inner, absHostFolder, containerFolder, devcontainerID)
 	})
+}
+
+// substituteMountEntry replaces variable references in a single MountEntry.
+// It handles both Docker --mount strings and structured mount objects.
+func substituteMountEntry(m spec.MountEntry, absHostFolder, containerFolder, devcontainerID string) spec.MountEntry {
+	if s, ok := m.AsString(); ok {
+		return spec.NewMountEntryString(substituteString(s, absHostFolder, containerFolder, devcontainerID))
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(m, &obj); err == nil {
+		for k, v := range obj {
+			if str, ok := v.(string); ok {
+				obj[k] = substituteString(str, absHostFolder, containerFolder, devcontainerID)
+			}
+		}
+		raw, _ := json.Marshal(obj)
+		return spec.MountEntry(raw)
+	}
+	return m
 }
 
 // resolveVar maps a single variable name to its value.
