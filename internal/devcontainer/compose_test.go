@@ -2,6 +2,7 @@ package devcontainer
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
+	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -181,7 +183,7 @@ func TestWriteComposeOverride(t *testing.T) {
 		},
 	}
 	path := filepath.Join(t.TempDir(), "override.yml")
-	if err := writeComposeOverride(cfg, path, "/workspace"); err != nil {
+	if err := writeComposeOverride(cfg, path, "/workspace", ""); err != nil {
 		t.Fatalf("writeComposeOverride error: %v", err)
 	}
 	content, err := os.ReadFile(path)
@@ -251,7 +253,7 @@ func TestUpComposeReuseRunningContainer(t *testing.T) {
 		DockerComposeFile: []string{"docker-compose.yml"},
 	}
 
-	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false)
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false, false)
 	if err != nil {
 		t.Fatalf("UpCompose error: %v", err)
 	}
@@ -277,7 +279,7 @@ func TestUpComposeStartStoppedContainer(t *testing.T) {
 		DockerComposeFile: []string{"docker-compose.yml"},
 	}
 
-	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false)
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false, false)
 	if err != nil {
 		t.Fatalf("UpCompose error: %v", err)
 	}
@@ -321,7 +323,7 @@ func TestUpComposeRebuild(t *testing.T) {
 		DockerComposeFile: []string{"docker-compose.yml"},
 	}
 
-	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", true)
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", true, false)
 	if err != nil {
 		t.Fatalf("UpCompose error: %v", err)
 	}
@@ -336,5 +338,140 @@ func TestUpComposeRebuild(t *testing.T) {
 	}
 	if !pcap.called {
 		t.Error("expected postCreateRunner to be called for rebuild")
+	}
+}
+
+func TestWriteComposeOverrideWithImage(t *testing.T) {
+	cfg := &spec.Config{
+		Service:         "app",
+		WorkspaceFolder: "/workspace",
+	}
+	path := filepath.Join(t.TempDir(), "override.yml")
+	if err := writeComposeOverride(cfg, path, "/workspace", "dcx-test-feat:abc123"); err != nil {
+		t.Fatalf("writeComposeOverride error: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading override: %v", err)
+	}
+	s := string(content)
+	if !strings.Contains(s, "image: dcx-test-feat:abc123") {
+		t.Errorf("expected image override in compose file, got:\n%s", s)
+	}
+}
+
+// mockComposeConfigRunner overrides composeConfigRunner for the duration of a test.
+func mockComposeConfigRunner(t *testing.T, output []byte) {
+	orig := composeConfigRunner
+	composeConfigRunner = func(_ context.Context, _ string, _ []string) ([]byte, error) {
+		return append([]byte(nil), output...), nil
+	}
+	t.Cleanup(func() { composeConfigRunner = orig })
+}
+
+// mockComposeFeatureImageBuilder overrides composeFeatureImageBuilder for tests.
+func mockComposeFeatureImageBuilder(t *testing.T, result string) {
+	orig := composeFeatureImageBuilder
+	composeFeatureImageBuilder = func(_ context.Context, _ docker.DockerClient, _ string, _ map[string]json.RawMessage, _, _, _ string, _, _ bool) (string, error) {
+		return result, nil
+	}
+	t.Cleanup(func() { composeFeatureImageBuilder = orig })
+}
+
+// mockComposeDockerfileBuilder overrides composeDockerfileBuilder for tests.
+func mockComposeDockerfileBuilder(t *testing.T, result string) {
+	orig := composeDockerfileBuilder
+	composeDockerfileBuilder = func(_ context.Context, _ docker.DockerClient, _ *spec.Config, _ string, _ bool) (string, error) {
+		return result, nil
+	}
+	t.Cleanup(func() { composeDockerfileBuilder = orig })
+}
+
+func TestUpComposeWithFeatures(t *testing.T) {
+	var overrideContent []byte
+
+	orig := composeUpRunner
+	composeUpRunner = func(_ context.Context, args []string) error {
+		// Capture the override file contents before UpCompose deletes the temp dir.
+		for i, a := range args {
+			if a == "-f" && i+1 < len(args) && strings.Contains(args[i+1], "dcx.compose.override.yml") {
+				overrideContent, _ = os.ReadFile(args[i+1])
+				break
+			}
+		}
+		return nil
+	}
+	t.Cleanup(func() { composeUpRunner = orig })
+
+	configJSON := []byte(`{"services":{"app":{"image":"base:local"}}}`)
+	mockComposeConfigRunner(t, configJSON)
+	mockComposeFeatureImageBuilder(t, "dcx-compose-feat:abc123")
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "stopped456", State: container.StateExited}},
+		},
+	}
+	cfg := &spec.Config{
+		Service:           "app",
+		WorkspaceFolder:   "/workspace",
+		DockerComposeFile: []string{"docker-compose.yml"},
+		Features: map[string]json.RawMessage{
+			"ghcr.io/devcontainers/features/common-utils:1": {},
+		},
+	}
+
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false, false)
+	if err != nil {
+		t.Fatalf("UpCompose error: %v", err)
+	}
+	if id != "stopped456" {
+		t.Errorf("id = %q, want stopped456", id)
+	}
+	if overrideContent == nil {
+		t.Fatal("expected override file to be captured")
+	}
+	if !strings.Contains(string(overrideContent), "image: dcx-compose-feat:abc123") {
+		t.Errorf("expected feature image in override, got:\n%s", string(overrideContent))
+	}
+}
+
+func TestResolveComposeBaseImageImageService(t *testing.T) {
+	configJSON := []byte(`{"services":{"app":{"image":"alpine:latest"}}}`)
+	mockComposeConfigRunner(t, configJSON)
+
+	cli := &mockClient{}
+	got, err := resolveComposeBaseImage(context.Background(), cli, "proj", []string{"/a.yml"}, "app", "/workspace", false)
+	if err != nil {
+		t.Fatalf("resolveComposeBaseImage error: %v", err)
+	}
+	if got != "alpine:latest" {
+		t.Errorf("got %q, want alpine:latest", got)
+	}
+}
+
+func TestResolveComposeBaseImageBuildService(t *testing.T) {
+	configJSON := []byte(`{"services":{"app":{"build":{"context":"/workspace","dockerfile":"Dockerfile"}}}}`)
+	mockComposeConfigRunner(t, configJSON)
+	mockComposeDockerfileBuilder(t, "dcx-built:1234")
+
+	cli := &mockClient{}
+	got, err := resolveComposeBaseImage(context.Background(), cli, "proj", []string{"/a.yml"}, "app", "/workspace", false)
+	if err != nil {
+		t.Fatalf("resolveComposeBaseImage error: %v", err)
+	}
+	if got != "dcx-built:1234" {
+		t.Errorf("got %q, want dcx-built:1234", got)
+	}
+}
+
+func TestResolveComposeBaseImageMissingService(t *testing.T) {
+	configJSON := []byte(`{"services":{"other":{"image":"alpine:latest"}}}`)
+	mockComposeConfigRunner(t, configJSON)
+
+	cli := &mockClient{}
+	_, err := resolveComposeBaseImage(context.Background(), cli, "proj", []string{"/a.yml"}, "app", "/workspace", false)
+	if err == nil {
+		t.Fatal("expected error for missing service")
 	}
 }
