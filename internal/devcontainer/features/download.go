@@ -19,26 +19,31 @@ import (
 
 // FeatureMeta is the parsed devcontainer-feature.json.
 type FeatureMeta struct {
-	ID               string                   `json:"id"`
-	Version          string                   `json:"version"`
-	Name             string                   `json:"name"`
-	Description      string                   `json:"description"`
-	DocumentationURL string                   `json:"documentationURL"`
-	LicenseURL       string                   `json:"licenseURL"`
-	Keywords         []string                 `json:"keywords"`
-	Options          map[string]FeatureOption `json:"options"`
-	ContainerEnv     map[string]string        `json:"containerEnv"`
-	Privileged       bool                     `json:"privileged"`
-	Init             bool                     `json:"init"`
-	CapAdd           []string                 `json:"capAdd"`
-	SecurityOpt      []string                 `json:"securityOpt"`
-	Entrypoint       string                   `json:"entrypoint"`
-	Mounts           json.RawMessage          `json:"mounts"`
-	DependsOn        map[string]interface{}   `json:"dependsOn"`
-	InstallsAfter    []string                 `json:"installsAfter"`
-	LegacyIds        []string                 `json:"legacyIds"`
-	Deprecated       bool                     `json:"deprecated"`
-	Customizations   json.RawMessage          `json:"customizations"`
+	ID                   string                   `json:"id"`
+	Version              string                   `json:"version"`
+	Name                 string                   `json:"name"`
+	Description          string                   `json:"description"`
+	DocumentationURL     string                   `json:"documentationURL"`
+	LicenseURL           string                   `json:"licenseURL"`
+	Keywords             []string                 `json:"keywords"`
+	Options              map[string]FeatureOption `json:"options"`
+	ContainerEnv         map[string]string        `json:"containerEnv"`
+	Privileged           bool                     `json:"privileged"`
+	Init                 bool                     `json:"init"`
+	CapAdd               []string                 `json:"capAdd"`
+	SecurityOpt          []string                 `json:"securityOpt"`
+	Entrypoint           string                   `json:"entrypoint"`
+	Mounts               json.RawMessage          `json:"mounts"`
+	DependsOn            map[string]interface{}   `json:"dependsOn"`
+	InstallsAfter        []string                 `json:"installsAfter"`
+	LegacyIds            []string                 `json:"legacyIds"`
+	Deprecated           bool                     `json:"deprecated"`
+	Customizations       json.RawMessage          `json:"customizations"`
+	OnCreateCommand      json.RawMessage          `json:"onCreateCommand,omitempty"`
+	UpdateContentCommand json.RawMessage          `json:"updateContentCommand,omitempty"`
+	PostCreateCommand    json.RawMessage          `json:"postCreateCommand,omitempty"`
+	PostStartCommand     json.RawMessage          `json:"postStartCommand,omitempty"`
+	PostAttachCommand    json.RawMessage          `json:"postAttachCommand,omitempty"`
 }
 
 // FeatureOption describes a single option in devcontainer-feature.json.
@@ -62,7 +67,9 @@ type ResolvedFeature struct {
 // extracted directory plus parsed metadata. For OCI features it uses the
 // OCI registry client; for local features it resolves relative to the
 // workspace folder; for direct tarball features it downloads and extracts.
-func Resolve(ctx context.Context, ref *FeatureRef, workspaceFolder string) (*ResolvedFeature, error) {
+// If lockfile is non-nil and contains an entry for the feature, the
+// resolved digest from the lockfile is used to pin the feature.
+func Resolve(ctx context.Context, ref *FeatureRef, workspaceFolder string, lockfile *Lockfile) (*ResolvedFeature, error) {
 	cacheDir, err := featureCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolving feature cache dir: %w", err)
@@ -72,7 +79,7 @@ func Resolve(ctx context.Context, ref *FeatureRef, workspaceFolder string) (*Res
 	switch ref.Source {
 	case SourceOCI:
 		client := &ociClient{http: http.DefaultClient}
-		path, digest, err = client.fetchFeature(ctx, ref, cacheDir)
+		path, digest, err = client.fetchFeature(ctx, ref, cacheDir, lockfile)
 		if err != nil {
 			return nil, err
 		}

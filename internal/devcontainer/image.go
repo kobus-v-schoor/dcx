@@ -8,9 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/features"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
@@ -18,8 +16,6 @@ import (
 	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/client"
 )
-
-var slugRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 // BuildImage resolves the image reference that should be used for creating
 // a devcontainer based on the parsed devcontainer.json spec. It handles
@@ -121,7 +117,7 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 	}
 
 	// Compute stable tag.
-	slug := workspaceNameSlug(filepath.Base(workspaceFolder))
+	slug := docker.WorkspaceNameSlug(filepath.Base(workspaceFolder))
 	hash, err := computeBuildHash(dockerfilePath, cfg.Build)
 	if err != nil {
 		return "", fmt.Errorf("computing build hash: %w", err)
@@ -178,22 +174,6 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 	}
 
 	return stableTag, nil
-}
-
-// workspaceNameSlug sanitises a workspace folder name so it can be used as
-// part of a Docker image tag. Non-alphanumeric characters are replaced
-// with hyphens, the result is lowercased, and truncated to 20 characters
-// to keep tag lengths reasonable.
-func workspaceNameSlug(name string) string {
-	slug := slugRegex.ReplaceAllString(name, "-")
-	slug = strings.ToLower(strings.Trim(slug, "-"))
-	if slug == "" {
-		slug = "workspace"
-	}
-	if len(slug) > 20 {
-		slug = slug[:20]
-	}
-	return slug
 }
 
 // computeBuildHash calculates a deterministic SHA256 hash of the build

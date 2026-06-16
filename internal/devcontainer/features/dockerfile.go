@@ -1,11 +1,13 @@
 package features
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"text/template"
 )
 
 // BuildContext generates a temporary build context directory containing:
@@ -21,12 +23,6 @@ func BuildContext(baseImageRef string, features []ResolvedFeature, containerUser
 	if err != nil {
 		return "", "", fmt.Errorf("creating feature build context: %w", err)
 	}
-
-	defer func() {
-		if err != nil {
-			_ = os.RemoveAll(contextDir)
-		}
-	}()
 
 	for i, f := range features {
 		dest := filepath.Join(contextDir, fmt.Sprintf("f%d", i))
@@ -57,6 +53,18 @@ func BuildContext(baseImageRef string, features []ResolvedFeature, containerUser
 	return contextDir, dockerfilePath, nil
 }
 
+const dockerfileTmpl = `FROM {{.BaseImage}} AS dcx_features
+USER root
+ENV _CONTAINER_USER={{.ContainerUser}} _REMOTE_USER={{.RemoteUser}} _CONTAINER_USER_HOME={{.ContainerUserHome}} _REMOTE_USER_HOME={{.RemoteUserHome}}
+
+{{range $i, $f := .Features}}# Feature: {{$f.Meta.Name}} ({{$f.Ref.String}})
+COPY ./f{{$i}} /tmp/dcx-features/{{$f.Meta.ID}}/
+RUN cd /tmp/dcx-features/{{$f.Meta.ID}} && chmod +x install.sh && chmod +x devcontainer-features-install.sh && ./devcontainer-features-install.sh
+
+{{end}}FROM dcx_features AS final
+LABEL devcontainer.metadata='{{.MetadataJSON}}'
+`
+
 // generateDockerfile writes a non-BuildKit Dockerfile that installs all
 // features on top of the base image.
 func generateDockerfile(w io.Writer, baseImageRef string, features []ResolvedFeature, containerUser, remoteUser string) error {
@@ -66,30 +74,42 @@ func generateDockerfile(w io.Writer, baseImageRef string, features []ResolvedFea
 	if remoteUser == "" {
 		remoteUser = containerUser
 	}
-	containerUserHome := userHome(containerUser)
-	remoteUserHome := userHome(remoteUser)
-
-	fmt.Fprintf(w, "FROM %s AS dcx_features\n", baseImageRef)
-	fmt.Fprintln(w, "USER root")
-	fmt.Fprintf(w, "ENV _CONTAINER_USER=%q _REMOTE_USER=%q _CONTAINER_USER_HOME=%q _REMOTE_USER_HOME=%q\n",
-		containerUser, remoteUser, containerUserHome, remoteUserHome)
-	fmt.Fprintln(w)
-
-	for i, f := range features {
-		fmt.Fprintf(w, "# Feature: %s (%s)\n", f.Meta.Name, f.Ref.String())
-		fmt.Fprintf(w, "COPY ./f%d /tmp/dcx-features/%s/\n", i, f.Meta.ID)
-		fmt.Fprintf(w, "RUN cd /tmp/dcx-features/%s && chmod +x install.sh && chmod +x devcontainer-features-install.sh && ./devcontainer-features-install.sh\n", f.Meta.ID)
-		fmt.Fprintln(w)
-	}
-
-	fmt.Fprintln(w, "FROM dcx_features AS final")
 
 	meta := buildFeatureMetadata(features)
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("marshalling feature metadata: %w", err)
 	}
-	fmt.Fprintf(w, "LABEL devcontainer.metadata='%s'\n", string(metaJSON))
+
+	data := struct {
+		BaseImage         string
+		ContainerUser     string
+		RemoteUser        string
+		ContainerUserHome string
+		RemoteUserHome    string
+		Features          []ResolvedFeature
+		MetadataJSON      string
+	}{
+		BaseImage:         baseImageRef,
+		ContainerUser:     containerUser,
+		RemoteUser:        remoteUser,
+		ContainerUserHome: userHome(containerUser),
+		RemoteUserHome:    userHome(remoteUser),
+		Features:          features,
+		MetadataJSON:      string(metaJSON),
+	}
+
+	tmpl, err := template.New("dockerfile").Parse(dockerfileTmpl)
+	if err != nil {
+		return fmt.Errorf("parsing Dockerfile template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("executing Dockerfile template: %w", err)
+	}
+	if _, err := io.Copy(w, &buf); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -123,32 +143,22 @@ func buildFeatureMetadata(features []ResolvedFeature) []map[string]interface{} {
 	return result
 }
 
-// copyDir recursively copies the contents of src to dst.
+// copyDir recursively copies the contents of src to dst using filepath.WalkDir.
 func copyDir(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := os.MkdirAll(dstPath, 0755); err != nil {
-				return err
-			}
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-				return err
-			}
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		return copyFile(path, target)
+	})
 }
 
 // copyFile copies a single file from src to dst, preserving permissions.

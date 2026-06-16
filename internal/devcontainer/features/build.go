@@ -9,11 +9,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
+	"github.com/moby/moby/api/types/build"
+	"github.com/moby/moby/client"
 )
 
 // BuildFeatureImage resolves, orders, and builds all features on top of
@@ -31,10 +31,13 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 		refs = append(refs, ref)
 	}
 
+	// Load lockfile if present to pin features to specific digests.
+	lockfile, _ := LoadLockfile(workspaceFolder)
+
 	// Resolve each feature (download + parse metadata).
 	var resolved []ResolvedFeature
 	for _, ref := range refs {
-		rf, err := Resolve(ctx, ref, workspaceFolder)
+		rf, err := Resolve(ctx, ref, workspaceFolder, lockfile)
 		if err != nil {
 			return "", fmt.Errorf("resolving feature %s: %w", ref.String(), err)
 		}
@@ -63,15 +66,24 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 
 	// Generate build context.
 	contextDir, _, err := BuildContext(baseImageRef, ordered, containerUser, remoteUser)
+	if contextDir != "" {
+		defer os.RemoveAll(contextDir)
+	}
 	if err != nil {
 		return "", fmt.Errorf("generating feature build context: %w", err)
 	}
-	defer os.RemoveAll(contextDir)
 
 	slog.Info("building feature image", "tag", stableTag, "features", len(ordered))
 
-	// Build via Docker CLI.
-	if err := docker.ImageBuildCLI(ctx, contextDir, "", []string{stableTag}, nil); err != nil {
+	// Build via Docker SDK ImageBuild API using the v1 builder.
+	opts := client.ImageBuildOptions{
+		Tags:        []string{stableTag},
+		Dockerfile:  "Dockerfile",
+		Version:     build.BuilderV1,
+		Remove:      true,
+		ForceRemove: true,
+	}
+	if _, err := docker.ImageBuildFromDir(ctx, cli, contextDir, opts); err != nil {
 		return "", fmt.Errorf("building feature image %s: %w", stableTag, err)
 	}
 
@@ -79,27 +91,10 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 	return stableTag, nil
 }
 
-var slugRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
-
-// workspaceNameSlug sanitises a workspace folder name so it can be used as
-// part of a Docker image tag. Non-alphanumeric characters are replaced
-// with hyphens, the result is lowercased, and truncated to 20 characters.
-func workspaceNameSlug(name string) string {
-	slug := slugRegex.ReplaceAllString(name, "-")
-	slug = strings.ToLower(strings.Trim(slug, "-"))
-	if slug == "" {
-		slug = "workspace"
-	}
-	if len(slug) > 20 {
-		slug = slug[:20]
-	}
-	return slug
-}
-
 // stableFeatureTag computes a deterministic image tag for the given base image
 // and ordered features.
 func stableFeatureTag(cli docker.DockerClient, baseImageRef, workspaceFolder string, features []ResolvedFeature) (string, error) {
-	slug := workspaceNameSlug(filepath.Base(workspaceFolder))
+	slug := docker.WorkspaceNameSlug(filepath.Base(workspaceFolder))
 
 	// Inspect base image to get its digest for a truly stable hash.
 	baseDigest := baseImageRef

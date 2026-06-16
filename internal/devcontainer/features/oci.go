@@ -50,9 +50,11 @@ type ociClient struct {
 
 // fetchFeature downloads the feature tarball for an OCI reference.
 // It returns the path to the extracted directory and the manifest digest.
-// Cache hits are served from disk without network.
-func (c *ociClient) fetchFeature(ctx context.Context, ref *FeatureRef, cacheDir string) (extractedPath string, manifestDigest string, err error) {
-	manifestDigest, err = c.fetchManifestDigest(ctx, ref)
+// Cache hits are served from disk without network. If lockfile is non-nil
+// and contains an entry for the feature, the digest from the lockfile is
+// used instead of resolving the version tag.
+func (c *ociClient) fetchFeature(ctx context.Context, ref *FeatureRef, cacheDir string, lockfile *Lockfile) (extractedPath string, manifestDigest string, err error) {
+	manifestDigest, err = c.resolveManifestDigest(ctx, ref, lockfile)
 	if err != nil {
 		return "", "", fmt.Errorf("fetching manifest for %s: %w", ref.String(), err)
 	}
@@ -90,6 +92,17 @@ func (c *ociClient) fetchFeature(ctx context.Context, ref *FeatureRef, cacheDir 
 	}
 
 	return extractedPath, manifestDigest, nil
+}
+
+// resolveManifestDigest returns the manifest digest for the feature, using
+// the lockfile if available, otherwise fetching it from the registry.
+func (c *ociClient) resolveManifestDigest(ctx context.Context, ref *FeatureRef, lockfile *Lockfile) (string, error) {
+	if lockfile != nil {
+		if digest := lockfile.ResolveDigest(ref.RawID); digest != "" {
+			return digest, nil
+		}
+	}
+	return c.fetchManifestDigest(ctx, ref)
 }
 
 // fetchManifestDigest performs a HEAD request for the manifest and returns

@@ -2,6 +2,7 @@ package features
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ func Ordered(features []ResolvedFeature, overrideOrder []string) ([]ResolvedFeat
 	for i := range features {
 		for depID := range features[i].Meta.DependsOn {
 			if _, ok := byID[depID]; !ok {
-				return nil, fmt.Errorf("feature %q dependsOn %q which is not in the feature set (auto-resolution not yet supported)", features[i].Meta.ID, depID)
+				return nil, fmt.Errorf("feature %q dependsOn %q which is not in the feature set", features[i].Meta.ID, depID)
 			}
 		}
 	}
@@ -58,7 +59,7 @@ func Ordered(features []ResolvedFeature, overrideOrder []string) ([]ResolvedFeat
 	}
 
 	// Ensure deterministic output by sorting the initial queue.
-	stringsSort(queue)
+	sort.Strings(queue)
 
 	var result []ResolvedFeature
 	for len(queue) > 0 {
@@ -69,14 +70,14 @@ func Ordered(features []ResolvedFeature, overrideOrder []string) ([]ResolvedFeat
 		result = append(result, *byID[id])
 
 		next := adj[id]
-		stringsSort(next)
+		sort.Strings(next)
 		for _, neighbor := range next {
 			inDegree[neighbor]--
 			if inDegree[neighbor] == 0 {
 				queue = append(queue, neighbor)
 			}
 		}
-		stringsSort(queue)
+		sort.Strings(queue)
 	}
 
 	if len(result) != len(features) {
@@ -92,16 +93,4 @@ func stripVersion(id string) string {
 		return id[:idx]
 	}
 	return id
-}
-
-// stringsSort sorts a []string in place using a simple bubble sort for
-// determinism. Since the slice is small (feature count), this is fine.
-func stringsSort(s []string) {
-	for i := 0; i < len(s); i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[i] > s[j] {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
 }

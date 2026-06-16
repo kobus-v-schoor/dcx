@@ -70,7 +70,7 @@ func TestOrderDependsOnMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing dependsOn")
 	}
-	if !strings.Contains(err.Error(), "auto-resolution not yet supported") {
+	if !strings.Contains(err.Error(), "which is not in the feature set") {
 		t.Errorf("expected unsupported error, got: %v", err)
 	}
 }
