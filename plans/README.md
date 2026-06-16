@@ -14,7 +14,7 @@ GitHub issue #99 requests that `dcx` stop relying on the `devcontainer` CLI bina
 
 ## Plan Overview
 
-The work is split into **ten separately implementable parts**, ordered to minimize risk and maximize incremental value. Each part can be developed, reviewed, and merged as its own PR. The approach is: build libraries first, replace `exec` early for daily-workflow impact, then replace `up` piece by piece, tackle the hardest problem (features) once the simpler paths are stable, and clean up at the end.
+The work is split into **eleven separately implementable parts**, ordered to minimize risk and maximize incremental value. Each part can be developed, reviewed, and merged as its own PR. The approach is: build libraries first, replace `exec` early for daily-workflow impact, then replace `up` piece by piece, tackle the hardest problem (features) once the simpler paths are stable, and clean up at the end.
 
 ## Architecture: Docker CLI vs Moby Library
 
@@ -53,7 +53,8 @@ When a part is fully implemented, tested, and merged, **move its plan file into 
 | 7 | `07-post-create-commands.md` | `postCreateCommand` etc. | `internal/devcontainer/lifecycle.go` |
 | 8 | `08-docker-compose-integration.md` | Native `dcx up` for compose projects | `internal/devcontainer/compose.go` |
 | 9 | `09-features-support.md` | Download & install features | `internal/devcontainer/features/` |
-| 10 | `10-remove-cli-dependency.md` | Delete dead code, update docs | Fully standalone `dcx` |
+| 10 | `10-compose-features-support.md` | Add features support to Docker Compose projects | Compose override with feature-augmented images |
+| 11 | `11-remove-cli-dependency.md` | Delete dead code, update docs | Fully standalone `dcx` |
 
 ## Dealing with the Test Project
 
@@ -62,7 +63,7 @@ The `test/` project uses **features** (`ghcr.io/devcontainers/features/github-cl
 ## Backward Compatibility During the Transition
 
 - Each part should land without breaking the existing `devcontainer` CLI delegation path.
-- New packages are introduced alongside existing code; old wrappers (`runner`, `flags`) are deleted only in Part 10.
+- New packages are introduced alongside existing code; old wrappers (`runner`, `flags`) are deleted only in Part 11.
 - No changes to the user's `.devcontainer/devcontainer.json` on disk are ever made (this is a core `dcx` rule).
 
 ## Acceptance Criteria for the Whole Effort
