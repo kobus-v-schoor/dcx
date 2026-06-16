@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/moby/moby/api/types/build"
-	"github.com/moby/moby/client"
 )
 
 // BuildFeatureImage resolves, orders, and builds all features on top of
@@ -105,15 +103,11 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 
 	slog.Info("building feature image", "tag", stableTag, "features", len(ordered))
 
-	// Build via Docker SDK ImageBuild API using the v1 builder.
-	opts := client.ImageBuildOptions{
-		Tags:        []string{stableTag},
-		Dockerfile:  "Dockerfile",
-		Version:     build.BuilderV1,
-		Remove:      true,
-		ForceRemove: true,
+	opts := docker.ImageBuildOptions{
+		Tags:       []string{stableTag},
+		Dockerfile: "Dockerfile",
 	}
-	if _, err := docker.ImageBuildFromDir(ctx, cli, contextDir, opts); err != nil {
+	if _, err := docker.ImageBuildFromDirCLI(ctx, contextDir, opts); err != nil {
 		return "", fmt.Errorf("building feature image %s: %w", stableTag, err)
 	}
 

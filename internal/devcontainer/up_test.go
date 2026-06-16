@@ -3,7 +3,6 @@ package devcontainer
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"testing"
 
@@ -78,10 +77,6 @@ func (m *mockClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspe
 
 func (m *mockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
-}
-
-func (m *mockClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
 }
 
 func (m *mockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {

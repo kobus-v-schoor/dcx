@@ -13,8 +13,6 @@ import (
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/features"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
-	"github.com/moby/moby/api/types/build"
-	"github.com/moby/moby/client"
 )
 
 // BuildImage resolves the image reference that should be used for creating
@@ -26,7 +24,7 @@ import (
 //     is re-pulled even when already present.
 //
 //  2. "build" or legacy "dockerFile" is set → a Dockerfile is built using
-//     the Docker SDK ImageBuild API. The resulting image is tagged with a
+//     the Docker CLI. The resulting image is tagged with a
 //     stable, deterministic name so that identical configs reuse the same
 //     image without rebuilding. The stable tag is returned. If forceRebuild
 //     is true, the image is rebuilt even when a cached tag already exists.
@@ -41,6 +39,11 @@ import (
 // features.BuildFeatureImage; tests may override it to avoid invoking Docker.
 var featureImageBuilder = features.BuildFeatureImage
 
+// imageBuildFromDirCLI is used by buildFromDockerfile to build a Dockerfile
+// via the Docker CLI. In production it is docker.ImageBuildFromDirCLI;
+// tests may override it to avoid shelling out to Docker.
+var imageBuildFromDirCLI = docker.ImageBuildFromDirCLI
+
 // BuildImage resolves the image reference that should be used for creating
 // a devcontainer based on the parsed devcontainer.json spec. It handles
 // three cases:
@@ -50,7 +53,7 @@ var featureImageBuilder = features.BuildFeatureImage
 //     is re-pulled even when already present.
 //
 //  2. "build" or legacy "dockerFile" is set → a Dockerfile is built using
-//     the Docker SDK ImageBuild API. The resulting image is tagged with a
+//     the Docker CLI. The resulting image is tagged with a
 //     stable, deterministic name so that identical configs reuse the same
 //     image without rebuilding. The stable tag is returned. If forceRebuild
 //     is true, the image is rebuilt even when a cached tag already exists.
@@ -140,35 +143,23 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 		return "", fmt.Errorf("resolving dockerfile relative to build context: %w", err)
 	}
 
-	opts := client.ImageBuildOptions{
+	opts := docker.ImageBuildOptions{
 		Tags:       []string{stableTag},
 		Dockerfile: filepath.ToSlash(dockerfileInContext),
 		Target:     cfg.Build.Target,
-		// Use the v1 builder rather than BuildKit. BuildKit via the Docker SDK
-		// fails with "no active sessions" when the base image is not already
-		// present locally because the SDK does not set up the BuildKit session
-		// that the Docker CLI creates automatically. The v1 builder handles
-		// pulling base images during the build and is sufficient for the simple
-		// Dockerfiles used by devcontainer projects.
-		Version:     build.BuilderV1,
-		Remove:      true,
-		ForceRemove: true,
 		Labels: map[string]string{
 			docker.DevcontainerLabel: workspaceFolder,
 		},
 	}
 
 	if cfg.Build != nil && len(cfg.Build.Args) > 0 {
-		opts.BuildArgs = make(map[string]*string, len(cfg.Build.Args))
+		opts.BuildArgs = make(map[string]string, len(cfg.Build.Args))
 		for k, v := range cfg.Build.Args {
-			// Take a copy for the pointer so loop variable reuse doesn't
-			// cause all map entries to point to the last value.
-			val := v
-			opts.BuildArgs[k] = &val
+			opts.BuildArgs[k] = v
 		}
 	}
 
-	_, err = docker.ImageBuildFromDir(ctx, cli, buildContextDir, opts)
+	_, err = imageBuildFromDirCLI(ctx, buildContextDir, opts)
 	if err != nil {
 		return "", fmt.Errorf("building devcontainer image: %w", err)
 	}

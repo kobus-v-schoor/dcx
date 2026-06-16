@@ -3,7 +3,6 @@ package compose
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"testing"
 
@@ -68,10 +67,6 @@ func (m *discoveryMockClient) ExecInspect(_ context.Context, _ string, _ client.
 
 func (m *discoveryMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
-}
-
-func (m *discoveryMockClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
 }
 
 func (m *discoveryMockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -161,10 +156,6 @@ func (m *projectContainersMockClient) ExecInspect(_ context.Context, _ string, _
 
 func (m *projectContainersMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
-}
-
-func (m *projectContainersMockClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
 }
 
 func (m *projectContainersMockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {

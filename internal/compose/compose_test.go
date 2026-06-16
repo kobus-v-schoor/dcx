@@ -3,7 +3,6 @@ package compose
 import (
 	"context"
 	"fmt"
-	"io"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -77,10 +76,6 @@ func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.Exe
 
 func (m *mockDockerClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
-}
-
-func (m *mockDockerClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
 }
 
 func (m *mockDockerClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {

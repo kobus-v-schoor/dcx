@@ -3,7 +3,6 @@ package features
 import (
 	"context"
 	"fmt"
-	"io"
 	"testing"
 
 	"github.com/moby/moby/api/types/image"
@@ -65,9 +64,6 @@ func (m *mockImageInspectClient) ExecInspect(_ context.Context, _ string, _ clie
 }
 func (m *mockImageInspectClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
-}
-func (m *mockImageInspectClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
 }
 func (m *mockImageInspectClient) ImageInspect(_ context.Context, image string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 	return m.nextInspect(image)
