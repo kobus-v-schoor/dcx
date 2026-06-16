@@ -122,8 +122,9 @@ func userHome(user string) string {
 }
 
 // buildFeatureMetadata creates the metadata array for the devcontainer.metadata
-// label. Each feature contributes its id, version, name, containerEnv,
-// and merged options.
+// label. Each feature contributes all of its properties that are relevant
+// when the pre-built image is later used without repeating the feature
+// configuration in devcontainer.json.
 func buildFeatureMetadata(features []ResolvedFeature) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(features))
 	for i, f := range features {
@@ -137,6 +138,42 @@ func buildFeatureMetadata(features []ResolvedFeature) []map[string]interface{} {
 		}
 		if len(f.Meta.ContainerEnv) > 0 {
 			m["containerEnv"] = f.Meta.ContainerEnv
+		}
+		if f.Meta.Init {
+			m["init"] = true
+		}
+		if f.Meta.Privileged {
+			m["privileged"] = true
+		}
+		if len(f.Meta.CapAdd) > 0 {
+			m["capAdd"] = f.Meta.CapAdd
+		}
+		if len(f.Meta.SecurityOpt) > 0 {
+			m["securityOpt"] = f.Meta.SecurityOpt
+		}
+		if f.Meta.Entrypoint != "" {
+			m["entrypoint"] = f.Meta.Entrypoint
+		}
+		if len(f.Meta.Mounts) > 0 {
+			m["mounts"] = f.Meta.Mounts
+		}
+		if !f.Meta.OnCreateCommand.IsEmpty() {
+			m["onCreateCommand"] = f.Meta.OnCreateCommand
+		}
+		if !f.Meta.UpdateContentCommand.IsEmpty() {
+			m["updateContentCommand"] = f.Meta.UpdateContentCommand
+		}
+		if !f.Meta.PostCreateCommand.IsEmpty() {
+			m["postCreateCommand"] = f.Meta.PostCreateCommand
+		}
+		if !f.Meta.PostStartCommand.IsEmpty() {
+			m["postStartCommand"] = f.Meta.PostStartCommand
+		}
+		if !f.Meta.PostAttachCommand.IsEmpty() {
+			m["postAttachCommand"] = f.Meta.PostAttachCommand
+		}
+		if len(f.Meta.Customizations) > 0 {
+			m["customizations"] = f.Meta.Customizations
 		}
 		result[i] = m
 	}
