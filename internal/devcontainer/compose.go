@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kobus-v-schoor/dcx/internal/devcontainer/features"
 	"github.com/kobus-v-schoor/dcx/internal/devcontainer/spec"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"gopkg.in/yaml.v3"
@@ -31,13 +32,29 @@ while sleep 1 & wait $$!; do :; done`
 // override it to capture constructed arguments without invoking Docker.
 var composeUpRunner = runComposeUpCLI
 
+// composeConfigRunner is used by resolveComposeBaseImage to run
+// docker compose config. In production it is runComposeConfigCLI;
+// tests may override it.
+var composeConfigRunner = runComposeConfigCLI
+
+// composeFeatureImageBuilder is used by UpCompose to build the
+// feature-augmented image for compose projects. In production it is
+// features.BuildFeatureImage; tests may override it.
+var composeFeatureImageBuilder = features.BuildFeatureImage
+
+// composeDockerfileBuilder is used by resolveComposeBaseImage to
+// build a compose service that uses build: without an explicit
+// image. In production it is buildFromDockerfile; tests may
+// override it.
+var composeDockerfileBuilder = buildFromDockerfile
+
 // UpCompose creates or reuses a devcontainer managed by Docker Compose.
 // It substitutes variables, generates a temporary compose override file,
 // brings the target service up, and runs postCreateCommand for newly
 // created containers. When rebuild is false and a running container already
 // exists, it returns the existing container ID. Otherwise, docker compose up
 // is allowed to start or recreate the container as needed.
-func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWorkspaceFolder string, rebuild bool) (string, error) {
+func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWorkspaceFolder string, rebuild, upgradeLockfile bool) (string, error) {
 	absHostFolder, err := filepath.Abs(hostWorkspaceFolder)
 	if err != nil {
 		return "", fmt.Errorf("resolving workspace folder: %w", err)
@@ -55,6 +72,23 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 		return "", fmt.Errorf("no docker compose files configured")
 	}
 	projectName := resolveProjectName(absHostFolder)
+
+	// Determine the base image and build a feature-augmented image
+	// when features are configured.
+	var featureImageRef string
+	if cfg.HasFeatures() {
+		baseImageRef, err := resolveComposeBaseImage(ctx, cli, projectName, composeFiles, cfg.Service, absHostFolder, rebuild)
+		if err != nil {
+			return "", fmt.Errorf("resolving compose base image: %w", err)
+		}
+		slog.Info("resolved compose base image", "ref", baseImageRef)
+
+		featureImageRef, err = composeFeatureImageBuilder(ctx, cli, baseImageRef, cfg.Features, cfg.ContainerUser, cfg.RemoteUser, absHostFolder, rebuild, upgradeLockfile)
+		if err != nil {
+			return "", fmt.Errorf("building feature image: %w", err)
+		}
+		slog.Info("resolved feature image", "ref", featureImageRef)
+	}
 
 	// Phase 1: discover existing devcontainers by workspace label.
 	existing, err := docker.FindDevcontainers(ctx, cli, absHostFolder)
@@ -75,7 +109,7 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	overridePath := filepath.Join(tempDir, "dcx.compose.override.yml")
-	if err := writeComposeOverride(cfg, overridePath, absHostFolder); err != nil {
+	if err := writeComposeOverride(cfg, overridePath, absHostFolder, featureImageRef); err != nil {
 		return "", fmt.Errorf("writing compose override: %w", err)
 	}
 
@@ -175,6 +209,7 @@ type composeOverrideFile struct {
 // composeServiceOverride captures the dcx-injected labels, environment,
 // volumes, and entrypoint for a compose service.
 type composeServiceOverride struct {
+	Image       string          `yaml:"image,omitempty"`
 	Labels      []string        `yaml:"labels,omitempty"`
 	Environment []string        `yaml:"environment,omitempty"`
 	Volumes     []composeVolume `yaml:"volumes,omitempty"`
@@ -197,9 +232,15 @@ type bindOpts struct {
 
 // writeComposeOverride generates a temporary Docker Compose override file
 // that injects devcontainer labels, environment variables, additional
-// mounts, and the keep-alive entrypoint into the target service.
-func writeComposeOverride(cfg *spec.Config, path, absHostFolder string) error {
+// mounts, and the keep-alive entrypoint into the target service. When
+// imageOverride is non-empty it also overrides the service image so that
+// docker compose up uses the feature-augmented image instead of the
+// original base image.
+func writeComposeOverride(cfg *spec.Config, path, absHostFolder, imageOverride string) error {
 	svc := composeServiceOverride{}
+	if imageOverride != "" {
+		svc.Image = imageOverride
+	}
 
 	// Labels
 	labels := buildComposeLabels(cfg, absHostFolder)
@@ -345,6 +386,99 @@ func mountEntryToComposeVolume(mount string) (composeVolume, error) {
 	}
 
 	return vol, nil
+}
+
+// composeConfigJSON represents the output of docker compose config --format json.
+type composeConfigJSON struct {
+	Services map[string]composeServiceJSON `json:"services"`
+}
+
+// composeServiceJSON is the resolved service definition from docker compose config.
+type composeServiceJSON struct {
+	Image string            `json:"image"`
+	Build *composeBuildJSON `json:"build"`
+}
+
+// composeBuildJSON is the resolved build block from docker compose config.
+type composeBuildJSON struct {
+	Context    string            `json:"context"`
+	Dockerfile string            `json:"dockerfile"`
+	Args       map[string]string `json:"args"`
+	Target     string            `json:"target"`
+}
+
+// resolveComposeBaseImage determines the base image reference for the
+// target compose service. It runs docker compose config to get the fully
+// resolved configuration, then extracts the service's image or build
+// properties. When the service declares build: without an explicit image,
+// the Dockerfile is built using the existing buildFromDockerfile machinery
+// and the resulting stable tag is returned.
+func resolveComposeBaseImage(ctx context.Context, cli docker.DockerClient, projectName string, composeFiles []string, serviceName, workspaceFolder string, forceRebuild bool) (string, error) {
+	out, err := composeConfigRunner(ctx, projectName, composeFiles)
+	if err != nil {
+		return "", err
+	}
+
+	var doc composeConfigJSON
+	if err := json.Unmarshal(out, &doc); err != nil {
+		return "", fmt.Errorf("parsing compose config JSON: %w", err)
+	}
+
+	svc, ok := doc.Services[serviceName]
+	if !ok {
+		return "", fmt.Errorf("service %q not found in compose configuration", serviceName)
+	}
+
+	// If the service explicitly specifies an image, use it directly.
+	if svc.Image != "" {
+		if err := docker.ImagePullIfMissing(ctx, cli, svc.Image, false); err != nil {
+			return "", fmt.Errorf("pulling compose service image %s: %w", svc.Image, err)
+		}
+		return svc.Image, nil
+	}
+
+	// If the service specifies build without an explicit image, build the
+	// Dockerfile to produce a base image.
+	if svc.Build != nil {
+		tempCfg := &spec.Config{
+			Build: &spec.Build{
+				Context:    svc.Build.Context,
+				Dockerfile: svc.Build.Dockerfile,
+				Args:       svc.Build.Args,
+				Target:     svc.Build.Target,
+			},
+		}
+		if tempCfg.Build.Dockerfile == "" {
+			tempCfg.Build.Dockerfile = "Dockerfile"
+		}
+		tag, err := composeDockerfileBuilder(ctx, cli, tempCfg, workspaceFolder, forceRebuild)
+		if err != nil {
+			return "", fmt.Errorf("building compose service Dockerfile: %w", err)
+		}
+		return tag, nil
+	}
+
+	return "", fmt.Errorf("compose service %q does not specify image or build", serviceName)
+}
+
+// runComposeConfigCLI runs docker compose config --format json and returns
+// the JSON output. It merges all compose files and resolves interpolation.
+func runComposeConfigCLI(ctx context.Context, projectName string, composeFiles []string) ([]byte, error) {
+	var args []string
+	args = append(args, "compose", "-p", projectName)
+	for _, f := range composeFiles {
+		args = append(args, "-f", f)
+	}
+	args = append(args, "config", "--format", "json")
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			return nil, fmt.Errorf("docker compose config failed: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("docker compose config failed: %w", err)
+	}
+	return out, nil
 }
 
 // runComposeUpCLI invokes docker compose with the given arguments via

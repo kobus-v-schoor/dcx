@@ -119,10 +119,7 @@ func runUp(ctx context.Context, rebuild, upgradeLockfile bool, args []string) er
 	// Determine which up path to use.
 	switch {
 	case overrideDir.Config.IsComposeProject():
-		if overrideDir.Config.HasFeatures() {
-			return fmt.Errorf("compose projects with features are not yet supported natively")
-		}
-		return runUpCompose(ctx, overrideDir.Config, rebuild)
+		return runUpCompose(ctx, overrideDir.Config, rebuild, upgradeLockfile)
 	case overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "":
 		return runUpNative(ctx, overrideDir.Config, rebuild, upgradeLockfile)
 	default:
@@ -133,14 +130,14 @@ func runUp(ctx context.Context, rebuild, upgradeLockfile bool, args []string) er
 // runUpCompose creates or reuses a Docker Compose-based devcontainer.
 // It delegates to devcontainer.UpCompose which generates a temporary
 // compose override file and invokes docker compose up.
-func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild bool) error {
+func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild, upgradeLockfile bool) error {
 	cli, err := docker.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
 
-	containerID, err := devcontainer.UpCompose(ctx, cli, cfg, workspaceFolder, rebuild)
+	containerID, err := devcontainer.UpCompose(ctx, cli, cfg, workspaceFolder, rebuild, upgradeLockfile)
 	if err != nil {
 		return fmt.Errorf("creating compose devcontainer: %w", err)
 	}
