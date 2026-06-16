@@ -215,31 +215,33 @@ func NewLifecycleCommandObject(obj map[string]interface{}) LifecycleCommand {
 // tags are handled by custom MarshalJSON / UnmarshalJSON because they accept
 // more than one JSON type.
 type Config struct {
-	Name                string                     `json:"name,omitempty"`
-	Image               string                     `json:"image,omitempty"`
-	Build               *Build                     `json:"-"`
-	LegacyDockerfile    string                     `json:"dockerFile,omitempty"`
-	DockerComposeFile   []string                   `json:"-"`
-	Service             string                     `json:"service,omitempty"`
-	RunServices         []string                   `json:"runServices,omitempty"`
-	WorkspaceFolder     string                     `json:"workspaceFolder,omitempty"`
-	WorkspaceMount      string                     `json:"workspaceMount,omitempty"`
-	RemoteUser          string                     `json:"remoteUser,omitempty"`
-	ContainerUser       string                     `json:"containerUser,omitempty"`
-	ContainerEnv        map[string]string          `json:"containerEnv,omitempty"`
-	RemoteEnv           map[string]string          `json:"remoteEnv,omitempty"`
-	Mounts              []MountEntry               `json:"mounts,omitempty"`
-	Features            map[string]json.RawMessage `json:"features,omitempty"`
-	PostCreateCommand   LifecycleCommand           `json:"postCreateCommand,omitempty"`
-	PostStartCommand    LifecycleCommand           `json:"postStartCommand,omitempty"`
-	PostAttachCommand   LifecycleCommand           `json:"postAttachCommand,omitempty"`
-	InitializeCommand   LifecycleCommand           `json:"initializeCommand,omitempty"`
-	RunArgs             []string                   `json:"runArgs,omitempty"`
-	ShutdownAction      string                     `json:"shutdownAction,omitempty"`
-	OverrideCommand     *bool                      `json:"overrideCommand,omitempty"`
-	UpdateRemoteUserUID *bool                      `json:"updateRemoteUserUID,omitempty"`
-	ForwardPorts        []ForwardPort              `json:"forwardPorts,omitempty"`
-	PortsAttributes     map[string]json.RawMessage `json:"portsAttributes,omitempty"`
+	Name                 string                     `json:"name,omitempty"`
+	Image                string                     `json:"image,omitempty"`
+	Build                *Build                     `json:"-"`
+	LegacyDockerfile     string                     `json:"dockerFile,omitempty"`
+	DockerComposeFile    []string                   `json:"-"`
+	Service              string                     `json:"service,omitempty"`
+	RunServices          []string                   `json:"runServices,omitempty"`
+	WorkspaceFolder      string                     `json:"workspaceFolder,omitempty"`
+	WorkspaceMount       string                     `json:"workspaceMount,omitempty"`
+	RemoteUser           string                     `json:"remoteUser,omitempty"`
+	ContainerUser        string                     `json:"containerUser,omitempty"`
+	ContainerEnv         map[string]string          `json:"containerEnv,omitempty"`
+	RemoteEnv            map[string]string          `json:"remoteEnv,omitempty"`
+	Mounts               []MountEntry               `json:"mounts,omitempty"`
+	Features             map[string]json.RawMessage `json:"features,omitempty"`
+	OnCreateCommand      LifecycleCommand           `json:"onCreateCommand,omitempty"`
+	UpdateContentCommand LifecycleCommand           `json:"updateContentCommand,omitempty"`
+	PostCreateCommand    LifecycleCommand           `json:"postCreateCommand,omitempty"`
+	PostStartCommand     LifecycleCommand           `json:"postStartCommand,omitempty"`
+	PostAttachCommand    LifecycleCommand           `json:"postAttachCommand,omitempty"`
+	InitializeCommand    LifecycleCommand           `json:"initializeCommand,omitempty"`
+	RunArgs              []string                   `json:"runArgs,omitempty"`
+	ShutdownAction       string                     `json:"shutdownAction,omitempty"`
+	OverrideCommand      *bool                      `json:"overrideCommand,omitempty"`
+	UpdateRemoteUserUID  *bool                      `json:"updateRemoteUserUID,omitempty"`
+	ForwardPorts         []ForwardPort              `json:"forwardPorts,omitempty"`
+	PortsAttributes      map[string]json.RawMessage `json:"portsAttributes,omitempty"`
 }
 
 // Build represents the object form of the devcontainer.json build property.
