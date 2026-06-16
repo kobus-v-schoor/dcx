@@ -40,19 +40,15 @@ type inspectResponse struct {
 }
 
 // localMockClient satisfies docker.DockerClient for testing BuildImage.
-// Only ImageInspect, ImagePull, and ImageBuild are stateful; the rest return
-// zero values.
+// Only ImageInspect and ImagePull are stateful; the rest return zero values.
 type localMockClient struct {
-	inspectCallCount  int
-	inspectResponses  []inspectResponse
-	capturedBuildOpts *client.ImageBuildOptions
-	imagePullResult   client.ImagePullResponse
-	imagePullErr      error
-	imageBuildResult  client.ImageBuildResult
-	imageBuildErr     error
-	imageTagErr       error
-	imageListResult   client.ImageListResult
-	imageListErr      error
+	inspectCallCount int
+	inspectResponses []inspectResponse
+	imagePullResult  client.ImagePullResponse
+	imagePullErr     error
+	imageTagErr      error
+	imageListResult  client.ImageListResult
+	imageListErr     error
 }
 
 func (m *localMockClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -111,11 +107,6 @@ func (m *localMockClient) ImagePull(_ context.Context, _ string, _ client.ImageP
 	return m.imagePullResult, m.imagePullErr
 }
 
-func (m *localMockClient) ImageBuild(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	m.capturedBuildOpts = &opts
-	return m.imageBuildResult, m.imageBuildErr
-}
-
 func (m *localMockClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 	idx := m.inspectCallCount
 	m.inspectCallCount++
@@ -132,6 +123,20 @@ func (m *localMockClient) ImageTag(_ context.Context, _ client.ImageTagOptions) 
 
 func (m *localMockClient) ImageList(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
 	return m.imageListResult, m.imageListErr
+}
+
+// captureImageBuild overrides imageBuildFromDirCLI for the duration of the
+// test and records the options passed to it. The returned function returns
+// the captured options (or nil if the builder was not called).
+func captureImageBuild(t *testing.T) func() *docker.ImageBuildOptions {
+	orig := imageBuildFromDirCLI
+	var captured *docker.ImageBuildOptions
+	imageBuildFromDirCLI = func(_ context.Context, _ string, opts docker.ImageBuildOptions) (string, error) {
+		captured = &opts
+		return "sha256:built123", nil
+	}
+	t.Cleanup(func() { imageBuildFromDirCLI = orig })
+	return func() *docker.ImageBuildOptions { return captured }
 }
 
 // Test that BuildImage returns the image name when an image-based config
@@ -202,13 +207,11 @@ func TestBuildImageBuildsWhenNotCached(t *testing.T) {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
 
+	getOpts := captureImageBuild(t)
+
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{
 			{err: fmt.Errorf("not found")}, // cache miss
-			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}}},
-		},
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(strings.NewReader("")),
 		},
 	}
 
@@ -220,17 +223,15 @@ func TestBuildImageBuildsWhenNotCached(t *testing.T) {
 	if !strings.HasPrefix(ref, "dcx-") {
 		t.Errorf("expected ref to start with dcx-, got %s", ref)
 	}
-	if cli.capturedBuildOpts == nil {
-		t.Fatal("expected ImageBuild to be called")
+	captured := getOpts()
+	if captured == nil {
+		t.Fatal("expected imageBuildFromDirCLI to be called")
 	}
-	if string(cli.capturedBuildOpts.Version) != "1" {
-		t.Errorf("expected v1 builder version, got %q", cli.capturedBuildOpts.Version)
+	if len(captured.Tags) == 0 || !strings.HasPrefix(captured.Tags[0], "dcx-") {
+		t.Errorf("expected tags to include dcx- prefix, got %v", captured.Tags)
 	}
-	if len(cli.capturedBuildOpts.Tags) == 0 || !strings.HasPrefix(cli.capturedBuildOpts.Tags[0], "dcx-") {
-		t.Errorf("expected tags to include dcx- prefix, got %v", cli.capturedBuildOpts.Tags)
-	}
-	if cli.capturedBuildOpts.Labels[docker.DevcontainerLabel] != tmpDir {
-		t.Errorf("expected label devcontainer.local_folder=%s, got %s", tmpDir, cli.capturedBuildOpts.Labels[docker.DevcontainerLabel])
+	if captured.Labels[docker.DevcontainerLabel] != tmpDir {
+		t.Errorf("expected label devcontainer.local_folder=%s, got %s", tmpDir, captured.Labels[docker.DevcontainerLabel])
 	}
 }
 
@@ -247,6 +248,8 @@ func TestBuildImageReusesCache(t *testing.T) {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
 
+	getOpts := captureImageBuild(t)
+
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{
 			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:cached456"}}},
@@ -261,8 +264,8 @@ func TestBuildImageReusesCache(t *testing.T) {
 	if !strings.HasPrefix(ref, "dcx-") {
 		t.Errorf("expected ref to start with dcx-, got %s", ref)
 	}
-	if cli.capturedBuildOpts != nil {
-		t.Error("expected ImageBuild to NOT be called when cached image exists")
+	if getOpts() != nil {
+		t.Error("expected imageBuildFromDirCLI to NOT be called when cached image exists")
 	}
 }
 
@@ -279,13 +282,11 @@ func TestBuildImageForceRebuild(t *testing.T) {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
 
+	getOpts := captureImageBuild(t)
+
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{
 			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:cached456"}}},
-			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}}},
-		},
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(strings.NewReader("")),
 		},
 	}
 
@@ -297,12 +298,12 @@ func TestBuildImageForceRebuild(t *testing.T) {
 	if !strings.HasPrefix(ref, "dcx-") {
 		t.Errorf("expected ref to start with dcx-, got %s", ref)
 	}
-	if cli.capturedBuildOpts == nil {
-		t.Error("expected ImageBuild to be called when forceRebuild=true")
+	if getOpts() == nil {
+		t.Error("expected imageBuildFromDirCLI to be called when forceRebuild=true")
 	}
 }
 
-// Test that build arguments are correctly passed to the Docker client.
+// Test that build arguments are correctly passed to the Docker CLI builder.
 func TestBuildImageBuildArgs(t *testing.T) {
 	tmpDir := t.TempDir()
 	devDir := filepath.Join(tmpDir, ".devcontainer")
@@ -314,13 +315,11 @@ func TestBuildImageBuildArgs(t *testing.T) {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
 
+	getOpts := captureImageBuild(t)
+
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{
 			{err: fmt.Errorf("not found")},
-			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}}},
-		},
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(strings.NewReader("")),
 		},
 	}
 
@@ -334,22 +333,23 @@ func TestBuildImageBuildArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if cli.capturedBuildOpts == nil {
-		t.Fatal("expected ImageBuild to be called")
+	captured := getOpts()
+	if captured == nil {
+		t.Fatal("expected imageBuildFromDirCLI to be called")
 	}
-	if len(cli.capturedBuildOpts.BuildArgs) != 2 {
-		t.Fatalf("expected 2 build args, got %d", len(cli.capturedBuildOpts.BuildArgs))
+	if len(captured.BuildArgs) != 2 {
+		t.Fatalf("expected 2 build args, got %d", len(captured.BuildArgs))
 	}
-	if cli.capturedBuildOpts.BuildArgs["MYARG"] == nil || *cli.capturedBuildOpts.BuildArgs["MYARG"] != "MYVALUE" {
-		t.Errorf("expected MYARG=MYVALUE")
+	if captured.BuildArgs["MYARG"] != "MYVALUE" {
+		t.Errorf("expected MYARG=MYVALUE, got %q", captured.BuildArgs["MYARG"])
 	}
-	if cli.capturedBuildOpts.BuildArgs["EMPTY"] == nil || *cli.capturedBuildOpts.BuildArgs["EMPTY"] != "" {
-		t.Errorf("expected EMPTY=\"\"")
+	if captured.BuildArgs["EMPTY"] != "" {
+		t.Errorf("expected EMPTY=\"\", got %q", captured.BuildArgs["EMPTY"])
 	}
 }
 
 // Test that build.context is resolved relative to .devcontainer/ and that
-// the Dockerfile path inside the tar is correct.
+// the Dockerfile path is passed correctly to the CLI builder.
 func TestBuildImageContextPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	devDir := filepath.Join(tmpDir, ".devcontainer")
@@ -361,13 +361,11 @@ func TestBuildImageContextPath(t *testing.T) {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
 
+	getOpts := captureImageBuild(t)
+
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{
 			{err: fmt.Errorf("not found")},
-			{result: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}}},
-		},
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(strings.NewReader("")),
 		},
 	}
 
@@ -381,12 +379,13 @@ func TestBuildImageContextPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if cli.capturedBuildOpts == nil {
-		t.Fatal("expected ImageBuild to be called")
+	captured := getOpts()
+	if captured == nil {
+		t.Fatal("expected imageBuildFromDirCLI to be called")
 	}
 	wantDockerfile := ".devcontainer/Dockerfile"
-	if cli.capturedBuildOpts.Dockerfile != wantDockerfile {
-		t.Errorf("expected Dockerfile=%q, got %q", wantDockerfile, cli.capturedBuildOpts.Dockerfile)
+	if captured.Dockerfile != wantDockerfile {
+		t.Errorf("expected Dockerfile=%q, got %q", wantDockerfile, captured.Dockerfile)
 	}
 }
 
@@ -401,6 +400,13 @@ func TestBuildImageStableTag(t *testing.T) {
 	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
+
+	// Override the builder so no actual Docker call is made.
+	orig := imageBuildFromDirCLI
+	imageBuildFromDirCLI = func(_ context.Context, _ string, _ docker.ImageBuildOptions) (string, error) {
+		return "sha256:built123", nil
+	}
+	defer func() { imageBuildFromDirCLI = orig }()
 
 	cli := &localMockClient{
 		inspectResponses: []inspectResponse{

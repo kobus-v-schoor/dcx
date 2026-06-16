@@ -9,8 +9,6 @@ import (
 	"iter"
 	"net"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +44,6 @@ type mockDockerClient struct {
 	execInspectResult  client.ExecInspectResult
 	imagePullResult    client.ImagePullResponse
 	imagePullErr       error
-	imageBuildResult   client.ImageBuildResult
-	imageBuildErr      error
 	imageInspectResult client.ImageInspectResult
 	imageInspectErr    error
 	imageTagErr        error
@@ -112,10 +108,6 @@ func (m *mockDockerClient) Close() error {
 
 func (m *mockDockerClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return m.imagePullResult, m.imagePullErr
-}
-
-func (m *mockDockerClient) ImageBuild(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-	return m.imageBuildResult, m.imageBuildErr
 }
 
 func (m *mockDockerClient) ImageInspect(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -687,78 +679,6 @@ func TestImagePullIfMissingForcePull(t *testing.T) {
 	}
 	if cli.imagePullResult == nil {
 		t.Error("expected ImagePull to be called when force=true")
-	}
-}
-
-func TestImageBuildFromDirSuccess(t *testing.T) {
-	tmpDir := t.TempDir()
-	dockerfile := filepath.Join(tmpDir, "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
-		t.Fatalf("writing Dockerfile: %v", err)
-	}
-
-	cli := &mockDockerClient{
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(bytes.NewReader(nil)),
-		},
-		imageInspectResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:built123"}},
-	}
-
-	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
-	id, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if id != "sha256:built123" {
-		t.Errorf("expected id sha256:built123, got %s", id)
-	}
-}
-
-func TestImageBuildFromDirStreamError(t *testing.T) {
-	tmpDir := t.TempDir()
-	dockerfile := filepath.Join(tmpDir, "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
-		t.Fatalf("writing Dockerfile: %v", err)
-	}
-
-	body := `{"errorDetail":{"message":"syntax error in Dockerfile"}}`
-	cli := &mockDockerClient{
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(bytes.NewReader([]byte(body))),
-		},
-	}
-
-	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
-	_, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
-	if err == nil {
-		t.Fatal("expected error when build stream has error")
-	}
-	if !strings.Contains(err.Error(), "syntax error") {
-		t.Errorf("error should mention syntax error, got: %s", err.Error())
-	}
-}
-
-func TestImageBuildFromDirInspectFails(t *testing.T) {
-	tmpDir := t.TempDir()
-	dockerfile := filepath.Join(tmpDir, "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
-		t.Fatalf("writing Dockerfile: %v", err)
-	}
-
-	cli := &mockDockerClient{
-		imageBuildResult: client.ImageBuildResult{
-			Body: io.NopCloser(bytes.NewReader(nil)),
-		},
-		imageInspectErr: fmt.Errorf("image not found"),
-	}
-
-	opts := client.ImageBuildOptions{Tags: []string{"dcx-test:abc123"}}
-	_, err := ImageBuildFromDir(context.Background(), cli, tmpDir, opts)
-	if err == nil {
-		t.Fatal("expected error when inspect fails")
-	}
-	if !strings.Contains(err.Error(), "could not inspect image") {
-		t.Errorf("error should mention inspect failure, got: %s", err.Error())
 	}
 }
 
