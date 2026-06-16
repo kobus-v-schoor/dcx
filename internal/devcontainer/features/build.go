@@ -97,7 +97,7 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 	// Generate build context.
 	contextDir, _, err := BuildContext(baseImageRef, ordered, containerUser, remoteUser)
 	if contextDir != "" {
-		defer os.RemoveAll(contextDir)
+		defer func() { _ = os.RemoveAll(contextDir) }()
 	}
 	if err != nil {
 		return "", fmt.Errorf("generating feature build context: %w", err)

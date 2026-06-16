@@ -40,7 +40,7 @@ func TestDockerfileContainsAllFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext error: %v", err)
 	}
-	defer os.RemoveAll(ctxDir)
+	defer func() { _ = os.RemoveAll(ctxDir) }()
 
 	content, err := os.ReadFile(dockerfilePath)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestDockerfileMetadataLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext error: %v", err)
 	}
-	defer os.RemoveAll(ctxDir)
+	defer func() { _ = os.RemoveAll(ctxDir) }()
 
 	content, err := os.ReadFile(dockerfilePath)
 	if err != nil {

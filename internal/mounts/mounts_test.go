@@ -139,7 +139,7 @@ func TestBuildStringsSkipsMissingSource(t *testing.T) {
 
 	cfgMounts := []config.Mount{
 		{Source: dir, Target: "/container/exists", ReadOnly: false},
-		{Source: "/nonexistent/path", Target: "/container/missing", ReadOnly: false},
+		{Source: filepath.Join(dir, "missing"), Target: "/container/missing", ReadOnly: false},
 	}
 
 	result := BuildStrings(cfgMounts, "")

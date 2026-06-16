@@ -44,7 +44,7 @@ func BuildContext(baseImageRef string, features []ResolvedFeature, containerUser
 	if err != nil {
 		return "", "", fmt.Errorf("creating Dockerfile: %w", err)
 	}
-	defer df.Close()
+	defer func() { _ = df.Close() }()
 
 	if err := generateDockerfile(df, baseImageRef, features, containerUser, remoteUser); err != nil {
 		return "", "", fmt.Errorf("writing Dockerfile: %w", err)
@@ -167,7 +167,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	info, err := in.Stat()
 	if err != nil {
@@ -178,7 +178,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err

@@ -140,7 +140,7 @@ func resolveDirectTarball(ctx context.Context, ref *FeatureRef, cacheDir string)
 	if err != nil {
 		return "", "", fmt.Errorf("downloading tarball: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return "", "", fmt.Errorf("HTTP %d downloading %s", resp.StatusCode, ref.RawID)
@@ -180,7 +180,7 @@ func writeFeatureEnvFile(path string, opts map[string]interface{}) error {
 	if err != nil {
 		return fmt.Errorf("creating env file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	for k, v := range opts {
 		name := sanitizeOptionName(k)

@@ -137,7 +137,7 @@ func (c *ociClient) extractBlob(ctx context.Context, ref *FeatureRef, blobDigest
 	if err != nil {
 		return fmt.Errorf("reading layer %s for %s: %w", blobDigest, ref.String(), err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("creating destination directory %s: %w", destDir, err)
