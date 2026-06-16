@@ -22,6 +22,20 @@ type LockfileFeature struct {
 	DependsOn []string `json:"dependsOn,omitempty"`
 }
 
+// SaveLockfile writes the lockfile to the workspace's .devcontainer directory.
+func SaveLockfile(workspaceFolder string, lf *Lockfile) error {
+	path := filepath.Join(workspaceFolder, ".devcontainer", "devcontainer-lock.json")
+	data, err := json.MarshalIndent(lf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling lockfile: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("writing lockfile: %w", err)
+	}
+	return nil
+}
+
 // LoadLockfile reads the devcontainer-lock.json from the workspace's
 // .devcontainer directory. If the file does not exist, it returns (nil, nil)
 // so callers can proceed without a lockfile.

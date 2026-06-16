@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/moby/moby/api/types/build"
@@ -20,7 +21,11 @@ import (
 // the given base image. It returns a stable image tag. If the stable
 // tag already exists locally and forceRebuild is false, it returns
 // immediately without rebuilding.
-func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRef string, cfgFeatures map[string]json.RawMessage, containerUser, remoteUser, workspaceFolder string, forceRebuild bool) (string, error) {
+//
+// When upgradeLockfile is true the lockfile is not consulted during
+// resolution and a new devcontainer-lock.json is written after features are
+// resolved so that subsequent builds are pinned to the exact digests.
+func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRef string, cfgFeatures map[string]json.RawMessage, containerUser, remoteUser, workspaceFolder string, forceRebuild, upgradeLockfile bool) (string, error) {
 	// Parse feature references.
 	var refs []*FeatureRef
 	for id, opts := range cfgFeatures {
@@ -32,7 +37,12 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 	}
 
 	// Load lockfile if present to pin features to specific digests.
+	// When upgrading the lockfile, ignore the existing one so that the
+	// latest digests are fetched.
 	lockfile, _ := LoadLockfile(workspaceFolder)
+	if upgradeLockfile {
+		lockfile = nil
+	}
 
 	// Resolve each feature (download + parse metadata).
 	var resolved []ResolvedFeature
@@ -54,6 +64,26 @@ func BuildFeatureImage(ctx context.Context, cli docker.DockerClient, baseImageRe
 	stableTag, err := stableFeatureTag(cli, baseImageRef, workspaceFolder, ordered)
 	if err != nil {
 		return "", fmt.Errorf("computing stable feature tag: %w", err)
+	}
+
+	// Write the lockfile if upgrading so that future builds are pinned.
+	if upgradeLockfile {
+		lf := &Lockfile{Features: make(map[string]LockfileFeature)}
+		for _, rf := range resolved {
+			if rf.Ref.Source != SourceOCI || rf.Digest == "" {
+				continue
+			}
+			resolvedStr := fmt.Sprintf("%s/%s/%s@%s", rf.Ref.Registry, rf.Ref.Namespace, rf.Ref.ID, rf.Digest)
+			lf.Features[strings.ToLower(rf.Ref.RawID)] = LockfileFeature{
+				Version:   rf.Meta.Version,
+				Resolved:  resolvedStr,
+				Integrity: rf.Digest,
+				DependsOn: dependsOnKeys(rf.Meta.DependsOn),
+			}
+		}
+		if err := SaveLockfile(workspaceFolder, lf); err != nil {
+			return "", fmt.Errorf("saving lockfile: %w", err)
+		}
 	}
 
 	// Fast path: cached image exists.
@@ -127,4 +157,19 @@ func stableFeatureTag(cli docker.DockerClient, baseImageRef, workspaceFolder str
 
 	hash := hex.EncodeToString(h.Sum(nil))[:16]
 	return fmt.Sprintf("dcx-%s-feat:%s", slug, hash), nil
+}
+
+// dependsOnKeys extracts the keys of a dependsOn map into a sorted slice.
+// It returns nil when the map is empty so that omitempty skips the field
+// in the lockfile JSON.
+func dependsOnKeys(m map[string]interface{}) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

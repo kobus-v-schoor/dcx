@@ -1,20 +1,18 @@
 package features
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/hashicorp/go-extract"
 )
 
 // FeatureMeta is the parsed devcontainer-feature.json.
@@ -78,7 +76,7 @@ func Resolve(ctx context.Context, ref *FeatureRef, workspaceFolder string, lockf
 	var path, digest string
 	switch ref.Source {
 	case SourceOCI:
-		client := &ociClient{http: http.DefaultClient}
+		client := &ociClient{}
 		path, digest, err = client.fetchFeature(ctx, ref, cacheDir, lockfile)
 		if err != nil {
 			return nil, err
@@ -151,57 +149,9 @@ func resolveDirectTarball(ctx context.Context, ref *FeatureRef, cacheDir string)
 		return "", "", err
 	}
 
-	// Stream through tar (optionally gzipped). Peek at the first two bytes
-	// to detect gzip without consuming data that the tar reader needs.
-	magic := make([]byte, 2)
-	if _, err := io.ReadFull(resp.Body, magic); err != nil {
-		return "", "", fmt.Errorf("reading tarball header: %w", err)
-	}
-	body := io.MultiReader(bytes.NewReader(magic), resp.Body)
-
-	if magic[0] == 0x1f && magic[1] == 0x8b {
-		gzr, err := gzip.NewReader(body)
-		if err != nil {
-			return "", "", fmt.Errorf("creating gzip reader: %w", err)
-		}
-		defer gzr.Close()
-		body = gzr
-	}
-	tr := tar.NewReader(body)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", "", fmt.Errorf("reading tar entry: %w", err)
-		}
-
-		if strings.Contains(hdr.Name, "..") {
-			continue
-		}
-
-		target := filepath.Join(dest, filepath.Clean(hdr.Name))
-		if hdr.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return "", "", fmt.Errorf("creating directory %s: %w", target, err)
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return "", "", fmt.Errorf("creating parent directory for %s: %w", target, err)
-		}
-
-		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-		if err != nil {
-			return "", "", fmt.Errorf("creating file %s: %w", target, err)
-		}
-		if _, err := io.Copy(f, tr); err != nil {
-			_ = f.Close()
-			return "", "", fmt.Errorf("writing file %s: %w", target, err)
-		}
-		_ = f.Close()
+	cfg := extract.NewConfig(extract.WithCreateDestination(true))
+	if err := extract.Unpack(ctx, dest, resp.Body, cfg); err != nil {
+		return "", "", fmt.Errorf("extracting tarball: %w", err)
 	}
 
 	return dest, "", nil

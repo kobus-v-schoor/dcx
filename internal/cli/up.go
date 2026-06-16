@@ -25,6 +25,7 @@ import (
 // config changes take effect. Added to the root command tree in Execute().
 func newUpCmd() *cobra.Command {
 	var rebuild bool
+	var upgradeLockfile bool
 
 	cmd := &cobra.Command{
 		Use:   "up",
@@ -32,11 +33,12 @@ func newUpCmd() *cobra.Command {
 		Long:  "Start a devcontainer using dcx configuration.\nAny flags after -- are passed through unchanged.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUp(cmd.Context(), rebuild, args)
+			return runUp(cmd.Context(), rebuild, upgradeLockfile, args)
 		},
 	}
 
 	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "recreate the container if it already exists, so config changes take effect")
+	cmd.Flags().BoolVar(&upgradeLockfile, "upgrade-lockfile", false, "ignore the existing devcontainer-lock.json and write a new one with the latest resolved feature digests")
 
 	return cmd
 }
@@ -47,7 +49,7 @@ func newUpCmd() *cobra.Command {
 // projects. The rebuild parameter controls container recreation so config
 // changes take effect. Config and log level are already initialised by the
 // root command's PersistentPreRunE.
-func runUp(ctx context.Context, rebuild bool, args []string) error {
+func runUp(ctx context.Context, rebuild, upgradeLockfile bool, args []string) error {
 	slog.Info("workspace-folder", "path", workspaceFolder)
 
 	slog.Info("config loaded")
@@ -122,7 +124,7 @@ func runUp(ctx context.Context, rebuild bool, args []string) error {
 		}
 		return runUpCompose(ctx, overrideDir.Config, rebuild)
 	case overrideDir.Config.Image != "" || overrideDir.Config.EffectiveDockerfile() != "":
-		return runUpNative(ctx, overrideDir.Config, rebuild)
+		return runUpNative(ctx, overrideDir.Config, rebuild, upgradeLockfile)
 	default:
 		return fmt.Errorf("devcontainer.json must specify image, build, or dockerComposeFile")
 	}
@@ -151,14 +153,14 @@ func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild bool) error {
 // Engine API, bypassing the external devcontainer CLI. It resolves the
 // image (pull or build), substitutes variables, and creates and starts the
 // container.
-func runUpNative(ctx context.Context, cfg *spec.Config, rebuild bool) error {
+func runUpNative(ctx context.Context, cfg *spec.Config, rebuild, upgradeLockfile bool) error {
 	cli, err := docker.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cli.Close() }()
 
-	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild)
+	imageRef, err := devcontainer.BuildImage(ctx, cli, cfg, workspaceFolder, rebuild, upgradeLockfile)
 	if err != nil {
 		return fmt.Errorf("building devcontainer image: %w", err)
 	}

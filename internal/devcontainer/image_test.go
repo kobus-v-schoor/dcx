@@ -151,7 +151,7 @@ func TestBuildImageAlreadyPresent(t *testing.T) {
 		},
 	}
 	cfg := &spec.Config{Image: "alpine:3.19"}
-	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -175,7 +175,7 @@ func TestBuildImagePullsWhenMissing(t *testing.T) {
 		},
 	}
 	cfg := &spec.Config{Image: "alpine:3.19"}
-	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -188,7 +188,7 @@ func TestBuildImagePullsWhenMissing(t *testing.T) {
 func TestBuildImageNoImageOrBuild(t *testing.T) {
 	cli := &localMockClient{}
 	cfg := &spec.Config{}
-	_, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
+	_, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false, false)
 	if err == nil {
 		t.Fatal("expected error when neither image or build is configured")
 	}
@@ -221,7 +221,7 @@ func TestBuildImageBuildsWhenNotCached(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -262,7 +262,7 @@ func TestBuildImageReusesCache(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -298,7 +298,7 @@ func TestBuildImageForceRebuild(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, true)
+	ref, err := BuildImage(context.Background(), cli, cfg, tmpDir, true, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -338,7 +338,7 @@ func TestBuildImageBuildArgs(t *testing.T) {
 			Args:       map[string]string{"MYARG": "MYVALUE", "EMPTY": ""},
 		},
 	}
-	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -385,7 +385,7 @@ func TestBuildImageContextPath(t *testing.T) {
 			Context:    "..",
 		},
 	}
-	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -417,7 +417,7 @@ func TestBuildImageStableTag(t *testing.T) {
 	}
 
 	cfg := &spec.Config{Build: &spec.Build{Dockerfile: "Dockerfile"}}
-	ref1, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	ref1, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -425,7 +425,7 @@ func TestBuildImageStableTag(t *testing.T) {
 	// Reset counter and re-run; should get the exact same tag because the
 	// Dockerfile and config haven't changed.
 	cli.inspectCallCount = 0
-	ref2, err := BuildImage(context.Background(), cli, cfg, tmpDir, false)
+	ref2, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
 	if err != nil {
 		t.Fatalf("expected no error on second call, got %v", err)
 	}
@@ -456,7 +456,7 @@ func TestBuildImageWithFeatures_CallsFeatureBuilder(t *testing.T) {
 	}
 
 	called := false
-	featureImageBuilder = func(_ context.Context, _ docker.DockerClient, baseImage string, features map[string]json.RawMessage, _, _, _ string, _ bool) (string, error) {
+	featureImageBuilder = func(_ context.Context, _ docker.DockerClient, baseImage string, features map[string]json.RawMessage, _, _, _ string, _, _ bool) (string, error) {
 		called = true
 		if baseImage != "alpine:3.19" {
 			t.Errorf("expected baseImage alpine:3.19, got %s", baseImage)
@@ -474,7 +474,7 @@ func TestBuildImageWithFeatures_CallsFeatureBuilder(t *testing.T) {
 			"ghcr.io/devcontainers/features/github-cli:1": {},
 		},
 	}
-	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false)
+	ref, err := BuildImage(context.Background(), cli, cfg, "/tmp/test", false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

@@ -63,7 +63,7 @@ var featureImageBuilder = features.BuildFeatureImage
 // This function is used by the native dcx up path. It is safe to call
 // repeatedly: image-based references are idempotent, and build-based
 // references leverage Docker layer caching.
-func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string, forceRebuild bool) (string, error) {
+func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, workspaceFolder string, forceRebuild, upgradeLockfile bool) (string, error) {
 	var baseImageRef string
 	switch {
 	case cfg.Image != "":
@@ -85,7 +85,7 @@ func BuildImage(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, 
 		return baseImageRef, nil
 	}
 
-	return featureImageBuilder(ctx, cli, baseImageRef, cfg.Features, cfg.ContainerUser, cfg.RemoteUser, workspaceFolder, forceRebuild)
+	return featureImageBuilder(ctx, cli, baseImageRef, cfg.Features, cfg.ContainerUser, cfg.RemoteUser, workspaceFolder, forceRebuild, upgradeLockfile)
 }
 
 // buildFromDockerfile builds a devcontainer image from a Dockerfile
