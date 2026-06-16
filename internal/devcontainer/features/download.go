@@ -17,31 +17,32 @@ import (
 
 // FeatureMeta is the parsed devcontainer-feature.json.
 type FeatureMeta struct {
-	ID                   string                   `json:"id"`
-	Version              string                   `json:"version"`
-	Name                 string                   `json:"name"`
-	Description          string                   `json:"description"`
-	DocumentationURL     string                   `json:"documentationURL"`
-	LicenseURL           string                   `json:"licenseURL"`
-	Keywords             []string                 `json:"keywords"`
-	Options              map[string]FeatureOption `json:"options"`
-	ContainerEnv         map[string]string        `json:"containerEnv"`
-	Privileged           bool                     `json:"privileged"`
-	Init                 bool                     `json:"init"`
-	CapAdd               []string                 `json:"capAdd"`
-	SecurityOpt          []string                 `json:"securityOpt"`
-	Entrypoint           string                   `json:"entrypoint"`
-	Mounts               json.RawMessage          `json:"mounts"`
-	DependsOn            map[string]interface{}   `json:"dependsOn"`
-	InstallsAfter        []string                 `json:"installsAfter"`
-	LegacyIds            []string                 `json:"legacyIds"`
-	Deprecated           bool                     `json:"deprecated"`
-	Customizations       json.RawMessage          `json:"customizations"`
-	OnCreateCommand      json.RawMessage          `json:"onCreateCommand,omitempty"`
-	UpdateContentCommand json.RawMessage          `json:"updateContentCommand,omitempty"`
-	PostCreateCommand    json.RawMessage          `json:"postCreateCommand,omitempty"`
-	PostStartCommand     json.RawMessage          `json:"postStartCommand,omitempty"`
-	PostAttachCommand    json.RawMessage          `json:"postAttachCommand,omitempty"`
+	ID               string                   `json:"id"`
+	Version          string                   `json:"version"`
+	Name             string                   `json:"name"`
+	Description      string                   `json:"description"`      // Currently not supported.
+	DocumentationURL string                   `json:"documentationURL"` // Currently not supported.
+	LicenseURL       string                   `json:"licenseURL"`       // Currently not supported.
+	Keywords         []string                 `json:"keywords"`         // Currently not supported.
+	Options          map[string]FeatureOption `json:"options"`
+	ContainerEnv     map[string]string        `json:"containerEnv"`
+	Privileged       bool                     `json:"privileged"`  // Currently not supported.
+	Init             bool                     `json:"init"`        // Currently not supported.
+	CapAdd           []string                 `json:"capAdd"`      // Currently not supported.
+	SecurityOpt      []string                 `json:"securityOpt"` // Currently not supported.
+	Entrypoint       string                   `json:"entrypoint"`  // Currently not supported.
+	Mounts           json.RawMessage          `json:"mounts"`      // Currently not supported.
+	DependsOn        map[string]interface{}   `json:"dependsOn"`
+	InstallsAfter    []string                 `json:"installsAfter"`
+	LegacyIds        []string                 `json:"legacyIds"`      // Currently not supported.
+	Deprecated       bool                     `json:"deprecated"`     // Currently not supported.
+	Customizations   json.RawMessage          `json:"customizations"` // Currently not supported.
+	// The following lifecycle commands are currently not supported.
+	OnCreateCommand      json.RawMessage `json:"onCreateCommand,omitempty"`
+	UpdateContentCommand json.RawMessage `json:"updateContentCommand,omitempty"`
+	PostCreateCommand    json.RawMessage `json:"postCreateCommand,omitempty"`
+	PostStartCommand     json.RawMessage `json:"postStartCommand,omitempty"`
+	PostAttachCommand    json.RawMessage `json:"postAttachCommand,omitempty"`
 }
 
 // FeatureOption describes a single option in devcontainer-feature.json.
