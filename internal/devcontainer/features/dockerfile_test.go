@@ -196,6 +196,12 @@ func TestWrapperScript(t *testing.T) {
 	if !strings.Contains(string(content), "exec ./install.sh") {
 		t.Error("wrapper missing exec install.sh")
 	}
+	if !strings.Contains(string(content), "set -a") {
+		t.Error("wrapper missing set -a (export all vars)")
+	}
+	if !strings.Contains(string(content), "set +a") {
+		t.Error("wrapper missing set +a")
+	}
 
 	info, err := os.Stat(wrapper)
 	if err != nil {

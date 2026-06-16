@@ -200,7 +200,9 @@ func writeInstallWrapper(featureDir string) error {
 	content := `#!/bin/bash
 set -e
 cd "$(dirname "$0")"
+set -a
 source devcontainer-features.env 2>/dev/null || true
+set +a
 exec ./install.sh
 `
 	if err := os.WriteFile(wrapperPath, []byte(content), 0755); err != nil {
