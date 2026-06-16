@@ -14,7 +14,7 @@ GitHub issue #99 requests that `dcx` stop relying on the `devcontainer` CLI bina
 
 ## Plan Overview
 
-The work is split into **eleven separately implementable parts**, ordered to minimize risk and maximize incremental value. Each part can be developed, reviewed, and merged as its own PR. The approach is: build libraries first, replace `exec` early for daily-workflow impact, then replace `up` piece by piece, tackle the hardest problem (features) once the simpler paths are stable, and clean up at the end.
+The work is split into **twelve separately implementable parts**, ordered to minimize risk and maximize incremental value. Each part can be developed, reviewed, and merged as its own PR. The approach is: build libraries first, replace `exec` early for daily-workflow impact, then replace `up` piece by piece, tackle the hardest problem (features) once the simpler paths are stable, and clean up at the end.
 
 ## Architecture: Docker CLI vs Moby Library
 
@@ -55,6 +55,7 @@ When a part is fully implemented, tested, and merged, **move its plan file into 
 | 9 | `09-features-support.md` | Download & install features | `internal/devcontainer/features/` |
 | 10 | `10-compose-features-support.md` | Add features support to Docker Compose projects | Compose override with feature-augmented images |
 | 11 | `11-remove-cli-dependency.md` | Delete dead code, update docs | Fully standalone `dcx` |
+| 12 | `12-cli-image-builds.md` | Switch image builds from Moby SDK to Docker CLI | `internal/docker/build.go` |
 
 ## Dealing with the Test Project
 
