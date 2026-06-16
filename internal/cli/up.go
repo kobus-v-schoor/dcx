@@ -30,7 +30,7 @@ func newUpCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start a devcontainer using dcx configuration",
-		Long:  "Start a devcontainer using dcx configuration.\nAny flags after -- are passed through unchanged.",
+		Long:  "Start a devcontainer using dcx configuration.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUp(cmd.Context(), rebuild, upgradeLockfile, args)
@@ -91,7 +91,7 @@ func runUp(ctx context.Context, rebuild, upgradeLockfile bool, args []string) er
 	// Collect all mount strings (user-configured, SSH agent, git config) and
 	// inject them into the override config's mounts property. Mounts are
 	// injected via the config rather than --mount CLI flags because the
-	// devcontainer CLI's --mount flag has a strict format that only accepts
+	// Docker's --mount CLI flag has a strict format that only accepts
 	// type, source, target and external — it does not support readonly or
 	// other Docker mount options. The devcontainer.json mounts property
 	// accepts the full Docker --mount format.
@@ -147,7 +147,7 @@ func runUpCompose(ctx context.Context, cfg *spec.Config, rebuild, upgradeLockfil
 }
 
 // runUpNative creates or reuses a devcontainer directly via the Docker
-// Engine API, bypassing the external devcontainer CLI. It resolves the
+// Engine API. It resolves the
 // image (pull or build), substitutes variables, and creates and starts the
 // container.
 func runUpNative(ctx context.Context, cfg *spec.Config, rebuild, upgradeLockfile bool) error {

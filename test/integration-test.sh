@@ -21,12 +21,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Check prerequisites.
-if ! command -v devcontainer >/dev/null 2>&1; then
-	echo "ERROR: devcontainer CLI not found. Install it with: npm install -g @devcontainers/cli"
-	exit 1
-fi
-
 # Build dcx.
 echo "Building dcx..."
 cd "${SCRIPT_DIR}/.."

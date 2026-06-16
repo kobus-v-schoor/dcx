@@ -255,7 +255,7 @@ func PrepareTerminfo(containerHomeDir string) TerminfoResult {
 	// Build a postCreateCommand that creates the target directory and compiles
 	// the source entry with tic. We guard against missing tic and suppress its
 	// exit code so that a container without ncurses-bin never fails to start.
-	// The devcontainer CLI wraps string postCreateCommands in sh -c, so we
+	// String postCreateCommands are executed via a shell wrapper, so we
 	// do not include the shell invocation here.
 	postCmd := fmt.Sprintf("mkdir -p %s && if command -v tic >/dev/null 2>&1; then tic -x -o %s %s || true; fi", compileDest, compileDest, "/opt/dcx/terminfo.src")
 

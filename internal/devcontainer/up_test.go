@@ -20,7 +20,6 @@ import (
 type mockClient struct {
 	listResult         client.ContainerListResult
 	listErr            error
-	startErr           error
 	stopErr            error
 	removeErr          error
 	inspectResult      client.ContainerInspectResult
@@ -28,8 +27,6 @@ type mockClient struct {
 	imageInspectResult client.ImageInspectResult
 	imageInspectErr    error
 }
-
-var _ docker.DockerClient = &mockClient{}
 
 func (m *mockClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
 	return client.PingResult{}, nil
@@ -100,14 +97,6 @@ func (m *mockClient) ImageList(_ context.Context, _ client.ImageListOptions) (cl
 }
 
 func (m *mockClient) Close() error { return nil }
-
-func (m *mockClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
-	return client.ContainerCreateResult{}, nil
-}
-
-func (m *mockClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
-	return client.ContainerStartResult{}, m.startErr
-}
 
 // createCapture holds the arguments passed to the mocked createContainer.
 type createCapture struct {

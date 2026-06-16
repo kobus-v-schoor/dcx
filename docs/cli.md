@@ -15,7 +15,7 @@ These flags apply to all commands (run `dcx --help` for an up-to-date list of fl
 
 ## `dcx up`
 
-Start a devcontainer using dcx configuration. This delegates to the `devcontainer` CLI with dcx-assembled flags.
+Start a devcontainer using dcx configuration.
 
 ```bash
 # Start the devcontainer in the current directory
@@ -40,13 +40,13 @@ dcx up -- --skip-post-create
 2. It reads your `.devcontainer/devcontainer.json` and creates an **override** in a temp directory
 3. It resolves SSH agent, git configs, features, mounts, and env vars
 4. It injects everything into the override config
-5. It calls `devcontainer up` with the assembled flags
+5. It creates and starts the container directly via the Docker engine
 
 Your original `devcontainer.json` is **not modified**.
 
 ### `--rebuild`
 
-Use `--rebuild` when you've changed dcx configuration (env vars, mounts, features) and need the container recreated so the changes take effect. Without it, the devcontainer CLI will reuse the existing container.
+Use `--rebuild` when you've changed dcx configuration (env vars, mounts, features) and need the container recreated so the changes take effect. Without it, dcx will reuse the existing container.
 
 ---
 

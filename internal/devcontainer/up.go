@@ -14,8 +14,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// keepAliveScript is the shell script used by the devcontainer CLI to keep a
-// container alive when overrideCommand is enabled. It traps SIGTERM (signal 15)
+// keepAliveScript is the shell script used to keep a container alive when
+// overrideCommand is enabled. It traps SIGTERM (signal 15)
 // so the container exits cleanly on stop, and loops with sleep so the shell
 // stays running indefinitely.
 const keepAliveScript = `echo Container started
@@ -93,7 +93,7 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 			// Container exists but is stopped.
 			if !rebuild {
 				slog.Info("starting stopped devcontainer", "id", docker.ShortID(ctr.ID))
-				if _, err := cli.ContainerStart(ctx, ctr.ID, client.ContainerStartOptions{}); err != nil {
+				if err := startContainer(ctx, ctr.ID); err != nil {
 					return "", fmt.Errorf("starting container %s: %w", docker.ShortID(ctr.ID), err)
 				}
 				// Run post-start commands for a container that was just started.

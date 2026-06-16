@@ -34,7 +34,6 @@ The `component` is usually the top-level Go package under `internal/` that the P
 
 - Go 1.25+
 - [Docker](https://docs.docker.com/get-docker/)
-- [devcontainer CLI](https://github.com/devcontainers/cli) on your `$PATH`
 
 ### Build
 
@@ -57,7 +56,7 @@ gofmt -w .
 
 ### Dog-food your changes with dcx itself
 
-`dcx` can (and should!) be used to develop `dcx`. The repo includes a `.devcontainer/` setup with Go and the devcontainer CLI pre-installed.
+`dcx` can (and should!) be used to develop `dcx`. The repo includes a `.devcontainer/` setup with Go pre-installed.
 
 ```bash
 # from the repo root, use dcx to start the dev container
@@ -104,7 +103,7 @@ This catches regressions in container lifecycle handling, mount generation, and 
 
 A few hard rules to keep in mind:
 
-- `dcx` communicates with the `devcontainer` CLI **only via flags** (`--override-config`, `--additional-features`, `--mount`, `--remote-env`).
+- `dcx` communicates directly with the Docker engine. It does not rely on an external `devcontainer` CLI binary.
 - **Never modify the original `devcontainer.json`** on disk. Write temporary overrides to a temp directory and pass them with `--override-config`.
 - All bind mounts that `dcx` injects live under `/opt/dcx/` to avoid conflicting with software installed inside the container.
 

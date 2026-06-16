@@ -17,7 +17,7 @@ type Feature struct {
 
 // FeatureID returns the effective feature ID for serialization. If the ID does
 // not already contain a version tag (a colon followed by a non-empty segment),
-// ":latest" is appended so the devcontainer CLI can resolve it.
+// ":latest" is appended so the feature can be resolved.
 func (f Feature) FeatureID() string {
 	if idx := strings.LastIndex(f.ID, ":"); idx >= 0 {
 		if idx < len(f.ID)-1 && !strings.Contains(f.ID[idx+1:], "/") {

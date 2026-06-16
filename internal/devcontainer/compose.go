@@ -194,7 +194,7 @@ func resolveComposeFilePaths(cfg *spec.Config, absHostFolder string) []string {
 }
 
 // resolveProjectName derives the compose project name from the workspace
-// folder basename. This matches the devcontainer CLI behavior, which
+// folder basename. This matches the devcontainer spec behavior, which
 // ignores spec.Name for the compose project name.
 func resolveProjectName(absHostFolder string) string {
 	return filepath.Base(absHostFolder)
@@ -316,7 +316,7 @@ func buildComposeLabels(cfg *spec.Config, absHostFolder string) []string {
 
 // buildComposeMetadataJSON constructs the devcontainer.metadata label value
 // as a JSON array containing a single object with the config properties that
-// the devcontainer CLI stores. For compose projects overrideCommand is
+// the devcontainer spec stores. For compose projects overrideCommand is
 // always true because the keep-alive entrypoint is always injected.
 func buildComposeMetadataJSON(cfg *spec.Config) (string, error) {
 	configMeta := make(map[string]any)

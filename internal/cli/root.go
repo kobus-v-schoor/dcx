@@ -22,7 +22,7 @@ func Execute(v string) error {
 
 	root := &cobra.Command{
 		Use:           "dcx",
-		Short:         "DevContainer Extended — wraps devcontainer CLI with user-level persistence",
+		Short:         "DevContainer Extended — native devcontainer specification implementation with user-level persistence",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

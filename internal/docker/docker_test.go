@@ -27,36 +27,33 @@ import (
 // what the corresponding method returns. Unset fields return zero values and
 // nil errors by default.
 type mockDockerClient struct {
-	pingErr               error
-	containers            client.ContainerListResult
-	containerListErr      error
-	inspectResult         client.ContainerInspectResult
-	inspectErr            error
-	stopErr               error
-	removeErr             error
-	imageRemoveErr        error
-	imageRemoveCount      int
-	volumeRemoveErr       error
-	copyErr               error
-	execCreateErr         error
-	execAttachErr         error
-	execAttachResult      client.ExecAttachResult
-	execStartErr          error
-	execInspectErr        error
-	execInspectResult     client.ExecInspectResult
-	containerCreateResult client.ContainerCreateResult
-	containerCreateErr    error
-	containerStartErr     error
-	imagePullResult       client.ImagePullResponse
-	imagePullErr          error
-	imageBuildResult      client.ImageBuildResult
-	imageBuildErr         error
-	imageInspectResult    client.ImageInspectResult
-	imageInspectErr       error
-	imageTagErr           error
-	imageListResult       client.ImageListResult
-	imageListErr          error
-	closed                bool
+	pingErr            error
+	containers         client.ContainerListResult
+	containerListErr   error
+	inspectResult      client.ContainerInspectResult
+	inspectErr         error
+	stopErr            error
+	removeErr          error
+	imageRemoveErr     error
+	imageRemoveCount   int
+	volumeRemoveErr    error
+	copyErr            error
+	execCreateErr      error
+	execAttachErr      error
+	execAttachResult   client.ExecAttachResult
+	execStartErr       error
+	execInspectErr     error
+	execInspectResult  client.ExecInspectResult
+	imagePullResult    client.ImagePullResponse
+	imagePullErr       error
+	imageBuildResult   client.ImageBuildResult
+	imageBuildErr      error
+	imageInspectResult client.ImageInspectResult
+	imageInspectErr    error
+	imageTagErr        error
+	imageListResult    client.ImageListResult
+	imageListErr       error
+	closed             bool
 }
 
 func (m *mockDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -106,14 +103,6 @@ func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecS
 
 func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return m.execInspectResult, m.execInspectErr
-}
-
-func (m *mockDockerClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
-	return m.containerCreateResult, m.containerCreateErr
-}
-
-func (m *mockDockerClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
-	return client.ContainerStartResult{}, m.containerStartErr
 }
 
 func (m *mockDockerClient) Close() error {
@@ -487,7 +476,7 @@ func TestMkdirInContainerNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestMkdirInContainerCreateError(t *testing.T) {
+func TestMkdirInContainerExecCreateError(t *testing.T) {
 	cli := &mockDockerClient{
 		execCreateErr: fmt.Errorf("exec create failed"),
 	}

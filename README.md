@@ -51,11 +51,11 @@ sandboxing experience without the hassle.:
 
 ## How It Works
 
-dcx uses the `devcontainer` CLI under-the-hood to do all the heavy lifting. Through
-devcontainers it builds on top of a widely-used spec to give you reproducible, but
-contained and extensible development environments, all inside containers.
+dcx implements the devcontainer specification natively in Go, communicating directly
+with the Docker engine. It builds on top of the widely-used devcontainer spec to give
+you reproducible, contained, and extensible development environments, all inside containers.
 
-Apart from providing user-level defaults for the `devcontainer` CLI, dcx also
+Apart from providing user-level defaults for devcontainer configuration, dcx also
 integrates several common dev tools to make your container experience better:
 
 - Automatic SSH agent forwarding
@@ -70,16 +70,16 @@ dcx remains lightweight while providing a _lot_ of features.
 
 ## Why not just use devcontainers directly?
 
-The `devcontainer` spec and CLI was built with reproducibility in mind - it
-doesn't support user-level config (e.g. default features or bind-mounts) as
-this would be fragile to support between teams. VSCode fixes this gap by
-providing those features - but users who don't use VSCode doesn't have the same
+The devcontainer spec and official CLI were built with reproducibility in mind -
+they don't support user-level config (e.g. default features or bind-mounts) as
+this would be fragile to support between teams. VS Code fixes this gap by
+providing those features - but users who don't use VS Code don't have the same
 luxury.
 
-This is where dcx comes in - it wraps the `devcontainer` CLI to provide
-features the official CLI probably shouldn't have. Think of `dcx` as a wrapper
-to personalise `devcontainers` (with a bunch of other Quality-of-Life
-improvements).
+This is where dcx comes in - it implements the devcontainer specification natively
+while adding user-level persistence and workflow automation that the official CLI
+probably shouldn't have. Think of `dcx` as a personalisation layer on top of
+devcontainers (with a bunch of other Quality-of-Life improvements).
 
 ## Quick Start
 
@@ -100,7 +100,6 @@ go install github.com/kobus-v-schoor/dcx/cmd/dcx@latest
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) - running and accessible
-- [devcontainer CLI](https://github.com/devcontainers/cli) - on your `PATH`
 - Go 1.25+ - only needed when building from source
 
 ### Run

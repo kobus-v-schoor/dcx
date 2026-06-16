@@ -2,7 +2,7 @@
 
 ## Project
 
-`dcx` is a Go CLI that implements the devcontainer specification natively, adding user-level persistence and workflow automation. It communicates directly with the Docker engine (via the Moby client library and the Docker CLI) and never modifies the user's `devcontainer.json` on disk. The external `devcontainer` CLI dependency is being removed as part of issue #99.
+`dcx` is a Go CLI that implements the devcontainer specification natively, adding user-level persistence and workflow automation. It communicates directly with the Docker engine (via the Moby client library and the Docker CLI) and never modifies the user's `devcontainer.json` on disk.
 
 The end-goal of the `dcx` project is to make secure development sandboxing so convenient that there's no friction to use it:
 
@@ -44,14 +44,12 @@ The end-goal of the `dcx` project is to make secure development sandboxing so co
 - `internal/shell/` — shell integration (mount configs, inject postCreateCommand)
 - `internal/compose/` — Docker Compose lifecycle management (stop, down, ps)
 - `internal/init/` — project initialization (`dcx init`)
-- `internal/flags/` — devcontainer CLI flag assembly
 - `internal/devcontainer/` — native devcontainer lifecycle helpers (image resolution, container creation/up, lifecycle command execution)
 - `internal/devcontainer/spec/` — strongly-typed `devcontainer.json` parser, merge logic, and schema validation. The upstream spec is vendored here as a Git submodule (`internal/devcontainer/spec/devcontainer-spec/docs/specs/`) and must be treated as the source of truth for all spec-level behavior.
 - `internal/override/` — temporary override `devcontainer.json` generation
 - `internal/proxy/` — transparent MITM proxy (GitHub, etc.) for credential injection. A single proxy intercepts HTTPS traffic to configured domains, decrypts it using an ephemeral CA certificate injected into the container's trust store, injects credentials, and re-encrypts traffic before forwarding.
-- `internal/runner/` — devcontainer CLI execution wrapper
 
-Key constraint: never modify the original `devcontainer.json` on disk. Overrides are written to a temporary directory and applied via the native container creation path (`docker create`) or (during the transition) via `--override-config` passed to the legacy `devcontainer` CLI.
+Key constraint: never modify the original `devcontainer.json` on disk. Overrides are written to a temporary directory and applied via the native container creation path (`docker create`).
 
 ## Dev Container Specification
 

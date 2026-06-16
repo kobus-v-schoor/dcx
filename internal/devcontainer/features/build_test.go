@@ -6,13 +6,9 @@ import (
 	"io"
 	"testing"
 
-	"github.com/kobus-v-schoor/dcx/internal/docker"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 )
-
-// compile-time check that mockImageInspectClient satisfies docker.DockerClient.
-var _ docker.DockerClient = (*mockImageInspectClient)(nil)
 
 // mockImageInspectClient records ImageInspect calls and returns pre-configured
 // responses.
@@ -66,12 +62,6 @@ func (m *mockImageInspectClient) ExecStart(_ context.Context, _ string, _ client
 }
 func (m *mockImageInspectClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{}, nil
-}
-func (m *mockImageInspectClient) ContainerCreate(_ context.Context, _ client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
-	return client.ContainerCreateResult{}, nil
-}
-func (m *mockImageInspectClient) ContainerStart(_ context.Context, _ string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
-	return client.ContainerStartResult{}, nil
 }
 func (m *mockImageInspectClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
