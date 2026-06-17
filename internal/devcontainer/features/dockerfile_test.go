@@ -176,6 +176,9 @@ func TestDockerfileMetadataLabelIncludesAllFeatureProperties(t *testing.T) {
 			t.Errorf("Dockerfile metadata label missing %q", s)
 		}
 	}
+	if !strings.Contains(df, "ENV DOCKER_BUILDKIT=1") {
+		t.Error("Dockerfile missing ENV instruction for feature containerEnv")
+	}
 }
 
 func TestWrapperScript(t *testing.T) {

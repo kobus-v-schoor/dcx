@@ -135,22 +135,12 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		}
 	}
 
-	// Build environment variable list (config + feature metadata).
+	// Build environment variable list from config only. Feature containerEnv
+	// is already baked into the feature image via Dockerfile ENV instructions
+	// so it is inherited by the container automatically.
 	var envList []string
 	for k, v := range cfg.ContainerEnv {
 		envList = append(envList, k+"="+v)
-	}
-	for k, v := range imgMeta.ContainerEnv {
-		found := false
-		for _, existing := range envList {
-			if strings.HasPrefix(existing, k+"=") {
-				found = true
-				break
-			}
-		}
-		if !found {
-			envList = append(envList, k+"="+v)
-		}
 	}
 	sort.Strings(envList)
 

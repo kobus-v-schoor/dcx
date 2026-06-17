@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"text/template"
 )
 
@@ -53,13 +54,26 @@ func BuildContext(baseImageRef string, features []ResolvedFeature, containerUser
 	return contextDir, dockerfilePath, nil
 }
 
+type envPair struct {
+	Key   string
+	Value string
+}
+
+type tmplFeature struct {
+	Index    int
+	Meta     FeatureMeta
+	Ref      FeatureRef
+	EnvPairs []envPair
+}
+
 const dockerfileTmpl = `FROM {{.BaseImage}} AS dcx_features
 USER root
 ENV _CONTAINER_USER={{.ContainerUser}} _REMOTE_USER={{.RemoteUser}} _CONTAINER_USER_HOME={{.ContainerUserHome}} _REMOTE_USER_HOME={{.RemoteUserHome}}
 
-{{range $i, $f := .Features}}# Feature: {{$f.Meta.Name}} ({{$f.Ref.String}})
-COPY ./f{{$i}} /tmp/dcx-features/{{$f.Meta.ID}}/
-RUN cd /tmp/dcx-features/{{$f.Meta.ID}} && chmod +x install.sh && chmod +x devcontainer-features-install.sh && ./devcontainer-features-install.sh
+{{range .TmplFeatures}}# Feature: {{.Meta.Name}} ({{.Ref.String}})
+COPY ./f{{.Index}} /tmp/dcx-features/{{.Meta.ID}}/
+{{range .EnvPairs}}ENV {{.Key}}={{.Value}}
+{{end}}RUN cd /tmp/dcx-features/{{.Meta.ID}} && chmod +x install.sh && chmod +x devcontainer-features-install.sh && ./devcontainer-features-install.sh
 
 {{end}}FROM dcx_features AS final
 LABEL devcontainer.metadata='{{.MetadataJSON}}'
@@ -81,13 +95,33 @@ func generateDockerfile(w io.Writer, baseImageRef string, features []ResolvedFea
 		return fmt.Errorf("marshalling feature metadata: %w", err)
 	}
 
+	tmplFeatures := make([]tmplFeature, len(features))
+	for i, f := range features {
+		tf := tmplFeature{
+			Index: i,
+			Meta:  f.Meta,
+			Ref:   f.Ref,
+		}
+		if len(f.Meta.ContainerEnv) > 0 {
+			keys := make([]string, 0, len(f.Meta.ContainerEnv))
+			for k := range f.Meta.ContainerEnv {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				tf.EnvPairs = append(tf.EnvPairs, envPair{Key: k, Value: f.Meta.ContainerEnv[k]})
+			}
+		}
+		tmplFeatures[i] = tf
+	}
+
 	data := struct {
 		BaseImage         string
 		ContainerUser     string
 		RemoteUser        string
 		ContainerUserHome string
 		RemoteUserHome    string
-		Features          []ResolvedFeature
+		TmplFeatures      []tmplFeature
 		MetadataJSON      string
 	}{
 		BaseImage:         baseImageRef,
@@ -95,7 +129,7 @@ func generateDockerfile(w io.Writer, baseImageRef string, features []ResolvedFea
 		RemoteUser:        remoteUser,
 		ContainerUserHome: userHome(containerUser),
 		RemoteUserHome:    userHome(remoteUser),
-		Features:          features,
+		TmplFeatures:      tmplFeatures,
 		MetadataJSON:      string(metaJSON),
 	}
 
