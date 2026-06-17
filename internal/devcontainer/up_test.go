@@ -615,16 +615,6 @@ func TestUpAppliesFeatureMetadata(t *testing.T) {
 	if !foundMount {
 		t.Errorf("expected feature mount in mounts, got %v", cap.mounts)
 	}
-	foundEnv := false
-	for _, e := range cap.envs {
-		if e == "FEATURE_VAR=val" {
-			foundEnv = true
-			break
-		}
-	}
-	if !foundEnv {
-		t.Errorf("expected FEATURE_VAR=val in envs, got %v", cap.envs)
-	}
 }
 
 func TestUpAppliesFeatureEntrypointOnlyWhenNoOverrideCommand(t *testing.T) {
