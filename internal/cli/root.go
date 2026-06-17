@@ -7,6 +7,7 @@ import (
 
 	"github.com/kobus-v-schoor/dcx/internal/config"
 	"github.com/kobus-v-schoor/dcx/internal/docker"
+	"github.com/kobus-v-schoor/dcx/internal/log"
 	"github.com/spf13/cobra"
 )
 
@@ -68,7 +69,7 @@ func Execute(v string) error {
 			return fmt.Errorf("invalid log level %q: %w", effective, err)
 		}
 
-		handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+		handler := log.NewHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 		slog.SetDefault(slog.New(handler))
 
 		if err := checkDockerDaemon(cmd); err != nil {
