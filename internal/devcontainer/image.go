@@ -105,7 +105,12 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 	if dockerfileRel == "" {
 		return "", fmt.Errorf("devcontainer.json build configuration is missing dockerfile")
 	}
-	dockerfilePath := filepath.Join(devcontainerDir, dockerfileRel)
+	var dockerfilePath string
+	if filepath.IsAbs(dockerfileRel) {
+		dockerfilePath = dockerfileRel
+	} else {
+		dockerfilePath = filepath.Join(devcontainerDir, dockerfileRel)
+	}
 
 	// Verify Dockerfile exists.
 	if _, err := os.Stat(dockerfilePath); err != nil {
@@ -114,7 +119,11 @@ func buildFromDockerfile(ctx context.Context, cli docker.DockerClient, cfg *spec
 
 	var buildContextDir string
 	if cfg.Build != nil && cfg.Build.Context != "" {
-		buildContextDir = filepath.Join(devcontainerDir, cfg.Build.Context)
+		if filepath.IsAbs(cfg.Build.Context) {
+			buildContextDir = cfg.Build.Context
+		} else {
+			buildContextDir = filepath.Join(devcontainerDir, cfg.Build.Context)
+		}
 	} else {
 		buildContextDir = devcontainerDir
 	}

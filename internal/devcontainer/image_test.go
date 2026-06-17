@@ -143,6 +143,22 @@ func captureImageBuild(t *testing.T) func() *docker.ImageBuildOptions {
 	return func() *docker.ImageBuildOptions { return captured }
 }
 
+// captureImageBuildAndCtx overrides imageBuildFromDirCLI for the duration of
+// the test and records both the build context directory and the options. The
+// returned function returns the captured context dir and options.
+func captureImageBuildAndCtx(t *testing.T) func() (string, *docker.ImageBuildOptions) {
+	orig := imageBuildFromDirCLI
+	var capturedCtx string
+	var capturedOpts *docker.ImageBuildOptions
+	imageBuildFromDirCLI = func(_ context.Context, buildCtx string, opts docker.ImageBuildOptions) (string, error) {
+		capturedCtx = buildCtx
+		capturedOpts = &opts
+		return "sha256:built123", nil
+	}
+	t.Cleanup(func() { imageBuildFromDirCLI = orig })
+	return func() (string, *docker.ImageBuildOptions) { return capturedCtx, capturedOpts }
+}
+
 // Test that BuildImage returns the image name when an image-based config
 // is used and the image is already present locally.
 func TestBuildImageAlreadyPresent(t *testing.T) {
@@ -388,6 +404,51 @@ func TestBuildImageContextPath(t *testing.T) {
 		t.Fatal("expected imageBuildFromDirCLI to be called")
 	}
 	wantDockerfile := ".devcontainer/Dockerfile"
+	if captured.Dockerfile != wantDockerfile {
+		t.Errorf("expected Dockerfile=%q, got %q", wantDockerfile, captured.Dockerfile)
+	}
+}
+
+// Test that BuildImage handles an absolute build.context correctly (e.g. as
+// returned by docker compose config) without duplicating the path.
+func TestBuildImageAbsoluteContextPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	devDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		t.Fatalf("creating .devcontainer dir: %v", err)
+	}
+	dockerfile := filepath.Join(devDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	getCtxAndOpts := captureImageBuildAndCtx(t)
+
+	cli := &localMockClient{
+		inspectResponses: []inspectResponse{
+			{err: fmt.Errorf("not found")},
+		},
+	}
+
+	// Simulate a compose config that returns an absolute build context.
+	cfg := &spec.Config{
+		Build: &spec.Build{
+			Dockerfile: "Dockerfile",
+			Context:    devDir,
+		},
+	}
+	_, err := BuildImage(context.Background(), cli, cfg, tmpDir, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	ctxDir, captured := getCtxAndOpts()
+	if captured == nil {
+		t.Fatal("expected imageBuildFromDirCLI to be called")
+	}
+	if ctxDir != devDir {
+		t.Errorf("expected build context dir=%q, got %q", devDir, ctxDir)
+	}
+	wantDockerfile := "Dockerfile"
 	if captured.Dockerfile != wantDockerfile {
 		t.Errorf("expected Dockerfile=%q, got %q", wantDockerfile, captured.Dockerfile)
 	}
