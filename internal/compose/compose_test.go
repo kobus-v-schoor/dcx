@@ -74,6 +74,10 @@ func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.Exe
 	return client.ExecInspectResult{ExitCode: 0}, nil
 }
 
+func (m *mockDockerClient) ExecResize(_ context.Context, _ string, _ client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	return client.ExecResizeResult{}, nil
+}
+
 func (m *mockDockerClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
 }

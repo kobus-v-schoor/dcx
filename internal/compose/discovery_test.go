@@ -65,6 +65,10 @@ func (m *discoveryMockClient) ExecInspect(_ context.Context, _ string, _ client.
 	return client.ExecInspectResult{ExitCode: 0}, nil
 }
 
+func (m *discoveryMockClient) ExecResize(_ context.Context, _ string, _ client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	return client.ExecResizeResult{}, nil
+}
+
 func (m *discoveryMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
 }
@@ -152,6 +156,10 @@ func (m *projectContainersMockClient) ExecStart(_ context.Context, _ string, _ c
 
 func (m *projectContainersMockClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func (m *projectContainersMockClient) ExecResize(_ context.Context, _ string, _ client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	return client.ExecResizeResult{}, nil
 }
 
 func (m *projectContainersMockClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {

@@ -99,6 +99,10 @@ func (m *localMockClient) ExecInspect(_ context.Context, _ string, _ client.Exec
 	return client.ExecInspectResult{}, nil
 }
 
+func (m *localMockClient) ExecResize(_ context.Context, _ string, _ client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	return client.ExecResizeResult{}, nil
+}
+
 func (m *localMockClient) Close() error {
 	return nil
 }
