@@ -62,6 +62,9 @@ func (m *mockImageInspectClient) ExecStart(_ context.Context, _ string, _ client
 func (m *mockImageInspectClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return client.ExecInspectResult{}, nil
 }
+func (m *mockImageInspectClient) ExecResize(_ context.Context, _ string, _ client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	return client.ExecResizeResult{}, nil
+}
 func (m *mockImageInspectClient) ImagePull(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 	return nil, nil
 }

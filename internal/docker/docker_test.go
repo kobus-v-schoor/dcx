@@ -19,6 +19,7 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+	"golang.org/x/term"
 )
 
 // mockDockerClient implements DockerClient for testing. Each field controls
@@ -42,6 +43,8 @@ type mockDockerClient struct {
 	execStartErr       error
 	execInspectErr     error
 	execInspectResult  client.ExecInspectResult
+	execResizeCalled   bool
+	execResizeOpts     client.ExecResizeOptions
 	imagePullResult    client.ImagePullResponse
 	imagePullErr       error
 	imageInspectResult client.ImageInspectResult
@@ -99,6 +102,12 @@ func (m *mockDockerClient) ExecStart(_ context.Context, _ string, _ client.ExecS
 
 func (m *mockDockerClient) ExecInspect(_ context.Context, _ string, _ client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return m.execInspectResult, m.execInspectErr
+}
+
+func (m *mockDockerClient) ExecResize(_ context.Context, _ string, opts client.ExecResizeOptions) (client.ExecResizeResult, error) {
+	m.execResizeCalled = true
+	m.execResizeOpts = opts
+	return client.ExecResizeResult{}, nil
 }
 
 func (m *mockDockerClient) Close() error {
@@ -571,6 +580,56 @@ func TestExecInteractiveSuccess(t *testing.T) {
 	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestExecInteractiveTTYResize(t *testing.T) {
+	oldIsTerm := isTerminalFunc
+	oldGetSize := getSizeFunc
+	oldMakeRaw := makeRawFunc
+	oldRestore := restoreFunc
+	isTerminalFunc = func(int) bool { return true }
+	getSizeFunc = func(int) (int, int, error) { return 80, 24, nil }
+	makeRawCalled := false
+	restoreCalled := false
+	makeRawFunc = func(int) (*term.State, error) {
+		makeRawCalled = true
+		return nil, nil
+	}
+	restoreFunc = func(int, *term.State) error {
+		restoreCalled = true
+		return nil
+	}
+	defer func() {
+		isTerminalFunc = oldIsTerm
+		getSizeFunc = oldGetSize
+		makeRawFunc = oldMakeRaw
+		restoreFunc = oldRestore
+	}()
+
+	cli := &mockDockerClient{
+		execAttachResult: client.ExecAttachResult{
+			HijackedResponse: client.NewHijackedResponse(eofConn{}, ""),
+		},
+		execInspectResult: client.ExecInspectResult{ExitCode: 0},
+	}
+
+	err := ExecInteractive(context.Background(), cli, "abc123", "", "/workspace", nil, []string{"bash"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !makeRawCalled {
+		t.Fatal("expected MakeRaw to be called for TTY exec")
+	}
+	if !restoreCalled {
+		t.Fatal("expected Restore to be called for TTY exec")
+	}
+	if !cli.execResizeCalled {
+		t.Fatal("expected ExecResize to be called for TTY exec")
+	}
+	if cli.execResizeOpts.Width != 80 || cli.execResizeOpts.Height != 24 {
+		t.Fatalf("expected resize 80x24, got %dx%d", cli.execResizeOpts.Width, cli.execResizeOpts.Height)
 	}
 }
 

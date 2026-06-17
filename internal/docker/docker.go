@@ -40,6 +40,7 @@ type DockerClient interface {
 	ExecAttach(ctx context.Context, execID string, options client.ExecAttachOptions) (client.ExecAttachResult, error)
 	ExecStart(ctx context.Context, execID string, options client.ExecStartOptions) (client.ExecStartResult, error)
 	ExecInspect(ctx context.Context, execID string, options client.ExecInspectOptions) (client.ExecInspectResult, error)
+	ExecResize(ctx context.Context, execID string, options client.ExecResizeOptions) (client.ExecResizeResult, error)
 	ImagePull(ctx context.Context, ref string, options client.ImagePullOptions) (client.ImagePullResponse, error)
 	ImageInspect(ctx context.Context, image string, options ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	ImageTag(ctx context.Context, options client.ImageTagOptions) (client.ImageTagResult, error)
@@ -455,12 +456,33 @@ func ExecInContainer(ctx context.Context, cli DockerClient, containerID string, 
 	return nil
 }
 
+var (
+	isTerminalFunc = term.IsTerminal
+	getSizeFunc    = term.GetSize
+	makeRawFunc    = term.MakeRaw
+	restoreFunc    = term.Restore
+)
+
+// resizeExecTTY forwards the current terminal dimensions to the given exec
+// process via the Docker Engine API.
+func resizeExecTTY(ctx context.Context, cli DockerClient, execID string) error {
+	width, height, err := getSizeFunc(int(os.Stdin.Fd()))
+	if err != nil {
+		return err
+	}
+	_, err = cli.ExecResize(ctx, execID, client.ExecResizeOptions{
+		Height: uint(height),
+		Width:  uint(width),
+	})
+	return err
+}
+
 // ExecInteractive executes a command inside a running container with the
 // caller's stdin, stdout, and stderr attached bidirectionally. It detects
 // whether stdin is a TTY and enables TTY mode accordingly. Returns an
 // ExitCodeError if the command exits with a non-zero code.
 func ExecInteractive(ctx context.Context, cli DockerClient, containerID, user, workdir string, envVars, cmd []string) error {
-	isTty := term.IsTerminal(int(os.Stdin.Fd()))
+	isTty := isTerminalFunc(int(os.Stdin.Fd()))
 
 	execCreate, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		User:         user,
@@ -483,6 +505,30 @@ func ExecInteractive(ctx context.Context, cli DockerClient, containerID, user, w
 		return fmt.Errorf("attaching to exec in container %s: %w", ShortID(containerID), err)
 	}
 	defer attach.Close()
+
+	// If stdin is a TTY, put the local terminal into raw mode so control
+	// characters and escape sequences are forwarded bidirectionally without
+	// local interpretation. We also forward the current terminal size and
+	// watch for window resize signals so the container process has the
+	// correct COLS/LINES.
+	if isTty {
+		oldState, err := makeRawFunc(int(os.Stdin.Fd()))
+		if err != nil {
+			slog.Warn("failed to set local terminal to raw mode", "error", err)
+		} else {
+			defer func() {
+				if err := restoreFunc(int(os.Stdin.Fd()), oldState); err != nil {
+					slog.Warn("failed to restore local terminal state", "error", err)
+				}
+			}()
+		}
+
+		if err := resizeExecTTY(ctx, cli, execCreate.ID); err != nil {
+			slog.Warn("failed to set initial exec TTY size", "error", err)
+		}
+		cancelResize := monitorExecResize(ctx, cli, execCreate.ID)
+		defer cancelResize()
+	}
 
 	// Forward the caller's stdin to the container. When stdin reaches EOF,
 	// CloseWrite signals EOF to the container process.
