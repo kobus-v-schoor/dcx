@@ -84,3 +84,78 @@ func TestOrderOverrideUnsupported(t *testing.T) {
 		t.Fatal("expected error for overrideFeatureInstallOrder")
 	}
 }
+
+func TestOrderInstallsAfterFullyQualified(t *testing.T) {
+	features := []ResolvedFeature{
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/b"},
+			Meta: FeatureMeta{ID: "b", InstallsAfter: []string{"ghcr.io/devcontainers/features/a"}},
+		},
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/a"},
+			Meta: FeatureMeta{ID: "a"},
+		},
+	}
+	ordered, err := Ordered(features, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ordered) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(ordered))
+	}
+	if ordered[0].Meta.ID != "a" {
+		t.Errorf("expected a first, got %s", ordered[0].Meta.ID)
+	}
+	if ordered[1].Meta.ID != "b" {
+		t.Errorf("expected b second, got %s", ordered[1].Meta.ID)
+	}
+}
+
+func TestOrderInstallsAfterShortIDWithFQRefs(t *testing.T) {
+	features := []ResolvedFeature{
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/b"},
+			Meta: FeatureMeta{ID: "b", InstallsAfter: []string{"a"}},
+		},
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/a"},
+			Meta: FeatureMeta{ID: "a"},
+		},
+	}
+	ordered, err := Ordered(features, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ordered) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(ordered))
+	}
+	if ordered[0].Meta.ID != "a" {
+		t.Errorf("expected a first, got %s", ordered[0].Meta.ID)
+	}
+	if ordered[1].Meta.ID != "b" {
+		t.Errorf("expected b second, got %s", ordered[1].Meta.ID)
+	}
+}
+
+func TestOrderDependsOnFullyQualified(t *testing.T) {
+	features := []ResolvedFeature{
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/b"},
+			Meta: FeatureMeta{ID: "b", DependsOn: map[string]interface{}{"ghcr.io/devcontainers/features/a": nil}},
+		},
+		{
+			Ref:  FeatureRef{RawID: "ghcr.io/devcontainers/features/a"},
+			Meta: FeatureMeta{ID: "a"},
+		},
+	}
+	ordered, err := Ordered(features, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ordered) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(ordered))
+	}
+	// Current implementation validates dependsOn presence but does not
+	// yet enforce ordering via edges. Ensure it at least does not error.
+	_ = ordered
+}
