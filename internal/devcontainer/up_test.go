@@ -126,9 +126,14 @@ func setupMockCreate(returnID string, cap *createCapture) func() {
 }
 
 func setupMockStart(err error) func() {
-	orig := startContainer
+	origStart := startContainer
 	startContainer = func(_ context.Context, _ string) error { return err }
-	return func() { startContainer = orig }
+	origWait := waitForContainerRunning
+	waitForContainerRunning = func(_ context.Context, _ docker.DockerClient, _ string) error { return nil }
+	return func() {
+		startContainer = origStart
+		waitForContainerRunning = origWait
+	}
 }
 
 func TestUpNoExistingContainer(t *testing.T) {

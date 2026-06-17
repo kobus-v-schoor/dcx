@@ -711,3 +711,74 @@ func TestDownCleansUpDcxImages(t *testing.T) {
 		t.Errorf("expected ImageRemove to be called twice (container image + dcx image), got %d", cli.imageRemoveCount)
 	}
 }
+
+// waitMockClient is a mock DockerClient that returns a sequence of inspect
+// results for testing WaitForContainerRunning.
+type waitMockClient struct {
+	mockDockerClient
+	sequence []client.ContainerInspectResult
+	count    int
+}
+
+func (m *waitMockClient) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	if m.sequence != nil && m.count < len(m.sequence) {
+		res := m.sequence[m.count]
+		m.count++
+		return res, nil
+	}
+	return client.ContainerInspectResult{
+		Container: container.InspectResponse{
+			State: &container.State{Running: false},
+		},
+	}, nil
+}
+
+func TestWaitForContainerRunning(t *testing.T) {
+	cli := &waitMockClient{
+		sequence: []client.ContainerInspectResult{
+			{Container: container.InspectResponse{State: &container.State{Running: false}}},
+			{Container: container.InspectResponse{State: &container.State{Running: false}}},
+			{Container: container.InspectResponse{State: &container.State{Running: true}}},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := WaitForContainerRunning(ctx, cli, "abc123"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cli.count != 3 {
+		t.Errorf("expected 3 inspect calls, got %d", cli.count)
+	}
+}
+
+func TestWaitForContainerRunningTimeout(t *testing.T) {
+	cli := &waitMockClient{
+		sequence: []client.ContainerInspectResult{
+			{Container: container.InspectResponse{State: &container.State{Running: false}}},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := WaitForContainerRunning(ctx, cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error for timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out waiting for container") {
+		t.Errorf("expected timeout error, got: %s", err.Error())
+	}
+}
+
+func TestWaitForContainerRunningInspectError(t *testing.T) {
+	cli := &mockDockerClient{
+		inspectErr: fmt.Errorf("inspect failed"),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := WaitForContainerRunning(ctx, cli, "abc123")
+	if err == nil {
+		t.Fatal("expected error when inspect fails")
+	}
+	if !strings.Contains(err.Error(), "inspecting container") {
+		t.Errorf("expected inspect error, got: %s", err.Error())
+	}
+}

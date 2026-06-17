@@ -38,6 +38,11 @@ var startContainer = docker.ContainerStartCLI
 // RunPostCreate; tests may override it to avoid invoking Docker.
 var postCreateRunner = RunPostCreate
 
+// waitForContainerRunning polls the Docker API until the container is in a
+// running state. In production it is docker.WaitForContainerRunning; tests
+// may override it to avoid invoking the Docker API.
+var waitForContainerRunning = docker.WaitForContainerRunning
+
 // Up creates or reuses a devcontainer for a non-compose, non-feature project.
 // It substitutes variables, resolves mounts into string format, sets labels and
 // metadata, creates the container via docker create, and starts it via
@@ -95,6 +100,9 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 				slog.Info("starting stopped devcontainer", "id", docker.ShortID(ctr.ID))
 				if err := startContainer(ctx, ctr.ID); err != nil {
 					return "", fmt.Errorf("starting container %s: %w", docker.ShortID(ctr.ID), err)
+				}
+				if err := waitForContainerRunning(ctx, cli, ctr.ID); err != nil {
+					return "", fmt.Errorf("waiting for container %s to start: %w", docker.ShortID(ctr.ID), err)
 				}
 				// Run post-start commands for a container that was just started.
 				meta, _ := extractImageMetadata(ctx, cli, imageRef)
@@ -195,6 +203,10 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 	}
 
 	slog.Info("started container", "id", docker.ShortID(containerID))
+
+	if err := waitForContainerRunning(ctx, cli, containerID); err != nil {
+		return "", fmt.Errorf("waiting for container %s to start: %w", docker.ShortID(containerID), err)
+	}
 
 	// Step 8: run lifecycle commands for newly created containers.
 	// Execution order per the devcontainer spec:

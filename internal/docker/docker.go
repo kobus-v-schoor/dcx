@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	gosdkclient "github.com/docker/go-sdk/client"
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -282,6 +283,35 @@ func Down(ctx context.Context, cli DockerClient, workspaceFolder string) error {
 // state. It checks the State field against [container.StateRunning].
 func IsContainerRunning(ctr container.Summary) bool {
 	return ctr.State == container.StateRunning
+}
+
+// WaitForContainerRunning polls the container state via the Docker API until it
+// reports as running or the provided context is cancelled. It should be called
+// immediately after starting a container to avoid the race condition where
+// docker exec is issued before the container has transitioned to the running
+// state. A default timeout of 30 seconds is applied if the context does not
+// already have a deadline.
+func WaitForContainerRunning(ctx context.Context, cli DockerClient, containerID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+		if err != nil {
+			return fmt.Errorf("inspecting container %s while waiting for start: %w", ShortID(containerID), err)
+		}
+		if inspect.Container.State != nil && inspect.Container.State.Running {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for container %s to start: %w", ShortID(containerID), ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // CheckStaleMounts inspects the given container and returns an error if any
