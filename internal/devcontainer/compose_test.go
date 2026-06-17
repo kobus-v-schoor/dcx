@@ -3,6 +3,7 @@ package devcontainer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -473,5 +474,53 @@ func TestResolveComposeBaseImageMissingService(t *testing.T) {
 	_, err := resolveComposeBaseImage(context.Background(), cli, "proj", []string{"/a.yml"}, "app", "/workspace", false)
 	if err == nil {
 		t.Fatal("expected error for missing service")
+	}
+}
+
+// Test that resolveComposeBaseImage passes absolute build contexts from
+// docker compose config through to the Dockerfile builder without
+// duplicating the path.
+func TestResolveComposeBaseImageBuildServiceAbsoluteContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	devDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		t.Fatalf("creating .devcontainer dir: %v", err)
+	}
+	dockerfile := filepath.Join(devDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte("FROM alpine:3.19\n"), 0644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	// Compose config returns an absolute build context (as docker compose
+	// config does when it resolves paths).
+	configJSON := []byte(fmt.Sprintf(`{"services":{"app":{"build":{"context":%q,"dockerfile":"Dockerfile"}}}}`, devDir))
+	mockComposeConfigRunner(t, configJSON)
+
+	// Restore the real buildFromDockerfile so we can verify the context path.
+	origBuilder := composeDockerfileBuilder
+	composeDockerfileBuilder = buildFromDockerfile
+	t.Cleanup(func() { composeDockerfileBuilder = origBuilder })
+
+	// Capture the build context directory passed to the Docker CLI builder.
+	origImageBuild := imageBuildFromDirCLI
+	var capturedCtx string
+	imageBuildFromDirCLI = func(_ context.Context, buildCtx string, _ docker.ImageBuildOptions) (string, error) {
+		capturedCtx = buildCtx
+		return "sha256:built123", nil
+	}
+	t.Cleanup(func() { imageBuildFromDirCLI = origImageBuild })
+
+	cli := &localMockClient{
+		inspectResponses: []inspectResponse{
+			{err: fmt.Errorf("not found")},
+		},
+	}
+
+	_, err := resolveComposeBaseImage(context.Background(), cli, "proj", []string{"/a.yml"}, "app", tmpDir, false)
+	if err != nil {
+		t.Fatalf("resolveComposeBaseImage error: %v", err)
+	}
+	if capturedCtx != devDir {
+		t.Errorf("expected build context dir=%q, got %q", devDir, capturedCtx)
 	}
 }
