@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// canonicalFeatureID returns the normalized fully-qualified feature identifier
+// (without version) that is used as the uniform node key in the dependency
+// graph. When RawID is present it is used (it is the original user-provided
+// string); otherwise the reconstructed String() form is used.
+func canonicalFeatureID(ref FeatureRef) string {
+	if ref.RawID != "" {
+		return stripVersion(ref.RawID)
+	}
+	return stripVersion(ref.String())
+}
+
 // Ordered resolves dependencies and returns features in installation order.
 // It respects installsAfter soft dependencies via topological sort. If a
 // circular dependency is detected, or if a feature declares dependsOn a
@@ -15,16 +26,34 @@ func Ordered(features []ResolvedFeature, overrideOrder []string) ([]ResolvedFeat
 		return nil, fmt.Errorf("overrideFeatureInstallOrder is not yet supported")
 	}
 
-	// Map from feature ID (without version) to resolved feature.
+	// Map from canonical feature ID (without version) to resolved feature.
 	byID := make(map[string]*ResolvedFeature, len(features))
+	// Secondary map from short Meta.ID to resolved feature for backward compatibility.
+	byShortID := make(map[string]*ResolvedFeature, len(features))
 	for i := range features {
-		byID[features[i].Meta.ID] = &features[i]
+		canonicalID := canonicalFeatureID(features[i].Ref)
+		byID[canonicalID] = &features[i]
+		if features[i].Meta.ID != "" {
+			byShortID[features[i].Meta.ID] = &features[i]
+		}
+	}
+
+	// lookupFeature finds a feature in the set by canonical or short ID.
+	lookupFeature := func(id string) *ResolvedFeature {
+		stripped := stripVersion(id)
+		if f, ok := byID[stripped]; ok {
+			return f
+		}
+		if f, ok := byShortID[stripped]; ok {
+			return f
+		}
+		return nil
 	}
 
 	// Check for dependsOn referencing features outside the set.
 	for i := range features {
 		for depID := range features[i].Meta.DependsOn {
-			if _, ok := byID[depID]; !ok {
+			if lookupFeature(depID) == nil {
 				return nil, fmt.Errorf("feature %q dependsOn %q which is not in the feature set", features[i].Meta.ID, depID)
 			}
 		}
@@ -32,20 +61,21 @@ func Ordered(features []ResolvedFeature, overrideOrder []string) ([]ResolvedFeat
 
 	// Build graph from installsAfter.
 	// Edge A -> B means A must be installed before B because B is in A's installsAfter.
-	adj := make(map[string][]string) // feature ID -> list of IDs that come AFTER it
+	adj := make(map[string][]string) // canonical ID -> list of canonical IDs that come AFTER it
 	inDegree := make(map[string]int)
-	for id := range byID {
+	for i := range features {
+		id := canonicalFeatureID(features[i].Ref)
 		inDegree[id] = 0
 	}
 	for i := range features {
-		id := features[i].Meta.ID
+		id := canonicalFeatureID(features[i].Ref)
 		for _, after := range features[i].Meta.InstallsAfter {
-			// Normalize the after ID: strip version suffix if present.
-			afterBase := stripVersion(after)
-			if _, ok := byID[afterBase]; !ok {
+			f := lookupFeature(after)
+			if f == nil {
 				continue // soft dep not in set, ignore
 			}
-			adj[afterBase] = append(adj[afterBase], id)
+			afterID := canonicalFeatureID(f.Ref)
+			adj[afterID] = append(adj[afterID], id)
 			inDegree[id]++
 		}
 	}
