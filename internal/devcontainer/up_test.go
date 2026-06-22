@@ -984,3 +984,244 @@ func TestUpRunsLifecycleForRebuild(t *testing.T) {
 		t.Error("expected lifecycle exec to be called for rebuild")
 	}
 }
+
+// TestUpRecreatesWhenMountsChanged verifies that a running container is
+// recreated (not reused) when the mounts stored in its dcx.mounts label differ
+// from the desired mounts.
+func TestUpRecreatesWhenMountsChanged(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("recreated001", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	// Stored mounts differ from what the config will produce.
+	storedMounts := `["type=bind,source=/old,target=/old"]`
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "existing001", State: container.StateRunning}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{
+						docker.MountsLabel: storedMounts,
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &spec.Config{
+		Image:           "debian:stable-slim",
+		WorkspaceFolder: "/workspace",
+		WorkspaceMount:  "source=${localWorkspaceFolder},target=/workspace,type=bind",
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/new,target=/new"),
+		},
+	}
+
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "recreated001" {
+		t.Errorf("id = %q, want %q (container should have been recreated)", id, "recreated001")
+	}
+}
+
+// TestUpReusesWhenMountsUnchanged verifies that a running container is reused
+// when the mounts stored in its dcx.mounts label match the desired mounts
+// (ignoring order).
+func TestUpReusesWhenMountsUnchanged(t *testing.T) {
+	var createCalled bool
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+	createContainer = func(_ context.Context, _ string, _, _, _ []string, _ map[string]string, _, _, _ string, _ []string) (string, error) {
+		createCalled = true
+		return "", nil
+	}
+
+	// Stored mounts match what the config will produce (in different order).
+	// Note: ${localWorkspaceFolder} is substituted to the abs host folder
+	// before comparison, so the stored label must use the resolved path.
+	storedMounts := `["type=bind,source=/new,target=/new","type=bind,source=/tmp/workspace,target=/workspace"]`
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "existing002", State: container.StateRunning}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{
+						docker.MountsLabel: storedMounts,
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &spec.Config{
+		Image:           "debian:stable-slim",
+		WorkspaceFolder: "/workspace",
+		WorkspaceMount:  "source=${localWorkspaceFolder},target=/workspace,type=bind",
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/new,target=/new"),
+		},
+	}
+
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "existing002" {
+		t.Errorf("id = %q, want %q (container should have been reused)", id, "existing002")
+	}
+	if createCalled {
+		t.Error("expected createContainer to NOT be called when mounts are unchanged")
+	}
+}
+
+// TestUpReusesWhenNoMountsLabel verifies that a container created before the
+// dcx.mounts label was introduced is reused (not recreated).
+func TestUpReusesWhenNoMountsLabel(t *testing.T) {
+	var createCalled bool
+	cleanup := setupMockCreate("", nil)
+	defer cleanup()
+	defer setupMockStart(nil)()
+	createContainer = func(_ context.Context, _ string, _, _, _ []string, _ map[string]string, _, _, _ string, _ []string) (string, error) {
+		createCalled = true
+		return "", nil
+	}
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "existing003", State: container.StateRunning}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{},
+				},
+			},
+		},
+	}
+
+	cfg := &spec.Config{
+		Image:           "debian:stable-slim",
+		WorkspaceFolder: "/workspace",
+		WorkspaceMount:  "source=${localWorkspaceFolder},target=/workspace,type=bind",
+	}
+
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "existing003" {
+		t.Errorf("id = %q, want %q", id, "existing003")
+	}
+	if createCalled {
+		t.Error("expected createContainer to NOT be called when no dcx.mounts label exists")
+	}
+}
+
+// TestUpStoresMountsLabel verifies that the dcx.mounts label is set on newly
+// created containers with the JSON-encoded mount strings.
+func TestUpStoresMountsLabel(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("newlabel001", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{Items: []container.Summary{}},
+	}
+
+	cfg := &spec.Config{
+		Image:           "debian:stable-slim",
+		WorkspaceFolder: "/workspace",
+		WorkspaceMount:  "source=${localWorkspaceFolder},target=/workspace,type=bind",
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/foo,target=/bar"),
+		},
+	}
+
+	_, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+
+	labelVal := cap.labels[docker.MountsLabel]
+	if labelVal == "" {
+		t.Fatal("expected dcx.mounts label to be set")
+	}
+	if !strings.Contains(labelVal, "type=bind,source=/foo,target=/bar") {
+		t.Errorf("expected mount string in label, got %s", labelVal)
+	}
+	if !strings.Contains(labelVal, "type=bind,source=/tmp/workspace,target=/workspace") {
+		t.Errorf("expected workspace mount in label, got %s", labelVal)
+	}
+}
+
+// TestUpRecreatesStoppedWhenMountsChanged verifies that a stopped container
+// with changed mounts is recreated rather than just started.
+func TestUpRecreatesStoppedWhenMountsChanged(t *testing.T) {
+	var cap createCapture
+	cleanup := setupMockCreate("recreated002", &cap)
+	defer cleanup()
+	defer setupMockStart(nil)()
+
+	storedMounts := `["type=bind,source=/old,target=/old"]`
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "stopped003", State: container.StateExited}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{
+						docker.MountsLabel: storedMounts,
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &spec.Config{
+		Image:           "debian:stable-slim",
+		WorkspaceFolder: "/workspace",
+		WorkspaceMount:  "source=${localWorkspaceFolder},target=/workspace,type=bind",
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/new,target=/new"),
+		},
+	}
+
+	id, err := Up(context.Background(), cli, cfg, "/tmp/workspace", "debian:stable-slim", false)
+	if err != nil {
+		t.Fatalf("Up error: %v", err)
+	}
+	if id != "recreated002" {
+		t.Errorf("id = %q, want %q (stopped container should have been recreated)", id, "recreated002")
+	}
+}
+
+func TestSortedSliceEqual(t *testing.T) {
+	if !sortedSliceEqual([]string{}, []string{}) {
+		t.Error("expected empty slices to be equal")
+	}
+	if !sortedSliceEqual(nil, nil) {
+		t.Error("expected nil slices to be equal")
+	}
+	if !sortedSliceEqual([]string{"a", "b"}, []string{"b", "a"}) {
+		t.Error("expected same elements in different order to be equal")
+	}
+	if sortedSliceEqual([]string{"a"}, []string{"b"}) {
+		t.Error("expected different elements to be unequal")
+	}
+	if sortedSliceEqual([]string{"a"}, []string{"a", "b"}) {
+		t.Error("expected different lengths to be unequal")
+	}
+}

@@ -266,6 +266,96 @@ func TestUpComposeReuseRunningContainer(t *testing.T) {
 	}
 }
 
+// TestUpComposeRecreatesWhenMountsChanged verifies that a running compose
+// container is recreated with --force-recreate when its dcx.mounts label
+// differs from the desired mounts.
+func TestUpComposeRecreatesWhenMountsChanged(t *testing.T) {
+	cap := mockComposeRunner(t)
+
+	// Stored mounts differ from what the config will produce.
+	storedMounts := `["type=bind,source=/old,target=/old"]`
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "running456", State: container.StateRunning}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{
+						docker.MountsLabel: storedMounts,
+					},
+				},
+			},
+		},
+	}
+	cfg := &spec.Config{
+		Service:           "app",
+		WorkspaceFolder:   "/workspace",
+		DockerComposeFile: []string{"docker-compose.yml"},
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/new,target=/new"),
+		},
+	}
+
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false, false)
+	if err != nil {
+		t.Fatalf("UpCompose error: %v", err)
+	}
+	if id != "running456" {
+		t.Errorf("id = %q, want running456", id)
+	}
+	if !cap.called {
+		t.Fatal("expected composeUpRunner to be called for changed mounts")
+	}
+	if !slices.Contains(cap.args, "--force-recreate") {
+		t.Error("expected --force-recreate for changed mounts")
+	}
+}
+
+// TestUpComposeReusesWhenMountsUnchanged verifies that a running compose
+// container is reused when its dcx.mounts label matches the desired mounts.
+func TestUpComposeReusesWhenMountsUnchanged(t *testing.T) {
+	cap := mockComposeRunner(t)
+
+	// Stored mounts match what the config will produce.
+	storedMounts := `["type=bind,source=/new,target=/new"]`
+
+	cli := &mockClient{
+		listResult: client.ContainerListResult{
+			Items: []container.Summary{{ID: "running789", State: container.StateRunning}},
+		},
+		inspectResult: client.ContainerInspectResult{
+			Container: container.InspectResponse{
+				Config: &container.Config{
+					Labels: map[string]string{
+						docker.MountsLabel: storedMounts,
+					},
+				},
+			},
+		},
+	}
+	cfg := &spec.Config{
+		Service:           "app",
+		WorkspaceFolder:   "/workspace",
+		DockerComposeFile: []string{"docker-compose.yml"},
+		Mounts: []spec.MountEntry{
+			spec.NewMountEntryString("type=bind,source=/new,target=/new"),
+		},
+	}
+
+	id, err := UpCompose(context.Background(), cli, cfg, "/workspace", false, false)
+	if err != nil {
+		t.Fatalf("UpCompose error: %v", err)
+	}
+	if id != "running789" {
+		t.Errorf("id = %q, want running789", id)
+	}
+	if cap.called {
+		t.Error("expected composeUpRunner NOT to be called when mounts are unchanged")
+	}
+}
+
 func TestUpComposeStartStoppedContainer(t *testing.T) {
 	cap := mockComposeRunner(t)
 
