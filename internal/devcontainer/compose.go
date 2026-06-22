@@ -52,8 +52,10 @@ var composeDockerfileBuilder = buildFromDockerfile
 // It substitutes variables, generates a temporary compose override file,
 // brings the target service up, and runs postCreateCommand for newly
 // created containers. When rebuild is false and a running container already
-// exists, it returns the existing container ID. Otherwise, docker compose up
-// is allowed to start or recreate the container as needed.
+// exists with unchanged mounts, it returns the existing container ID. If the
+// mounts on the existing container differ from the desired mounts, the
+// container is recreated via --force-recreate so the new mounts take effect.
+// When rebuild is true, the container is always recreated.
 func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWorkspaceFolder string, rebuild, upgradeLockfile bool) (string, error) {
 	absHostFolder, err := filepath.Abs(hostWorkspaceFolder)
 	if err != nil {
@@ -96,7 +98,18 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 		return "", fmt.Errorf("finding existing containers: %w", err)
 	}
 
-	if len(existing.Items) > 0 && !rebuild && docker.IsContainerRunning(existing.Items[0]) {
+	// Compute the desired mount strings so we can detect whether the existing
+	// container's mounts have changed. For compose projects the workspace
+	// mount is managed by the compose file itself, so only config-level mounts
+	// are compared.
+	desiredMounts := resolveMountStrings(cfg.Mounts, nil)
+
+	mountsDrifted := false
+	if len(existing.Items) > 0 {
+		mountsDrifted = mountsChanged(ctx, cli, existing.Items[0].ID, desiredMounts)
+	}
+
+	if len(existing.Items) > 0 && !rebuild && !mountsDrifted && docker.IsContainerRunning(existing.Items[0]) {
 		slog.Info("reusing running devcontainer", "id", docker.ShortID(existing.Items[0].ID))
 		return existing.Items[0].ID, nil
 	}
@@ -114,8 +127,11 @@ func UpCompose(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, h
 	}
 
 	recreatePolicy := ""
-	if rebuild {
+	if rebuild || mountsDrifted {
 		recreatePolicy = "force"
+	}
+	if mountsDrifted && !rebuild {
+		slog.Info("recreating devcontainer due to changed mounts")
 	}
 	args := buildComposeUpArgs(projectName, composeFiles, overridePath, recreatePolicy, cfg.Service, cfg.RunServices)
 	if err := composeUpRunner(ctx, args); err != nil {
@@ -299,12 +315,20 @@ func writeComposeOverride(cfg *spec.Config, path, absHostFolder, imageOverride s
 
 // buildComposeLabels returns the devcontainer labels that should be applied
 // to the compose service, including the workspace folder, config file path,
-// metadata, and dcx.managed marker. The labels are sorted deterministically.
+// metadata, dcx.managed marker, and the resolved mount strings (dcx.mounts)
+// for mount-change detection on subsequent `dcx up` calls. The labels are
+// sorted deterministically.
 func buildComposeLabels(cfg *spec.Config, absHostFolder string) []string {
 	labels := []string{
 		docker.DevcontainerLabel + "=" + absHostFolder,
 		"devcontainer.config_file=" + filepath.Join(absHostFolder, ".devcontainer", "devcontainer.json"),
 		"dcx.managed=true",
+	}
+	// Store resolved mount strings so subsequent `dcx up` calls can detect
+	// mount changes and recreate the container when needed.
+	desiredMounts := resolveMountStrings(cfg.Mounts, nil)
+	if b, err := json.Marshal(desiredMounts); err == nil {
+		labels = append(labels, docker.MountsLabel+"="+string(b))
 	}
 	metadataJSON, err := buildComposeMetadataJSON(cfg)
 	if err == nil && metadataJSON != "" {

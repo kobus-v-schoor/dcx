@@ -48,6 +48,8 @@ Your original `devcontainer.json` is **not modified**.
 
 Use `--rebuild` when you've changed dcx configuration (env vars, mounts, features) and need the container recreated so the changes take effect. Without it, dcx will reuse the existing container.
 
+dcx automatically detects when mount configuration has changed since the container was created and recreates the container so the new mounts take effect — you only need `--rebuild` for changes to env vars, features, or other non-mount configuration.
+
 ---
 
 ## `dcx exec`

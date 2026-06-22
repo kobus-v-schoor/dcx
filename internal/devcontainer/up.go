@@ -49,8 +49,10 @@ var waitForContainerRunning = docker.WaitForContainerRunning
 // docker start.
 //
 // When rebuild is false and a running container already exists, it returns the
-// existing container ID. When rebuild is true, the existing container is removed
-// and recreated. When a stopped container exists without stale mounts, it is
+// existing container ID — unless the mounts on the existing container differ
+// from the desired mounts, in which case the container is recreated so the new
+// mounts take effect. When rebuild is true, the existing container is removed
+// and recreated. When a stopped container exists without changed mounts, it is
 // started.
 func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWorkspaceFolder string, imageRef string, rebuild bool) (string, error) {
 	absHostFolder, err := filepath.Abs(hostWorkspaceFolder)
@@ -82,42 +84,9 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		return "", fmt.Errorf("building devcontainer metadata: %w", err)
 	}
 
-	// Step 4: handle existing container logic.
-	if len(existing.Items) > 0 {
-		ctr := existing.Items[0]
-		if docker.IsContainerRunning(ctr) {
-			if !rebuild {
-				slog.Info("reusing running devcontainer", "id", docker.ShortID(ctr.ID))
-				return ctr.ID, nil
-			}
-			slog.Info("rebuilding running devcontainer", "id", docker.ShortID(ctr.ID))
-			if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
-				return "", err
-			}
-		} else {
-			// Container exists but is stopped.
-			if !rebuild {
-				slog.Info("starting stopped devcontainer", "id", docker.ShortID(ctr.ID))
-				if err := startContainer(ctx, ctr.ID); err != nil {
-					return "", fmt.Errorf("starting container %s: %w", docker.ShortID(ctr.ID), err)
-				}
-				if err := waitForContainerRunning(ctx, cli, ctr.ID); err != nil {
-					return "", fmt.Errorf("waiting for container %s to start: %w", docker.ShortID(ctr.ID), err)
-				}
-				// Run post-start commands for a container that was just started.
-				meta, _ := extractImageMetadata(ctx, cli, imageRef)
-				meta.substitute(absHostFolder, cfg.WorkspaceFolder)
-				meta.runPostStarts(ctx, ctr.ID, cfg)
-				return ctr.ID, nil
-			}
-			slog.Info("removing stopped devcontainer for rebuild", "id", docker.ShortID(ctr.ID))
-			if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
-				return "", err
-			}
-		}
-	}
-
-	// Step 5: extract feature metadata from the built image and merge it.
+	// Extract feature metadata early so feature mounts can be merged into
+	// allMounts before the existing-container check. This allows mount-change
+	// detection to account for feature-contributed mounts as well.
 	imgMeta, err := extractImageMetadata(ctx, cli, imageRef)
 	if err != nil {
 		return "", fmt.Errorf("extracting image metadata: %w", err)
@@ -131,6 +100,61 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		} else {
 			if s, err := mountEntryObjectToString(m); err == nil {
 				allMounts = append(allMounts, s)
+			}
+		}
+	}
+
+	// Step 4: handle existing container logic.
+	if len(existing.Items) > 0 {
+		ctr := existing.Items[0]
+		if docker.IsContainerRunning(ctr) {
+			if !rebuild {
+				// Check whether the mounts on the existing container match the
+				// desired mounts. If they differ (e.g. because the user changed
+				// their config), recreate the container so the new mounts take
+				// effect.
+				if mountsChanged(ctx, cli, ctr.ID, allMounts) {
+					slog.Info("recreating devcontainer due to changed mounts", "id", docker.ShortID(ctr.ID))
+					if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
+						return "", err
+					}
+				} else {
+					slog.Info("reusing running devcontainer", "id", docker.ShortID(ctr.ID))
+					return ctr.ID, nil
+				}
+			} else {
+				slog.Info("rebuilding running devcontainer", "id", docker.ShortID(ctr.ID))
+				if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
+					return "", err
+				}
+			}
+		} else {
+			// Container exists but is stopped.
+			if !rebuild {
+				// For stopped containers, also check mount changes. If mounts
+				// differ, remove and recreate instead of just starting.
+				if mountsChanged(ctx, cli, ctr.ID, allMounts) {
+					slog.Info("recreating stopped devcontainer due to changed mounts", "id", docker.ShortID(ctr.ID))
+					if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
+						return "", err
+					}
+				} else {
+					slog.Info("starting stopped devcontainer", "id", docker.ShortID(ctr.ID))
+					if err := startContainer(ctx, ctr.ID); err != nil {
+						return "", fmt.Errorf("starting container %s: %w", docker.ShortID(ctr.ID), err)
+					}
+					if err := waitForContainerRunning(ctx, cli, ctr.ID); err != nil {
+						return "", fmt.Errorf("waiting for container %s to start: %w", docker.ShortID(ctr.ID), err)
+					}
+					// Run post-start commands for a container that was just started.
+					imgMeta.runPostStarts(ctx, ctr.ID, cfg)
+					return ctr.ID, nil
+				}
+			} else {
+				slog.Info("removing stopped devcontainer for rebuild", "id", docker.ShortID(ctr.ID))
+				if err := removeExistingContainer(ctx, cli, ctr.ID); err != nil {
+					return "", err
+				}
 			}
 		}
 	}
@@ -153,6 +177,7 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 		"devcontainer.config_file": filepath.Join(absHostFolder, ".devcontainer", "devcontainer.json"),
 		devcontainerMetadataLabel:  metadataJSON,
 		"dcx.managed":              "true",
+		docker.MountsLabel:         encodeMountsLabel(allMounts),
 	}
 
 	var user, workdir, entrypoint string
@@ -251,6 +276,69 @@ func Up(ctx context.Context, cli docker.DockerClient, cfg *spec.Config, hostWork
 	}
 
 	return containerID, nil
+}
+
+// encodeMountsLabel serialises a list of mount strings as a JSON array for
+// the dcx.mounts label. Returns an empty string if marshalling fails (should
+// not happen for a []string).
+func encodeMountsLabel(mounts []string) string {
+	b, err := json.Marshal(mounts)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// mountsChanged inspects the existing container's dcx.mounts label and compares
+// it against the desired mount strings. Returns true if the mounts differ,
+// indicating the container should be recreated so the new mounts take effect.
+// Returns false when the label is absent (e.g. containers created before this
+// feature was introduced) so that existing containers are not unexpectedly
+// recreated.
+func mountsChanged(ctx context.Context, cli docker.DockerClient, containerID string, desiredMounts []string) bool {
+	inspect, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		slog.Warn("failed to inspect container for mount comparison", "id", docker.ShortID(containerID), "error", err)
+		return false
+	}
+
+	if inspect.Container.Config == nil || inspect.Container.Config.Labels == nil {
+		return false
+	}
+
+	storedJSON := inspect.Container.Config.Labels[docker.MountsLabel]
+	if storedJSON == "" {
+		// Container created before the dcx.mounts label existed; do not force
+		// a rebuild.
+		return false
+	}
+
+	var stored []string
+	if err := json.Unmarshal([]byte(storedJSON), &stored); err != nil {
+		slog.Warn("failed to parse dcx.mounts label", "id", docker.ShortID(containerID), "error", err)
+		return false
+	}
+
+	return !sortedSliceEqual(stored, desiredMounts)
+}
+
+// sortedSliceEqual reports whether two string slices contain the same elements,
+// ignoring order. Both slices are sorted copies so the originals are not
+// modified.
+func sortedSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ac := append([]string(nil), a...)
+	bc := append([]string(nil), b...)
+	sort.Strings(ac)
+	sort.Strings(bc)
+	for i := range ac {
+		if ac[i] != bc[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // removeExistingContainer stops and removes a container by ID. Called during

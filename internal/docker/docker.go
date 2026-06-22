@@ -121,6 +121,13 @@ const (
 	// containers. The value is the absolute path of the workspace folder.
 	DevcontainerLabel = "devcontainer.local_folder"
 
+	// MountsLabel is the Docker label key used to store a JSON-encoded list of
+	// the mount strings that dcx applied when creating the container. On
+	// subsequent `dcx up` calls, the desired mounts are compared against this
+	// label to detect whether the container should be recreated so that mount
+	// changes take effect.
+	MountsLabel = "dcx.mounts"
+
 	// shortIDLen is the number of characters to show from a container or image ID
 	// in log output, matching the Docker CLI convention.
 	shortIDLen = 12
